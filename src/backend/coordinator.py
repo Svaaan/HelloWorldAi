@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from shared.types import NodeRegistration, ComputationTask
+from backend.shared.types import NodeRegistration, ComputationTask
 import requests
 
 app = FastAPI()
@@ -19,3 +19,8 @@ def send_task(node_id: str):
     node_url = f"http://{registered_nodes[node_id].ip}:{registered_nodes[node_id].port}/compute"
     res = requests.post(node_url, json=task.dict())
     return {"sent_to": node_url, "response": res.json()}
+
+# 💡 Nytt endpoint för dashboarden:
+@app.get("/nodes")
+def get_registered_nodes():
+    return [node.dict() for node in registered_nodes.values()]

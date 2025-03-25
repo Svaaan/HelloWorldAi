@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Request
-from shared.types import ComputationTask
+from backend.shared.types import ComputationTask
+
 
 app = FastAPI()
 
