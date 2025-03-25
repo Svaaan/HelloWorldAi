@@ -1,5 +1,5 @@
 import requests
-from node import node_info
+from backend.node import node_info
 
 def register():
     payload = {
