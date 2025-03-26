@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="sv">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Global Header</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background-color: #111;
+            color: #fff;
+            padding: 1rem;
+        }
+
+        .header {
+            background-color: #222;
+            padding: 1rem;
+            margin-bottom: 20px;
+            text-align: center;
+            border-radius: 10px;
+            box-shadow: 0 0 20px rgba(0, 255, 255, 0.6); /* Neon effect */
+        }
+
+        h1 {
+            color: #00FFFF; /* Neon light blue */
+        }
+
+        .header p {
+            color: #00FFFF;
+            font-size: 1.2rem;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="header">
+        <h1>💻 AI Node Network</h1>
+        <p>Total Power of Connected Nodes: <span id="totalPower">Loading...</span></p>
+    </div>
+
+    <script>
+        // Function to fetch the total AI power from the backend (coordinator)
+        async function fetchTotalPower() {
+            try {
+                const res = await fetch("http://127.0.0.1:8100/get-total-power");
+                const data = await res.json();
+
+                if (data && data.ai_power) {
+                    let totalAI = data.ai_power; // The AI power returned by the API
+                    document.getElementById("totalPower").innerHTML = `AI Power: ${totalAI} units`;
+                } else {
+                    throw new Error("No AI power data available");
+                }
+            } catch (err) {
+                document.getElementById("totalPower").innerHTML = "Error fetching total power.";
+                console.error("Error fetching total power:", err);
+            }
+        }
+
+        // Fetch total power dynamically when the page loads
+        fetchTotalPower();
+    </script>
+</body>
+
+</html>

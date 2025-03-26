@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="sv">
+
 <head>
     <meta charset="UTF-8">
     <title>Node Information</title>
@@ -11,74 +12,139 @@
             padding: 2rem;
             text-align: center;
         }
+
         h1 {
-            color: #00FFFF; /* Neon light blue */
+            color: #00FFFF;
+            /* Neon light blue */
         }
+
         .node-info {
             background: #222;
             padding: 2rem;
             margin: 2rem 0;
             border-radius: 10px;
             text-align: left;
-            box-shadow: 0 0 20px rgba(0, 255, 255, 0.6); /* Neon effect */
+            box-shadow: 0 0 20px rgba(0, 255, 255, 0.6);
+            /* Neon effect */
             max-width: 600px;
             margin-left: auto;
             margin-right: auto;
         }
-        p {
-            font-size: 18px;
-        }
-        .node-info p {
-            margin-bottom: 15px;
-        }
-        .node-info strong {
-            color: #00FFFF; /* Neon light blue */
-        }
+
         .status {
             font-weight: bold;
-            color: #ff6347; /* Red for errors */
+            color: #ff6347;
+            /* Red for errors */
+        }
+
+        .success {
+            color: #32CD32;
+            /* Green for success */
+        }
+
+        .status-message {
+            font-weight: bold;
+            color: #00FFFF;
+            /* Neon light blue */
+        }
+
+        .usage-info {
+            background: #333;
+            padding: 1rem;
+            margin-top: 20px;
+            border-radius: 10px;
         }
     </style>
 </head>
+
 <body>
+    <!-- Placeholder for the global header -->
+    <div id="header-placeholder"></div>
+
     <h1>🧠 Node Information</h1>
 
-    <!-- Display registered node info here -->
+    <!-- Display registered node info -->
     <div class="node-info" id="nodeDetails">
-        <p>Loading node details...</p>
+        <p class="status-message">Loading node details...</p>
+    </div>
+
+    <!-- Display CPU and GPU usage -->
+    <div class="usage-info" id="usageDetails">
+        <p>Loading CPU and GPU usage...</p>
     </div>
 
     <script>
-        // Fetch node information dynamically from the Coordinator
-        async function fetchNodeInfo() {
+        // Function to fetch the header and inject it into the page
+        async function loadHeader() {
             try {
-                const res = await fetch("http://127.0.0.1:8100/nodes");
-                const data = await res.json();
-
-                if (data.length === 0) {
-                    document.getElementById("nodeDetails").innerHTML = "<p class='status'>❌ No nodes registered yet.</p>";
-                    return;
-                }
-
-                const node = data[0]; // Assuming there's only one node registered
-
-                // Display node information
-                document.getElementById("nodeDetails").innerHTML = `
-                    <p><strong>Node ID:</strong> ${node.node_id}</p>
-                    <p><strong>IP:</strong> ${node.ip}</p>
-                    <p><strong>Port:</strong> ${node.port}</p>
-                    <p><strong>CPU:</strong> ${node.capabilities.cpu.brand}, ${node.capabilities.cpu.cores} cores, ${node.capabilities.cpu.max_freq} MHz max frequency</p>
-                    <p><strong>GPU:</strong> ${node.capabilities.gpu}</p>
-                    <p><strong>Registration Status:</strong> ${node.registered ? "✅ Registered" : "❌ Not Registered"}</p>
-                `;
+                const res = await fetch("header.html");
+                const data = await res.text();
+                document.getElementById("header-placeholder").innerHTML = data; // Inject the header content
             } catch (err) {
-                document.getElementById("nodeDetails").innerHTML = "<p class='status'>⚠️ Error loading node details.</p>";
-                console.error("Error fetching node details:", err);
+                console.error("Error loading header:", err);
             }
         }
 
-        // Fetch node info initially when the page loads
-        fetchNodeInfo();
+       // Function to fetch connected node information from the coordinator
+async function fetchNodeInfo() {
+    try {
+        const res = await fetch("http://127.0.0.1:8100/nodes"); // Fetch connected nodes
+        const data = await res.json();
+
+        if (data.length === 0) {
+            document.getElementById("nodeDetails").innerHTML = "<p class='status'>❌ No nodes connected yet.</p>";
+            return;
+        }
+
+        const node = data[0]; // Assuming there's only one node connected
+
+        // Check connection status
+        const isConnected = (node.isConnected !== undefined) ? 
+            (node.isConnected ? "<span class='success'>✅ Connected</span>" : "<span class='status'>❌ Not Connected</span>") :
+            "<span class='status'>❌ Connection status unknown</span>";
+
+        // Display node information
+        document.getElementById("nodeDetails").innerHTML = `
+            <p><strong>Node ID:</strong> ${node.node_id}</p>
+            <p><strong>IP:</strong> ${node.ip}</p>
+            <p><strong>Port:</strong> ${node.port}</p>
+            <p><strong>CPU:</strong> ${node.capabilities.cpu.brand}, ${node.capabilities.cpu.cores} cores, ${node.capabilities.cpu.max_freq} MHz max frequency</p>
+            <p><strong>GPU:</strong> ${node.capabilities.gpu}</p>
+            <p><strong>Connection Status:</strong> ${isConnected}</p>
+        `;
+    } catch (err) {
+        document.getElementById("nodeDetails").innerHTML = "<p class='status'>⚠️ Error loading node details.</p>";
+        console.error("Error fetching node details:", err);
+    }
+}
+
+
+        // Fetch CPU and GPU usage dynamically from the node
+        async function fetchUsageInfo() {
+            try {
+                const res = await fetch("http://127.0.0.1:9100/usage");
+                const data = await res.json();
+
+                document.getElementById("usageDetails").innerHTML = `
+                    <p><strong>CPU Usage:</strong> ${data.cpu_usage}%</p>
+                    <p><strong>GPU Usage:</strong> ${data.gpu_usage}%</p>
+                `;
+            } catch (err) {
+                document.getElementById("usageDetails").innerHTML = "<p class='status'>⚠️ Error loading usage details.</p>";
+                console.error("Error fetching usage details:", err);
+            }
+        }
+
+        // Initialize by loading the header, node info, and usage info
+        async function initializePage() {
+            loadHeader();  // Load header first
+            await fetchNodeInfo();
+            await fetchUsageInfo();
+        }
+
+        // Start the initialization process
+        initializePage();
     </script>
 </body>
+
 </html>
