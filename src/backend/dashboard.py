@@ -4,6 +4,7 @@ import requests
 
 router = APIRouter()  # Ensure the router object is created
 
+# Function to fetch node data from the coordinator
 def fetch_node_data():
     try:
         # Fetching node data from coordinator
@@ -20,7 +21,7 @@ def fetch_node_data():
         print(f"Error parsing response: {e}")
         return []  # Return an empty list if the JSON parsing fails
 
-# Add the appropriate route
+# Add the appropriate route to get node info
 @router.get("/fetch-node")
 def get_node_info():
     nodes = fetch_node_data()

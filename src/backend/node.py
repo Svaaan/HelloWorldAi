@@ -1,9 +1,10 @@
 import os
 import socket
 import psutil
-import platform
+import platform  # Ensure this is included
 from fastapi import FastAPI, Request
 import requests
+import GPUtil
 from backend.shared.types import ComputationTask
 
 app = FastAPI()
@@ -18,18 +19,33 @@ def get_local_ip():
         print(f"Error getting IP address: {e}")
         return "127.0.0.1"  # Default to localhost if there is an error
 
-# Function to get CPU and GPU information
+# Function to get CPU and GPU information dynamically
 def get_system_capabilities():
-    cpu = psutil.cpu_info().brand if hasattr(psutil, 'cpu_info') else "Unknown CPU"
-    gpu = "Nvidia RTX 3060"  # This can be improved further by using GPU libraries, if needed.
+    # Get CPU info dynamically
+    cpu_info = psutil.cpu_freq()
+    cpu = {
+        "brand": platform.processor(),  # Get the processor name from the system
+        "cores": psutil.cpu_count(logical=False),  # Physical cores
+        "threads": psutil.cpu_count(logical=True),  # Logical cores (threads)
+        "max_freq": cpu_info.max if cpu_info else "Unknown",
+        "min_freq": cpu_info.min if cpu_info else "Unknown"
+    }
+    
+    # Get GPU information dynamically
+    try:
+        gpus = GPUtil.getGPUs()
+        gpu = gpus[0].name if gpus else "No GPU found"
+    except Exception as e:
+        gpu = "No GPU available"
+    
     return {"cpu": cpu, "gpu": gpu}
 
 # Dynamically set node information
 node_info = {
-    "node_id": f"node_{os.getpid()}",  # Unique node ID based on process ID
+    "node_id": f"node_{os.getpid()}",  # Generate a unique node ID based on process ID
     "ip": get_local_ip(),  # Get the actual local IP address
     "port": "9100",  # This can be changed dynamically as needed
-    "capabilities": get_system_capabilities(),  # Get the system's capabilities
+    "capabilities": get_system_capabilities(),  # Get the system's capabilities dynamically
     "registered": False  # Track the registration status of the node
 }
 
@@ -54,6 +70,7 @@ async def register_node():
     }
 
     try:
+        # Register the node with the coordinator at 'http://127.0.0.1:8100/register-node'
         res = requests.post("http://127.0.0.1:8100/register-node", json=payload)
 
         if res.status_code == 200:
