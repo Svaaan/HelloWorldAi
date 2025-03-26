@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+    <meta charset="UTF-8">
+    <title>Connect AI Node</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background-color: #111;
+            color: #fff;
+            padding: 2rem;
+            text-align: center;
+        }
+        h1 {
+            color: #ffd700;
+        }
+        button {
+            background-color: #ffd700;
+            color: #111;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background-color: #f5a623;
+        }
+    </style>
+</head>
+<body>
+    <h1>🧠 Connect Node</h1>
+    
+    <!-- Button to trigger node registration -->
+    <button id="connectNodeButton">Connect Node</button>
+
+    <script>
+        async function registerNode() {
+            const nodeData = {
+                node_id: "node_1", // Replace with actual node ID
+                ip: "127.0.0.1",  // Replace with actual IP if needed
+                port: "9100",     // Replace with actual port if needed
+                capabilities: {
+                    cpu: "Intel i7",
+                    gpu: "Nvidia RTX 3060"
+                }
+            };
+
+            try {
+                const res = await fetch("http://localhost:8100/register-node", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify(nodeData)
+                });
+
+                const result = await res.json();
+                console.log("Node registered:", result);
+                alert("Node registered successfully!");
+                window.location.href = "node.html"; // Redirect to node.html after successful registration
+            } catch (err) {
+                console.error("Error registering node:", err);
+                alert("Failed to register node.");
+            }
+        }
+
+        document.getElementById("connectNodeButton").addEventListener("click", registerNode);
+    </script>
+</body>
+</html>

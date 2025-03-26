@@ -11,7 +11,7 @@ from backend.dashboard import router as dashboard_router, fetch_node_data
 # Lägg till sökvägar
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-# Pekar på src/frontend/home.html
+# Pekar på src/frontend/connect.html
 template_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "frontend"))
 print("📂 Template path:", template_dir)
 
@@ -21,10 +21,10 @@ dashboard_app.include_router(dashboard_router)
 
 @dashboard_app.get("/", response_class=HTMLResponse)
 def render_dashboard():
-    path = os.path.join(template_dir, "home.html")
+    path = os.path.join(template_dir, "connect.html")
     print("🔍 Servar fil:", path)
     if not os.path.exists(path):
-        return HTMLResponse("<h1>404 - home.html not found</h1>", status_code=404)
+        return HTMLResponse("<h1>404 - connect.html not found</h1>", status_code=404)
     return FileResponse(path, media_type="text/html")
 
 

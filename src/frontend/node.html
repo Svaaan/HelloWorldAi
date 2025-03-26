@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+    <meta charset="UTF-8">
+    <title>Node Information</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background-color: #111;
+            color: #fff;
+            padding: 2rem;
+            text-align: center;
+        }
+        h1 {
+            color: #ffd700;
+        }
+        .node-info {
+            background: #222;
+            padding: 1rem;
+            margin: 1rem 0;
+            border-radius: 10px;
+            text-align: left;
+        }
+    </style>
+</head>
+<body>
+    <h1>🧠 Node Information</h1>
+
+    <div class="node-info" id="nodeDetails">
+        <p>Loading node details...</p>
+    </div>
+
+    <script>
+        async function loadNodeInfo() {
+            const container = document.getElementById("nodeDetails");
+            container.innerHTML = "🔄 Laddar...";
+
+            try {
+                const res = await fetch("http://localhost:8100/nodes");
+                const nodes = await res.json();
+
+                if (nodes.length === 0) {
+                    container.innerHTML = "<p>❌ No nodes connected.</p>";
+                    return;
+                }
+
+                // Assuming we're displaying info for the first node
+                const node = nodes[0]; // Get first node or adjust logic as needed
+                container.innerHTML = `
+                    <h2>Node ID: ${node.node_id}</h2>
+                    <p>IP: ${node.ip}:${node.port}</p>
+                    <p>CPU: ${node.capabilities.cpu}</p>
+                    <p>GPU: ${node.capabilities.gpu}</p>
+                    <p>Status: ${node.registered ? '✅ Registered' : '❌ Not registered'}</p>
+                `;
+            } catch (err) {
+                container.innerHTML = "<p style='color:red'>⚠️ Could not fetch node information.</p>";
+                console.error(err);
+            }
+        }
+
+        loadNodeInfo();
+    </script>
+</body>
+</html>
