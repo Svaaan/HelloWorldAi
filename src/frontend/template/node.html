@@ -1,150 +1,251 @@
 <!DOCTYPE html>
-<html lang="sv">
-
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <title>Node Information</title>
     <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
         body {
-            font-family: 'Segoe UI', sans-serif;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background-color: #111;
             color: #fff;
-            padding: 2rem;
-            text-align: center;
+            line-height: 1.6;
         }
 
-        h1 {
+        .header {
+            background-color: #222;
             color: #00FFFF;
-            /* Neon light blue */
+            padding: 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 5px rgba(0, 255, 255, 0.3);
         }
 
-        .node-info {
+        .header-logo {
+            display: flex;
+            align-items: center;
+            font-size: 1.5rem;
+            font-weight: bold;
+        }
+
+        .header-details {
+            text-align: right;
+        }
+
+        .header-details .info {
+            color: #fff;
+            margin: 5px 0;
+            font-size: 0.9rem;
+        }
+
+        .header-details .info span {
+            color: #00FFFF;
+            font-weight: bold;
+        }
+
+        .dashboard-container {
+            display: flex;
+            max-width: 1200px;
+            margin: 2rem auto;
+            gap: 2rem;
+            padding: 0 1rem;
+        }
+
+        .node-info, .usage-info {
             background: #222;
             padding: 2rem;
-            margin: 2rem 0;
             border-radius: 10px;
-            text-align: left;
             box-shadow: 0 0 20px rgba(0, 255, 255, 0.6);
-            /* Neon effect */
-            max-width: 600px;
-            margin-left: auto;
-            margin-right: auto;
+            flex: 1;
         }
 
-        .status {
-            font-weight: bold;
-            color: #ff6347;
-            /* Red for errors */
-        }
-
-        .success {
-            color: #32CD32;
-            /* Green for success */
-        }
-
-        .status-message {
-            font-weight: bold;
+        .node-info h2, .usage-info h2 {
             color: #00FFFF;
-            /* Neon light blue */
+            border-bottom: 2px solid #00FFFF;
+            padding-bottom: 0.5rem;
+            margin-bottom: 1rem;
         }
 
-        .usage-info {
-            background: #333;
-            padding: 1rem;
-            margin-top: 20px;
+        .node-detail {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 0.5rem;
+        }
+
+        .node-detail-label {
+            color: #00FFFF;
+            font-weight: bold;
+        }
+
+        .usage-bar {
+            background-color: #333;
+            height: 20px;
             border-radius: 10px;
+            overflow: hidden;
+            margin-bottom: 1rem;
+        }
+
+        .usage-bar-fill {
+            background-color: #00FFFF;
+            height: 100%;
+            transition: width 0.5s ease;
+        }
+
+        .status-connected {
+            color: #32CD32;
+        }
+
+        .status-disconnected {
+            color: #ff6347;
+        }
+
+        @media (max-width: 768px) {
+            .dashboard-container {
+                flex-direction: column;
+            }
         }
     </style>
 </head>
-
 <body>
-    <!-- Placeholder for the global header -->
-    <div id="header-placeholder"></div>
+    <!-- Embedded Header -->
+    <header class="header">
+        <div class="header-logo">
+            <img src="/api/placeholder/40/40" alt="Logo" />
+            <span>AI Node Network</span>
+        </div>
+        <div class="header-details">
+            <p class="info">Total Power: <span id="totalPower">Loading...</span></p>
+            <p class="info">Connected Nodes: <span id="connectedNodesCount">Loading...</span></p>
+        </div>
+    </header>
 
-    <h1>🧠 Node Information</h1>
+    <div class="dashboard-container">
+        <div class="node-info">
+            <h2>Node Details</h2>
+            <div id="nodeDetails">
+                <p>Loading node information...</p>
+            </div>
+        </div>
 
-    <!-- Display registered node info -->
-    <div class="node-info" id="nodeDetails">
-        <p class="status-message">Loading node details...</p>
-    </div>
+        <div class="usage-info">
+            <h2>System Usage</h2>
+            <div>
+                <div class="node-detail">
+                    <span>CPU Usage</span>
+                    <span id="cpuUsagePercent">0%</span>
+                </div>
+                <div class="usage-bar">
+                    <div id="cpuUsageBar" class="usage-bar-fill" style="width: 0%"></div>
+                </div>
 
-    <!-- Display CPU and GPU usage -->
-    <div class="usage-info" id="usageDetails">
-        <p>Loading CPU and GPU usage...</p>
+                <div class="node-detail">
+                    <span>GPU Usage</span>
+                    <span id="gpuUsagePercent">0%</span>
+                </div>
+                <div class="usage-bar">
+                    <div id="gpuUsageBar" class="usage-bar-fill" style="width: 0%"></div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script>
-        // Function to fetch the header and inject it into the page
-        async function loadHeader() {
+        async function fetchTotalPower() {
             try {
-                const res = await fetch("header.html");
-                const data = await res.text();
-                document.getElementById("header-placeholder").innerHTML = data; // Inject the header content
+                const res = await fetch("http://127.0.0.1:8100/get-total-power");
+                const data = await res.json();
+                document.getElementById("totalPower").textContent = data?.ai_power ? `${data.ai_power} units` : "N/A";
             } catch (err) {
-                console.error("Error loading header:", err);
+                document.getElementById("totalPower").textContent = "Error";
+                console.error("Total power fetch error:", err);
             }
         }
 
-       // Function to fetch connected node information from the coordinator
-async function fetchNodeInfo() {
-    try {
-        const res = await fetch("http://127.0.0.1:8100/nodes"); // Fetch connected nodes
-        const data = await res.json();
-
-        if (data.length === 0) {
-            document.getElementById("nodeDetails").innerHTML = "<p class='status'>❌ No nodes connected yet.</p>";
-            return;
+        async function fetchConnectedNodesCount() {
+            try {
+                const res = await fetch("http://127.0.0.1:8100/get-connected-nodes-count");
+                const data = await res.json();
+                document.getElementById("connectedNodesCount").textContent = data?.connected_nodes_count ?? "N/A";
+            } catch (err) {
+                document.getElementById("connectedNodesCount").textContent = "Error";
+                console.error("Connected nodes count fetch error:", err);
+            }
         }
 
-        const node = data[0]; // Assuming there's only one node connected
+        async function fetchNodeInfo() {
+            try {
+                const res = await fetch("http://127.0.0.1:8100/nodes");
+                const data = await res.json();
 
-        // Check connection status
-        const isConnected = (node.isConnected !== undefined) ? 
-            (node.isConnected ? "<span class='success'>✅ Connected</span>" : "<span class='status'>❌ Not Connected</span>") :
-            "<span class='status'>❌ Connection status unknown</span>";
+                if (data.length === 0) {
+                    document.getElementById("nodeDetails").innerHTML = "<p class='status-disconnected'>❌ No nodes connected yet.</p>";
+                    return;
+                }
 
-        // Display node information
-        document.getElementById("nodeDetails").innerHTML = `
-            <p><strong>Node ID:</strong> ${node.node_id}</p>
-            <p><strong>IP:</strong> ${node.ip}</p>
-            <p><strong>Port:</strong> ${node.port}</p>
-            <p><strong>CPU:</strong> ${node.capabilities.cpu.brand}, ${node.capabilities.cpu.cores} cores, ${node.capabilities.cpu.max_freq} MHz max frequency</p>
-            <p><strong>GPU:</strong> ${node.capabilities.gpu}</p>
-            <p><strong>Connection Status:</strong> ${isConnected}</p>
-        `;
-    } catch (err) {
-        document.getElementById("nodeDetails").innerHTML = "<p class='status'>⚠️ Error loading node details.</p>";
-        console.error("Error fetching node details:", err);
-    }
-}
+                const node = data[0];
+                const isConnected = (node.isConnected !== undefined) ? 
+                    (node.isConnected ? "<span class='status-connected'>✅ Connected</span>" : "<span class='status-disconnected'>❌ Not Connected</span>") :
+                    "<span class='status-disconnected'>❌ Connection status unknown</span>";
 
+                document.getElementById("nodeDetails").innerHTML = `
+                    <div class="node-detail">
+                        <span class="node-detail-label">Node ID:</span>
+                        <span>${node.node_id}</span>
+                    </div>
+                    <div class="node-detail">
+                        <span class="node-detail-label">IP:</span>
+                        <span>${node.ip}</span>
+                    </div>
+                    <div class="node-detail">
+                        <span class="node-detail-label">Port:</span>
+                        <span>${node.port}</span>
+                    </div>
+                    <div class="node-detail">
+                        <span class="node-detail-label">CPU:</span>
+                        <span>${node.capabilities.cpu.brand}, ${node.capabilities.cpu.cores} cores</span>
+                    </div>
+                    <div class="node-detail">
+                        <span class="node-detail-label">GPU:</span>
+                        <span>${node.capabilities.gpu}</span>
+                    </div>
+                    <div class="node-detail">
+                        <span class="node-detail-label">Connection Status:</span>
+                        ${isConnected}
+                    </div>
+                `;
+            } catch (err) {
+                document.getElementById("nodeDetails").innerHTML = "<p class='status-disconnected'>⚠️ Error loading node details.</p>";
+                console.error("Error fetching node details:", err);
+            }
+        }
 
-        // Fetch CPU and GPU usage dynamically from the node
         async function fetchUsageInfo() {
             try {
                 const res = await fetch("http://127.0.0.1:9100/usage");
                 const data = await res.json();
 
-                document.getElementById("usageDetails").innerHTML = `
-                    <p><strong>CPU Usage:</strong> ${data.cpu_usage}%</p>
-                    <p><strong>GPU Usage:</strong> ${data.gpu_usage}%</p>
-                `;
+                document.getElementById("cpuUsagePercent").textContent = `${data.cpu_usage}%`;
+                document.getElementById("gpuUsagePercent").textContent = `${data.gpu_usage}%`;
+                
+                document.getElementById("cpuUsageBar").style.width = `${data.cpu_usage}%`;
+                document.getElementById("gpuUsageBar").style.width = `${data.gpu_usage}%`;
             } catch (err) {
-                document.getElementById("usageDetails").innerHTML = "<p class='status'>⚠️ Error loading usage details.</p>";
+                document.getElementById("usageDetails").innerHTML = "<p class='status-disconnected'>⚠️ Error loading usage details.</p>";
                 console.error("Error fetching usage details:", err);
             }
         }
 
-        // Initialize by loading the header, node info, and usage info
-        async function initializePage() {
-            loadHeader();  // Load header first
-            await fetchNodeInfo();
-            await fetchUsageInfo();
-        }
-
-        // Start the initialization process
-        initializePage();
+        // Fetch all information when page loads
+        fetchTotalPower();
+        fetchConnectedNodesCount();
+        fetchNodeInfo();
+        fetchUsageInfo();
     </script>
 </body>
-
 </html>

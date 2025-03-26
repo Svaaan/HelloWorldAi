@@ -8,7 +8,6 @@ from fastapi.responses import FileResponse, HTMLResponse
 from backend.node import app as node_app
 from backend.coordinator import app as coordinator_app
 from backend.dashboard import router as dashboard_router
-import backend.terminate_port
 
 # Lägg till sökvägar
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -23,7 +22,7 @@ dashboard_app = FastAPI()
 # Add CORS middleware to allow requests from frontend (adjust the origins as needed)
 dashboard_app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://127.0.0.1:3000"],  # Allow only the frontend URL
+    allow_origins=["*"],  # Allow all origins (adjust if necessary)
     allow_credentials=True,
     allow_methods=["*"],  # Allow all methods (GET, POST, OPTIONS, etc.)
     allow_headers=["*"],  # Allow all headers
@@ -49,22 +48,20 @@ def render_node_page():
         return HTMLResponse("<h1>404 - node.html not found</h1>", status_code=404)
     return FileResponse(path, media_type="text/html")
 
-# Run node, coordinator, and dashboard on different ports
+# Run node, coordinator, and dashboard on different ports (use dynamic port from environment variable)
 def run_node():
-    uvicorn.run(app=node_app, host="127.0.0.1", port=9100)
+    port = os.getenv("NODE_PORT", 9100)  # Use the environment variable or fallback to 9100
+    uvicorn.run(app=node_app, host="0.0.0.0", port=int(port))
 
 def run_coordinator():
-    uvicorn.run(app=coordinator_app, host="127.0.0.1", port=8100)
+    port = os.getenv("COORDINATOR_PORT", 8100)  # Use the environment variable or fallback to 8100
+    uvicorn.run(app=coordinator_app, host="0.0.0.0", port=int(port))
 
 def run_dashboard():
-    uvicorn.run(app=dashboard_app, host="127.0.0.1", port=3000)
+    port = os.getenv("DASHBOARD_PORT", 3000)  # Use the environment variable or fallback to 3000
+    uvicorn.run(app=dashboard_app, host="0.0.0.0", port=int(port))
 
 if __name__ == "__main__":
-    # Automatically kill processes using ports 8100, 9100, and 3000
-    backend.terminate_port.kill_process_on_port(8100)
-    backend.terminate_port.kill_process_on_port(9100)
-    backend.terminate_port.kill_process_on_port(3000)
-
     # Start the backend services
     processes = [
         multiprocessing.Process(target=run_node),

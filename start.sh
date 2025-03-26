@@ -8,4 +8,5 @@
 pip install -r requirements.txt
 
 export PYTHONPATH=$PYTHONPATH:$(pwd)/src
+# Run the FastAPI app using Uvicorn
 uvicorn backend.main:app --host 0.0.0.0 --port 8000
