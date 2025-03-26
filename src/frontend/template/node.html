@@ -12,34 +12,36 @@
             text-align: center;
         }
         h1 {
-            color: #ffd700;
+            color: #00FFFF; /* Neon light blue */
         }
         .node-info {
             background: #222;
-            padding: 1rem;
-            margin: 1rem 0;
+            padding: 2rem;
+            margin: 2rem 0;
             border-radius: 10px;
             text-align: left;
+            box-shadow: 0 0 20px rgba(0, 255, 255, 0.6); /* Neon effect */
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
         }
-        button {
-            background-color: #ffd700;
-            color: #111;
-            padding: 10px 20px;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-            font-size: 16px;
+        p {
+            font-size: 18px;
         }
-        button:hover {
-            background-color: #f5a623;
+        .node-info p {
+            margin-bottom: 15px;
+        }
+        .node-info strong {
+            color: #00FFFF; /* Neon light blue */
+        }
+        .status {
+            font-weight: bold;
+            color: #ff6347; /* Red for errors */
         }
     </style>
 </head>
 <body>
     <h1>🧠 Node Information</h1>
-
-    <!-- Button to trigger node registration -->
-    <button id="connectNodeButton">Connect Node</button>
 
     <!-- Display registered node info here -->
     <div class="node-info" id="nodeDetails">
@@ -54,7 +56,7 @@
                 const data = await res.json();
 
                 if (data.length === 0) {
-                    document.getElementById("nodeDetails").innerHTML = "❌ No nodes registered yet.";
+                    document.getElementById("nodeDetails").innerHTML = "<p class='status'>❌ No nodes registered yet.</p>";
                     return;
                 }
 
@@ -65,54 +67,15 @@
                     <p><strong>Node ID:</strong> ${node.node_id}</p>
                     <p><strong>IP:</strong> ${node.ip}</p>
                     <p><strong>Port:</strong> ${node.port}</p>
-                    <p><strong>CPU:</strong> ${node.capabilities.cpu.brand}, ${node.capabilities.cpu.cores} cores</p>
+                    <p><strong>CPU:</strong> ${node.capabilities.cpu.brand}, ${node.capabilities.cpu.cores} cores, ${node.capabilities.cpu.max_freq} MHz max frequency</p>
                     <p><strong>GPU:</strong> ${node.capabilities.gpu}</p>
                     <p><strong>Registration Status:</strong> ${node.registered ? "✅ Registered" : "❌ Not Registered"}</p>
                 `;
             } catch (err) {
-                document.getElementById("nodeDetails").innerHTML = "⚠️ Error loading node details.";
+                document.getElementById("nodeDetails").innerHTML = "<p class='status'>⚠️ Error loading node details.</p>";
                 console.error("Error fetching node details:", err);
             }
         }
-
-        // Register the node
-        async function registerNode() {
-            const nodeData = {
-                node_id: "node_1",  // This can be dynamically generated
-                ip: "127.0.0.1",  // This can be dynamically generated
-                port: "9100",     // You can make this dynamic if needed
-                capabilities: await fetchNodeInfo() // Fetch the capabilities from backend dynamically
-            };
-
-            try {
-                const res = await fetch("http://127.0.0.1:8100/register-node", { // Send to coordinator
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json"
-                    },
-                    body: JSON.stringify(nodeData)
-                });
-
-                if (!res.ok) {
-                    console.log("Failed to register node:", res.status);
-                    alert("Failed to register node. Please try again.");
-                    return;
-                }
-
-                const result = await res.json();
-                console.log("Node registered:", result);
-                alert("Node registered successfully!");
-
-                // Reload the node details after successful registration
-                fetchNodeInfo();
-            } catch (err) {
-                console.error("Error registering node:", err);
-                alert("Failed to register node.");
-            }
-        }
-
-        // When the "Connect Node" button is clicked, try to register the node
-        document.getElementById("connectNodeButton").addEventListener("click", registerNode);
 
         // Fetch node info initially when the page loads
         fetchNodeInfo();

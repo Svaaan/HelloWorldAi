@@ -12,71 +12,59 @@
             text-align: center;
         }
         h1 {
-            color: #ffd700;
+            color: #4b4d4d; 
         }
-        .node-info {
-            background: #222;
-            padding: 1rem;
-            margin: 1rem 0;
-            border-radius: 10px;
-            text-align: left;
+        .status {
+            font-weight: bold;
+            color: #00FFFF; 
+        }
+        .processing {
+            font-weight: bold;
+            color: #00FFFF; 
+        }
+        .intro-text {
+            font-size: 20px;
+            color: #4b4d4d; 
+            margin-top: 20px;
+            margin-bottom: 30px;
         }
         button {
-            background-color: #ffd700;
+            color: #4b4d4d;  /* Neon light blue */
             color: #111;
-            padding: 10px 20px;
+            padding: 20px 40px;
             border: none;
-            border-radius: 5px;
+            border-radius: 10px;
             cursor: pointer;
-            font-size: 16px;
+            font-size: 20px;
         }
         button:hover {
-            background-color: #f5a623;
+            background-color: #00BFFF; /* Lighter blue */
         }
     </style>
 </head>
 <body>
     <h1>🧠 Node Information</h1>
 
+    <!-- Cool intro text -->
+    <div class="intro-text">
+        You are connecting your node to contribute computing power for AI training. Your machine will assist in processing and learning, helping to power the future of artificial intelligence.
+    </div>
+
     <!-- Button to trigger node registration -->
     <button id="connectNodeButton">Connect Node</button>
 
-    <!-- Display registered node info here -->
-    <div class="node-info" id="nodeDetails">
-        <p>Loading node details...</p>
+    <!-- Display processing message initially hidden -->
+    <div id="processingMessage" class="status" style="display: none;">
+        Processing... Please wait.
     </div>
 
     <script>
-        // Fetch the node details dynamically from the node's own API
-        async function fetchNodeInfo() {
-            try {
-                const res = await fetch("http://127.0.0.1:9100/");
-                const node = await res.json();
-
-                if (!node || !node.node) {
-                    document.getElementById("nodeDetails").innerHTML = "❌ Node information is not available.";
-                    return;
-                }
-
-                const nodeInfo = node.node;
-                
-                // Display node information
-                document.getElementById("nodeDetails").innerHTML = `
-                    <p><strong>Node ID:</strong> ${nodeInfo.node_id}</p>
-                    <p><strong>IP:</strong> ${nodeInfo.ip}</p>
-                    <p><strong>Port:</strong> ${nodeInfo.port}</p>
-                    <p><strong>CPU:</strong> ${nodeInfo.capabilities.cpu.brand}</p>
-                    <p><strong>GPU:</strong> ${nodeInfo.capabilities.gpu}</p>
-                    <p><strong>Registration Status:</strong> ${nodeInfo.registered ? "✅ Registered" : "❌ Not Registered"}</p>
-                `;
-            } catch (err) {
-                document.getElementById("nodeDetails").innerHTML = "⚠️ Error loading node details.";
-                console.error("Error fetching node details:", err);
-            }
-        }
-
         // Register the node dynamically after fetching the node's own information
         async function registerNode() {
+            // Hide the button and show the "Processing..." message
+            document.getElementById("connectNodeButton").style.display = "none";
+            document.getElementById("processingMessage").style.display = "block";
+
             // Fetch the actual node data from the node API
             const nodeRes = await fetch("http://127.0.0.1:9100/");
             const node = await nodeRes.json();
@@ -112,7 +100,8 @@
                 console.log("Node registered:", result);
                 alert("Node registered successfully!");
 
-                // Redirect to node.html after successful registration
+                // Hide the processing message and redirect to node.html after successful registration
+                document.getElementById("processingMessage").style.display = "none";
                 window.location.href = "/node.html";  // This will route to node.html
 
             } catch (err) {
@@ -123,9 +112,6 @@
 
         // When the "Connect Node" button is clicked, try to register the node
         document.getElementById("connectNodeButton").addEventListener("click", registerNode);
-
-        // Fetch node info initially when the page loads
-        fetchNodeInfo();
     </script>
 
 </body>
