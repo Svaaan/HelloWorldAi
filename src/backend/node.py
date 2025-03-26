@@ -1,9 +1,9 @@
 import os
-from fastapi import FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
 import socket
 import psutil
 import platform
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 import requests
 import GPUtil
 from backend.shared.types import ComputationTask
@@ -40,37 +40,39 @@ def get_system_capabilities():
         "max_freq": cpu_info.max if cpu_info else "Unknown",
         "min_freq": cpu_info.min if cpu_info else "Unknown"
     }
-    
+
     # Get GPU information dynamically
     try:
         gpus = GPUtil.getGPUs()
         gpu = gpus[0].name if gpus else "No GPU found"
     except Exception as e:
         gpu = "No GPU available"
-    
+
     return {"cpu": cpu, "gpu": gpu}
 
-# Dynamically set node information
+# Session-based node information
 node_info = {
     "node_id": f"node_{os.getpid()}",  # Generate a unique node ID based on process ID
     "ip": get_local_ip(),  # Get the actual local IP address
     "port": "9100",  # This can be changed dynamically as needed
     "capabilities": get_system_capabilities(),  # Get the system's capabilities dynamically
-    "registered": False  # Track the registration status of the node
+    "connected": False  # Set initial connection status to False
 }
 
 @app.get("/")
 def get_node_status():
+    # Dynamically check if the node is connected
+    is_connected = node_info["connected"]
     return {
         "status": "online",
-        "registered": node_info["registered"],
+        "connected": is_connected,
         "node": node_info
     }
 
-@app.post("/register-node")
-async def register_node():
-    if node_info["registered"]:
-        return {"status": "Node already registered."}
+@app.post("/connect-node")
+async def connect_node():
+    if node_info["connected"]:
+        return {"status": "Node is already connected.", "connected": node_info["connected"]}
 
     payload = {
         "node_id": node_info["node_id"],
@@ -80,16 +82,31 @@ async def register_node():
     }
 
     try:
-        # Register the node with the coordinator at 'http://127.0.0.1:8100/register-node'
-        res = requests.post("http://127.0.0.1:8100/register-node", json=payload)
+        # Connect the node with the coordinator at 'http://127.0.0.1:8100/connect-node'
+        res = requests.post("http://127.0.0.1:8100/connect-node", json=payload)
 
         if res.status_code == 200:
-            node_info["registered"] = True
-            return {"status": "Node registered successfully!"}
+            node_info["connected"] = True  # Mark the node as connected after successful connection
+            return {"status": "Node connected successfully!", "connected": node_info["connected"]}
         else:
-            return {"status": "Registration failed.", "error": res.text}
-    except Exception as e:
-        return {"status": "Error", "message": str(e)}
+            error_message = res.text if res.text else "Unknown error occurred."
+            raise HTTPException(status_code=400, detail=f"Connection failed: {error_message}")
+    except requests.exceptions.RequestException as e:
+        raise HTTPException(status_code=500, detail=f"Error connecting to coordinator: {str(e)}")
+
+
+@app.get("/usage")
+def get_usage():
+    # Get CPU usage (percentage)
+    cpu_usage = psutil.cpu_percent(interval=1)  # Get CPU usage over 1 second
+    # Get GPU usage (percentage)
+    gpus = GPUtil.getGPUs()
+    gpu_usage = gpus[0].load * 100 if gpus else 0  # Assuming one GPU for simplicity
+    
+    return {
+        "cpu_usage": cpu_usage,
+        "gpu_usage": gpu_usage
+    }
 
 @app.post("/compute")
 def compute(task: ComputationTask):

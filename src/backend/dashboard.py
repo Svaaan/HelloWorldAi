@@ -39,7 +39,7 @@ def get_node():
             "ip": node.get("ip"),
             "port": node.get("port"),
             "capabilities": node.get("capabilities"),
-            "registered": node.get("registered")
+            "isConnected": node.get("isConnected")  # Using isConnected instead of registered
         }
     else:
-        return {"message": "No nodes registered"}
+        return {"message": "No nodes connected"}
