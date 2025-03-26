@@ -1,72 +1,204 @@
 <!DOCTYPE html>
-<html lang="sv">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Node Information</title>
+    <title>Node Connection</title>
     <style>
         body {
             font-family: 'Segoe UI', sans-serif;
             background-color: #111;
             color: #fff;
-            padding: 2rem;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            align-items: center;
+            justify-content: flex-start;
+        }
+
+        header {
+            width: 100%;
+            background-color: #222;
+            padding: 1.5rem;
             text-align: center;
+            box-shadow: 0 0 20px rgba(0, 255, 255, 0.6);
+            display: flex;
+            justify-content: center;
+            align-items: center;
         }
+
         h1 {
-            color: #00FFFF; /* Neon light blue */
+            color: #00FFFF;
+            margin: 0;
+            display: flex;
+            align-items: center;
+            gap: 10px;
         }
-        .status {
+
+        .node-icon {
+            width: 40px;
+            height: 40px;
+            background-color: #00FFFF;
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+        }
+
+        .connect-info {
+            background: #222;
+            padding: 3rem;
+            margin: 4rem 0;
+            border-radius: 10px;
+            text-align: center;
+            box-shadow: 0 0 20px rgba(0, 255, 255, 0.6);
+            max-width: 500px;
+            width: 90%;
+            transition: all 0.3s ease;
+        }
+
+        .connect-info:hover {
+            box-shadow: 0 0 30px rgba(0, 255, 255, 0.8);
+        }
+
+        .info-text {
+            font-size: 18px;
+            color: #fff;
+            margin-bottom: 20px;
+            line-height: 1.6;
+        }
+
+        .status-message {
             font-weight: bold;
-            color: #00FFFF; /* Neon light blue */
+            color: #00FFFF;
+            margin-bottom: 20px;
         }
-        .processing {
-            font-weight: bold;
-            color: #00FFFF; /* Neon light blue */
-        }
+
         button {
-            background-color: #00FFFF; /* Neon light blue */
+            background-color: #00FFFF;
             color: #111;
-            padding: 10px 20px;
+            padding: 12px 24px;
             border: none;
             border-radius: 5px;
             cursor: pointer;
             font-size: 16px;
+            margin-top: 20px;
+            box-shadow: 0 0 10px rgba(0, 255, 255, 0.6);
+            transition: all 0.3s ease;
         }
+
         button:hover {
-            background-color: #00BFFF; /* Lighter blue */
+            background-color: #00BFFF;
+            transform: scale(1.05);
+        }
+
+        button:disabled {
+            background-color: #555;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        #processingMessage {
+            color: #00FFFF;
+            font-weight: bold;
+            margin-top: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        .loading-spinner {
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(0, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: #00FFFF;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .success-message {
+            color: #32CD32;
+            font-size: 18px;
+            margin-top: 20px;
+        }
+
+        .error-message {
+            color: #FF6347;
+            font-size: 18px;
+            margin-top: 20px;
+        }
+
+        @media (max-width: 600px) {
+            .connect-info {
+                padding: 2rem;
+                margin: 2rem 0;
+            }
+            
+            .info-text {
+                font-size: 16px;
+            }
         }
     </style>
 </head>
 <body>
-    <h1>🧠 Node Information</h1>
+    <header>
+        <h1>
+            <div class="node-icon">🤖</div>
+            NODE AI
+        </h1>
+    </header>
 
-    <!-- Button to trigger node connection -->
-    <button id="connectNodeButton">Connect Node</button>
+    <div class="connect-info">
+        <p class="info-text">
+            Contribute to AI processing by connecting your node. Your computational power helps drive advanced AI tasks and research.
+        </p>
 
-    <!-- Display processing message initially hidden -->
-    <div id="processingMessage" class="status" style="display: none;">
-        Connecting... Please wait.
+        <p class="status-message">Are you ready to connect?</p>
+
+        <button id="connectNodeButton">Connect Node</button>
+
+        <div id="processingMessage" style="display: none;">
+            <div class="loading-spinner"></div>
+            Connecting... Please wait.
+        </div>
+
+        <div id="resultMessage"></div>
     </div>
 
     <script>
-        // Connect the node dynamically after fetching the node's own information
         async function connectNode() {
-            // Hide the button and show the "Connecting..." message
-            document.getElementById("connectNodeButton").style.display = "none";
-            document.getElementById("processingMessage").style.display = "block";
-
-            // Fetch the actual node data from the node API
-            const nodeRes = await fetch("http://127.0.0.1:9100/");  // Node's own data
-            const node = await nodeRes.json();
-
-            if (!node || !node.node) {
-                alert("Failed to retrieve node details.");
-                return;
-            }
-
-            const nodeData = node.node;
+            const connectButton = document.getElementById("connectNodeButton");
+            const processingMessage = document.getElementById("processingMessage");
+            
+            // Disable button during connection attempt
+            connectButton.disabled = true;
+            connectButton.style.display = "none";
+            processingMessage.style.display = "flex";
 
             try {
-                const res = await fetch("http://127.0.0.1:8100/connect-node", { // Send to coordinator
+                const nodeRes = await fetch("http://127.0.0.1:9100/");
+                const node = await nodeRes.json();
+
+                if (!node || !node.node) {
+                    throw new Error("Failed to retrieve node details");
+                }
+
+                const nodeData = node.node;
+                const res = await fetch("http://127.0.0.1:8100/connect-node", {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json"
@@ -80,28 +212,37 @@
                 });
 
                 if (!res.ok) {
-                    console.log("Failed to connect node:", res.status);
-                    alert("Failed to connect node. Please try again.");
-                    return;
+                    throw new Error(`Connection failed with status: ${res.status}`);
                 }
 
                 const result = await res.json();
                 console.log("Node connected:", result);
-                alert("Node connected successfully!");
+                showMessage("Node connected successfully!", "success");
 
-                // Redirect to the next step after successful connection
-                window.location.href = "/node.html";  // This will route to node.html
+                setTimeout(() => window.location.href = "/node.html", 2000);
 
             } catch (err) {
                 console.error("Error connecting node:", err);
-                alert("Failed to connect node.");
+                showMessage(err.message || "Failed to connect node.", "error");
+                
+                // Re-enable button on error
+                connectButton.disabled = false;
+                connectButton.style.display = "block";
+                processingMessage.style.display = "none";
             }
         }
 
-        // When the "Connect Node" button is clicked, try to connect the node
+        function showMessage(message, type) {
+            const resultMessageElement = document.getElementById("resultMessage");
+            resultMessageElement.innerHTML = message;
+            resultMessageElement.className = type === "success" ? "success-message" : "error-message";
+
+            setTimeout(() => {
+                resultMessageElement.innerHTML = "";
+            }, 3000);
+        }
+
         document.getElementById("connectNodeButton").addEventListener("click", connectNode);
-
     </script>
-
 </body>
 </html>
