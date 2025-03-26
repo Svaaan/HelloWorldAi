@@ -8,6 +8,10 @@ from fastapi.responses import FileResponse, HTMLResponse
 from backend.node import app as node_app
 from backend.coordinator import app as coordinator_app
 from backend.dashboard import router as dashboard_router
+from dotenv import load_dotenv  # Import dotenv
+
+# Load environment variables from .env file
+load_dotenv()  # This loads variables from the .env file into the environment
 
 # Lägg till sökvägar
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -48,18 +52,18 @@ def render_node_page():
         return HTMLResponse("<h1>404 - node.html not found</h1>", status_code=404)
     return FileResponse(path, media_type="text/html")
 
-# Run node, coordinator, and dashboard on different ports (use dynamic port from environment variable)
 def run_node():
     port = os.getenv("NODE_PORT", 9100)  # Use the environment variable or fallback to 9100
-    uvicorn.run(app=node_app, host="0.0.0.0", port=int(port))
+    uvicorn.run(app=node_app, host="127.0.0.1", port=int(port))  # Change this to 127.0.0.1 for localhost
 
 def run_coordinator():
     port = os.getenv("COORDINATOR_PORT", 8100)  # Use the environment variable or fallback to 8100
-    uvicorn.run(app=coordinator_app, host="0.0.0.0", port=int(port))
+    uvicorn.run(app=coordinator_app, host="127.0.0.1", port=int(port))  # Change this to 127.0.0.1 for localhost
 
 def run_dashboard():
     port = os.getenv("DASHBOARD_PORT", 3000)  # Use the environment variable or fallback to 3000
-    uvicorn.run(app=dashboard_app, host="0.0.0.0", port=int(port))
+    uvicorn.run(app=dashboard_app, host="127.0.0.1", port=int(port))  # Change this to 127.0.0.1 for localhost
+
 
 if __name__ == "__main__":
     # Start the backend services
