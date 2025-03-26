@@ -34,6 +34,17 @@
         button:hover {
             background-color: #00BFFF; /* Lighter blue */
         }
+        /* Success or error message styles */
+        .success-message {
+            color: #32CD32; /* Green for success */
+            font-size: 18px;
+            margin-top: 20px;
+        }
+        .error-message {
+            color: #FF6347; /* Red for error */
+            font-size: 18px;
+            margin-top: 20px;
+        }
     </style>
 </head>
 <body>
@@ -47,6 +58,9 @@
         Connecting... Please wait.
     </div>
 
+    <!-- Success or error message area -->
+    <div id="resultMessage"></div>
+
     <script>
         // Connect the node dynamically after fetching the node's own information
         async function connectNode() {
@@ -59,7 +73,7 @@
             const node = await nodeRes.json();
 
             if (!node || !node.node) {
-                alert("Failed to retrieve node details.");
+                showMessage("Failed to retrieve node details.", "error");
                 return;
             }
 
@@ -81,26 +95,41 @@
 
                 if (!res.ok) {
                     console.log("Failed to connect node:", res.status);
-                    alert("Failed to connect node. Please try again.");
+                    showMessage("Failed to connect node. Please try again.", "error");
                     return;
                 }
 
                 const result = await res.json();
                 console.log("Node connected:", result);
-                alert("Node connected successfully!");
+                showMessage("Node connected successfully!", "success");
 
                 // Redirect to the next step after successful connection
-                window.location.href = "/node.html";  // This will route to node.html
+                setTimeout(() => window.location.href = "/node.html", 2000); // Wait before redirect
 
             } catch (err) {
                 console.error("Error connecting node:", err);
-                alert("Failed to connect node.");
+                showMessage("Failed to connect node.", "error");
             }
+        }
+
+        // Function to display success or error messages
+        function showMessage(message, type) {
+            const resultMessageElement = document.getElementById("resultMessage");
+            resultMessageElement.innerHTML = message;
+            if (type === "success") {
+                resultMessageElement.className = "success-message";
+            } else {
+                resultMessageElement.className = "error-message";
+            }
+
+            // Automatically hide the message after 3 seconds
+            setTimeout(() => {
+                resultMessageElement.innerHTML = "";
+            }, 3000);
         }
 
         // When the "Connect Node" button is clicked, try to connect the node
         document.getElementById("connectNodeButton").addEventListener("click", connectNode);
-
     </script>
 
 </body>
