@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+    <meta charset="UTF-8">
+    <title>Node Information</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background-color: #111;
+            color: #fff;
+            padding: 2rem;
+            text-align: center;
+        }
+        h1 {
+            color: #ffd700;
+        }
+        .node-info {
+            background: #222;
+            padding: 1rem;
+            margin: 1rem 0;
+            border-radius: 10px;
+            text-align: left;
+        }
+        button {
+            background-color: #ffd700;
+            color: #111;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background-color: #f5a623;
+        }
+    </style>
+</head>
+<body>
+    <h1>🧠 Node Information</h1>
+
+    <!-- Button to trigger node registration -->
+    <button id="connectNodeButton">Connect Node</button>
+
+    <!-- Display registered node info here -->
+    <div class="node-info" id="nodeDetails">
+        <p>Loading node details...</p>
+    </div>
+
+    <script>
+        // Fetch the node details dynamically from the node's own API
+        async function fetchNodeInfo() {
+            try {
+                const res = await fetch("http://127.0.0.1:9100/");
+                const node = await res.json();
+
+                if (!node || !node.node) {
+                    document.getElementById("nodeDetails").innerHTML = "❌ Node information is not available.";
+                    return;
+                }
+
+                const nodeInfo = node.node;
+                
+                // Display node information
+                document.getElementById("nodeDetails").innerHTML = `
+                    <p><strong>Node ID:</strong> ${nodeInfo.node_id}</p>
+                    <p><strong>IP:</strong> ${nodeInfo.ip}</p>
+                    <p><strong>Port:</strong> ${nodeInfo.port}</p>
+                    <p><strong>CPU:</strong> ${nodeInfo.capabilities.cpu.brand}</p>
+                    <p><strong>GPU:</strong> ${nodeInfo.capabilities.gpu}</p>
+                    <p><strong>Registration Status:</strong> ${nodeInfo.registered ? "✅ Registered" : "❌ Not Registered"}</p>
+                `;
+            } catch (err) {
+                document.getElementById("nodeDetails").innerHTML = "⚠️ Error loading node details.";
+                console.error("Error fetching node details:", err);
+            }
+        }
+
+        // Register the node dynamically after fetching the node's own information
+        async function registerNode() {
+            // Fetch the actual node data from the node API
+            const nodeRes = await fetch("http://127.0.0.1:9100/");
+            const node = await nodeRes.json();
+
+            if (!node || !node.node) {
+                alert("Failed to retrieve node details.");
+                return;
+            }
+
+            const nodeData = node.node;
+
+            try {
+                const res = await fetch("http://127.0.0.1:8100/register-node", { // Send to coordinator
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({
+                        node_id: nodeData.node_id,
+                        ip: nodeData.ip,
+                        port: nodeData.port,
+                        capabilities: nodeData.capabilities
+                    })
+                });
+
+                if (!res.ok) {
+                    console.log("Failed to register node:", res.status);
+                    alert("Failed to register node. Please try again.");
+                    return;
+                }
+
+                const result = await res.json();
+                console.log("Node registered:", result);
+                alert("Node registered successfully!");
+
+                // Redirect to node.html after successful registration
+                window.location.href = "/node.html";  // This will route to node.html
+
+            } catch (err) {
+                console.error("Error registering node:", err);
+                alert("Failed to register node.");
+            }
+        }
+
+        // When the "Connect Node" button is clicked, try to register the node
+        document.getElementById("connectNodeButton").addEventListener("click", registerNode);
+
+        // Fetch node info initially when the page loads
+        fetchNodeInfo();
+    </script>
+
+</body>
+</html>

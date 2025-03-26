@@ -1,13 +1,23 @@
 import os
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 import socket
 import psutil
-import platform  # Ensure this is included
-from fastapi import FastAPI, Request
+import platform
 import requests
 import GPUtil
 from backend.shared.types import ComputationTask
 
 app = FastAPI()
+
+# Add CORS middleware to allow requests from frontend
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://127.0.0.1:3000"],  # Allow frontend origin
+    allow_credentials=True,
+    allow_methods=["*"],  # Allow all methods (GET, POST, etc.)
+    allow_headers=["*"],  # Allow all headers
+)
 
 # Function to get the local IP address
 def get_local_ip():
