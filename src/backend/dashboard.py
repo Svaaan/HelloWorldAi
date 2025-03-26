@@ -1,4 +1,3 @@
-# backend/dashboard.py
 from fastapi import APIRouter
 import requests
 
@@ -26,3 +25,21 @@ def fetch_node_data():
 def get_node_info():
     nodes = fetch_node_data()
     return {"nodes": nodes}
+
+# Add route to fetch specific node information
+@router.get("/node-info")
+def get_node():
+    # This will use the `fetch_node_data` function to get the node data
+    nodes = fetch_node_data()
+    if len(nodes) > 0:
+        # Assuming only one node is registered and taking the first node
+        node = nodes[0]
+        return {
+            "node_id": node.get("node_id"),
+            "ip": node.get("ip"),
+            "port": node.get("port"),
+            "capabilities": node.get("capabilities"),
+            "registered": node.get("registered")
+        }
+    else:
+        return {"message": "No nodes registered"}
