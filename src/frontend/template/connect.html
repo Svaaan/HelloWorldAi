@@ -9,27 +9,36 @@
             font-family: 'Segoe UI', sans-serif;
             background-color: #111;
             color: #fff;
-            padding: 2rem;
-            text-align: center;
+            margin: 0;
+            padding: 0;
             display: flex;
             flex-direction: column;
-            justify-content: center;
             height: 100vh; /* Use full viewport height */
             align-items: center;
-            margin: 0;
+            justify-content: flex-start; /* Start from the top of the page */
+        }
+
+        /* Header styling */
+        header {
+            width: 100%;
+            background-color: #222;
+            padding: 1.5rem;
+            text-align: center;
+            box-shadow: 0 0 20px rgba(0, 255, 255, 0.6); /* Neon effect */
         }
 
         h1 {
             color: #00FFFF; /* Neon light blue */
+            margin: 0;
         }
 
         /* Node information box styling */
-        .Connect-info {
+        .connect-info {
             background: #222;
-            padding: 2rem;
-            margin: 2rem 0;
+            padding: 5rem;
+            margin: 8rem 0;
             border-radius: 10px;
-            text-align: left;
+            text-align: center;
             box-shadow: 0 0 20px rgba(0, 255, 255, 0.6); /* Neon effect */
             max-width: 600px;
             margin-left: auto;
@@ -39,7 +48,7 @@
         /* Status and success message styling */
         .status {
             font-weight: bold;
-            color: #32CD32; /* Green for success */
+            background: #222;
         }
 
         .success {
@@ -51,26 +60,11 @@
             color: #00FFFF; /* Neon light blue */
         }
 
-        .usage-info {
-            background: #333;
-            padding: 1rem;
-            margin-top: 20px;
-            border-radius: 10px;
-        }
-
         /* Styling for the button and text explaining why to connect */
         .info-text {
-            background: #222;
-            padding: 2rem;
-            margin: 2rem 0;
-            border-radius: 10px;
-            text-align: left;
-            box-shadow: 0 0 20px rgba(0, 255, 255, 0.6); /* Neon effect */
-            max-width: 600px;
-            margin-left: auto;
-            margin-right: auto;
             font-size: 18px;
             color: #fff;
+            margin-bottom: 20px;
         }
 
         button {
@@ -106,23 +100,33 @@
 </head>
 
 <body>
-    <h1>NODE AI</h1>
 
-    <!-- Explanation text -->
-    <p class="info-text">
-        In order to provide computational power for AI tasks, you need to connect your node. By connecting, you help power the system and contribute to AI processing. Click the button below to connect your node.
-    </p>
+    <!-- Header Section -->
+    <header>
+        <h1>NODE AI</h1>
+    </header>
 
-    <!-- Button to trigger node connection -->
-    <button id="connectNodeButton">Connect Node</button>
+    <!-- Connect information section -->
+    <div class="connect-info">
+        <!-- Explanation text -->
+        <p class="info-text">
+            In order to provide computational power for AI tasks, you need to connect your node. By connecting, you help power the system and contribute to AI processing.
+        </p>
 
-    <!-- Display processing message initially hidden -->
-    <div id="processingMessage" class="status" style="display: none;">
-        Connecting... Please wait.
+        <!-- New question asking if the user is ready -->
+        <p class="status-message">Are you ready to connect?</p>
+
+        <!-- Button to trigger node connection -->
+        <button id="connectNodeButton">Connect Node</button>
+
+        <!-- Display processing message initially hidden -->
+        <div id="processingMessage" class="status" style="display: none;">
+            Connecting... Please wait.
+        </div>
+
+        <!-- Success or error message area -->
+        <div id="resultMessage"></div>
     </div>
-
-    <!-- Success or error message area -->
-    <div id="resultMessage"></div>
 
     <script>
         // Connect the node dynamically after fetching the node's own information
