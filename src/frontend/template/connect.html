@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="sv">
+
 <head>
     <meta charset="UTF-8">
     <title>Node Information</title>
@@ -10,18 +11,68 @@
             color: #fff;
             padding: 2rem;
             text-align: center;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            height: 100vh; /* Use full viewport height */
+            align-items: center;
+            margin: 0;
         }
+
         h1 {
             color: #00FFFF; /* Neon light blue */
         }
+
+        /* Node information box styling */
+        .Connect-info {
+            background: #222;
+            padding: 2rem;
+            margin: 2rem 0;
+            border-radius: 10px;
+            text-align: left;
+            box-shadow: 0 0 20px rgba(0, 255, 255, 0.6); /* Neon effect */
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        /* Status and success message styling */
         .status {
             font-weight: bold;
-            color: #00FFFF; /* Neon light blue */
+            color: #32CD32; /* Green for success */
         }
-        .processing {
+
+        .success {
+            color: #32CD32; /* Green for success */
+        }
+
+        .status-message {
             font-weight: bold;
             color: #00FFFF; /* Neon light blue */
         }
+
+        .usage-info {
+            background: #333;
+            padding: 1rem;
+            margin-top: 20px;
+            border-radius: 10px;
+        }
+
+        /* Styling for the button and text explaining why to connect */
+        .info-text {
+            background: #222;
+            padding: 2rem;
+            margin: 2rem 0;
+            border-radius: 10px;
+            text-align: left;
+            box-shadow: 0 0 20px rgba(0, 255, 255, 0.6); /* Neon effect */
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
+            font-size: 18px;
+            color: #fff;
+        }
+
         button {
             background-color: #00FFFF; /* Neon light blue */
             color: #111;
@@ -30,25 +81,37 @@
             border-radius: 5px;
             cursor: pointer;
             font-size: 16px;
+            margin-top: 20px;
+            box-shadow: 0 0 10px rgba(0, 255, 255, 0.6);
         }
+
         button:hover {
             background-color: #00BFFF; /* Lighter blue */
         }
+
         /* Success or error message styles */
         .success-message {
             color: #32CD32; /* Green for success */
             font-size: 18px;
             margin-top: 20px;
         }
+
         .error-message {
             color: #FF6347; /* Red for error */
             font-size: 18px;
             margin-top: 20px;
         }
+
     </style>
 </head>
+
 <body>
-    <h1>🧠 Node Information</h1>
+    <h1>NODE AI</h1>
+
+    <!-- Explanation text -->
+    <p class="info-text">
+        In order to provide computational power for AI tasks, you need to connect your node. By connecting, you help power the system and contribute to AI processing. Click the button below to connect your node.
+    </p>
 
     <!-- Button to trigger node connection -->
     <button id="connectNodeButton">Connect Node</button>
@@ -133,4 +196,5 @@
     </script>
 
 </body>
+
 </html>
