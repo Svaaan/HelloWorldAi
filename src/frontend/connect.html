@@ -37,7 +37,7 @@
     <script>
         async function registerNode() {
             const nodeData = {
-                node_id: "node_1", // Replace with actual node ID
+                node_id: "node_1",  // Replace with actual node ID
                 ip: "127.0.0.1",  // Replace with actual IP if needed
                 port: "9100",     // Replace with actual port if needed
                 capabilities: {
@@ -47,13 +47,19 @@
             };
 
             try {
-                const res = await fetch("http://localhost:8100/register-node", {
+                const res = await fetch("http://127.0.0.1:8100/register-node", {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json"
                     },
                     body: JSON.stringify(nodeData)
                 });
+
+                if (!res.ok) {
+                    console.log("Failed to register node:", res.status);
+                    alert("Failed to register node. Please try again.");
+                    return;
+                }
 
                 const result = await res.json();
                 console.log("Node registered:", result);
