@@ -34,6 +34,23 @@
             font-weight: bold;
         }
 
+        .header-nav {
+            display: flex;
+            gap: 1.5rem;
+        }
+
+        .header-nav a {
+            color: #00FFFF;
+            text-decoration: none;
+            font-weight: bold;
+            transition: color 0.3s ease;
+        }
+
+        .header-nav a:hover {
+            color: #fff;
+            text-decoration: underline;
+        }
+
         .header-details {
             text-align: right;
         }
@@ -118,6 +135,9 @@
         <div class="header-logo">
             <img src="/api/placeholder/40/40" alt="Logo" />
             <span>AI Node Network</span>
+        </div>
+        <div class="header-nav">
+            <a href="distributioncenter.html">Distribution Center</a>
         </div>
         <div class="header-details">
             <p class="info">Total Power: <span id="totalPower">Loading...</span></p>
