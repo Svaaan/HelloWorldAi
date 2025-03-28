@@ -2,7 +2,7 @@ import os
 import sys
 import multiprocessing
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
 from dotenv import load_dotenv
@@ -19,7 +19,7 @@ from backend.dashboard import router as dashboard_router
 # Load environment variables from .env file
 load_dotenv()
 
-# Pekar på src/frontend
+# Path to templates
 template_dir = os.path.abspath(os.path.join(src_dir, "frontend", "template"))
 print("📂 Template path:", template_dir)
 
@@ -41,7 +41,7 @@ dashboard_app.include_router(dashboard_router)
 @dashboard_app.get("/", response_class=HTMLResponse)
 def render_dashboard():
     path = os.path.join(template_dir, "connect.html")
-    print("🔍 Servar fil:", path)
+    print("🔍 Serving file:", path)
     if not os.path.exists(path):
         return HTMLResponse("<h1>404 - connect.html not found</h1>", status_code=404)
     return FileResponse(path, media_type="text/html")
@@ -50,28 +50,29 @@ def render_dashboard():
 @dashboard_app.get("/node.html", response_class=HTMLResponse)
 def render_node_page():
     path = os.path.join(template_dir, "node.html")
-    print("🔍 Servar fil:", path)
+    print("🔍 Serving file:", path)
     if not os.path.exists(path):
         return HTMLResponse("<h1>404 - node.html not found</h1>", status_code=404)
     return FileResponse(path, media_type="text/html")
 
+# Functions to run each app separately (local development)
 def run_node():
-    port = os.getenv("NODE_PORT", 9100)  # Use the environment variable or fallback to 9100
-    uvicorn.run(app=node_app, host="127.0.0.1", port=int(port))  # Change this to 127.0.0.1 for localhost
+    port = os.getenv("NODE_PORT", 9100)
+    uvicorn.run(app=node_app, host="127.0.0.1", port=int(port))
 
 def run_coordinator():
-    port = os.getenv("COORDINATOR_PORT", 8100)  # Use the environment variable or fallback to 8100
-    uvicorn.run(app=coordinator_app, host="127.0.0.1", port=int(port))  # Change this to 127.0.0.1 for localhost
+    port = os.getenv("COORDINATOR_PORT", 8100)
+    uvicorn.run(app=coordinator_app, host="127.0.0.1", port=int(port))
 
 def run_dashboard():
-    port = os.getenv("DASHBOARD_PORT", 3000)  # Use the environment variable or fallback to 3000
-    uvicorn.run(app=dashboard_app, host="127.0.0.1", port=int(port))  # Change this to 127.0.0.1 for localhost
+    port = os.getenv("DASHBOARD_PORT", 3000)
+    uvicorn.run(app=dashboard_app, host="127.0.0.1", port=int(port))
 
-# For Render deployment
-app = node_app  # This helps Render know which app to run
+# 👇 This is what Render sees — serve dashboard app for deployment
+app = dashboard_app
 
+# Local multiprocessing (not used in deployment)
 if __name__ == "__main__":
-    # Start the backend services
     processes = [
         multiprocessing.Process(target=run_node),
         multiprocessing.Process(target=run_coordinator),
