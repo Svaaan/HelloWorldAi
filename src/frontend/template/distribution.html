@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Distribution Center</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #111;
+            color: #fff;
+            line-height: 1.6;
+        }
+
+        .header {
+            background-color: #222;
+            color: #00FFFF;
+            padding: 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 5px rgba(0, 255, 255, 0.3);
+        }
+
+        .header-logo {
+            display: flex;
+            align-items: center;
+            font-size: 1.5rem;
+            font-weight: bold;
+        }
+
+        .header-nav {
+            display: flex;
+            gap: 1.5rem;
+        }
+
+        .header-nav a {
+            color: #00FFFF;
+            text-decoration: none;
+            font-weight: bold;
+            transition: color 0.3s ease;
+        }
+
+        .header-nav a:hover {
+            color: #fff;
+            text-decoration: underline;
+        }
+
+        .header-details {
+            text-align: right;
+        }
+
+        .header-details .info {
+            color: #fff;
+            margin: 5px 0;
+            font-size: 0.9rem;
+        }
+
+        .header-details .info span {
+            color: #00FFFF;
+            font-weight: bold;
+        }
+
+        .distribution-container {
+            max-width: 1200px;
+            margin: 2rem auto;
+            padding: 0 1rem;
+        }
+
+        .distribution-panel {
+            background: #222;
+            padding: 2rem;
+            border-radius: 10px;
+            box-shadow: 0 0 20px rgba(0, 255, 255, 0.6);
+            margin-bottom: 2rem;
+        }
+
+        h2 {
+            color: #00FFFF;
+            border-bottom: 2px solid #00FFFF;
+            padding-bottom: 0.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .task-list {
+            list-style: none;
+        }
+
+        .task-item {
+            background-color: #333;
+            margin-bottom: 1rem;
+            padding: 1rem;
+            border-radius: 5px;
+            border-left: 4px solid #00FFFF;
+        }
+
+        .task-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 0.5rem;
+        }
+
+        .task-title {
+            font-weight: bold;
+            color: #00FFFF;
+        }
+
+        .task-status {
+            padding: 0.2rem 0.5rem;
+            border-radius: 3px;
+            font-size: 0.8rem;
+        }
+
+        .status-running {
+            background-color: #32CD32;
+            color: #111;
+        }
+
+        .status-pending {
+            background-color: #FFA500;
+            color: #111;
+        }
+
+        .status-completed {
+            background-color: #4169E1;
+            color: #fff;
+        }
+
+        .task-details {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.9rem;
+        }
+
+        .task-node {
+            color: #ccc;
+        }
+
+        .task-progress {
+            width: 100%;
+            background-color: #444;
+            height: 10px;
+            border-radius: 5px;
+            margin-top: 0.5rem;
+            overflow: hidden;
+        }
+
+        .task-progress-bar {
+            height: 100%;
+            background-color: #00FFFF;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 1rem;
+        }
+
+        .stat-card {
+            background-color: #333;
+            padding: 1rem;
+            border-radius: 5px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #00FFFF;
+        }
+
+        .stat-label {
+            color: #ccc;
+            font-size: 0.9rem;
+        }
+
+        .action-button {
+            display: inline-block;
+            background-color: #00FFFF;
+            color: #111;
+            padding: 0.75rem 1.5rem;
+            border-radius: 5px;
+            font-weight: bold;
+            text-decoration: none;
+            margin-top: 1.5rem;
+            transition: all 0.3s ease;
+            border: none;
+            cursor: pointer;
+            text-align: center;
+        }
+
+        .action-button:hover {
+            background-color: #fff;
+            box-shadow: 0 0 15px rgba(0, 255, 255, 0.8);
+        }
+
+        .back-link {
+            display: inline-block;
+            margin-bottom: 1rem;
+            color: #00FFFF;
+            text-decoration: none;
+            font-weight: bold;
+        }
+
+        .back-link:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <!-- Header with navigation -->
+    <header class="header">
+        <div class="header-logo">
+            <img src="/api/placeholder/40/40" alt="Logo" />
+            <span>AI Node Network</span>
+        </div>
+        <div class="header-details">
+            <p class="info">Active Tasks: <span id="activeTasks">Loading...</span></p>
+            <p class="info">Total Nodes: <span id="totalNodes">Loading...</span></p>
+        </div>
+    </header>
+
+    <div class="distribution-container">
+        <a href="node.html" class="back-link">← Back to Node Overview</a>
+        
+        <div class="distribution-panel">
+            <h2>Distribution Statistics</h2>
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-value" id="totalPower">0</div>
+                    <div class="stat-label">Total Computing Power</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="activeNodes">0</div>
+                    <div class="stat-label">Active Nodes</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="tasksCompleted">0</div>
+                    <div class="stat-label">Tasks Completed</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="efficiency">0%</div>
+                    <div class="stat-label">Network Efficiency</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="distribution-panel">
+            <h2>Active AI Tasks</h2>
+            <ul class="task-list" id="taskList">
+                <li class="task-item">
+                    <div class="task-header">
+                        <span class="task-title">Image Generation</span>
+                        <span class="task-status status-running">Running</span>
+                    </div>
+                    <div class="task-details">
+                        <span class="task-node">Node: Node-1A2B3C</span>
+                        <span class="task-time">Time: 2m 15s</span>
+                    </div>
+                    <div class="task-progress">
+                        <div class="task-progress-bar" style="width: 65%"></div>
+                    </div>
+                </li>
+                <li class="task-item">
+                    <div class="task-header">
+                        <span class="task-title">Text Translation</span>
+                        <span class="task-status status-pending">Pending</span>
+                    </div>
+                    <div class="task-details">
+                        <span class="task-node">Node: Node-4D5E6F</span>
+                        <span class="task-time">Time: Waiting...</span>
+                    </div>
+                    <div class="task-progress">
+                        <div class="task-progress-bar" style="width: 0%"></div>
+                    </div>
+                </li>
+                <li class="task-item">
+                    <div class="task-header">
+                        <span class="task-title">Data Analysis</span>
+                        <span class="task-status status-completed">Completed</span>
+                    </div>
+                    <div class="task-details">
+                        <span class="task-node">Node: Node-7G8H9I</span>
+                        <span class="task-time">Time: 5m 42s</span>
+                    </div>
+                    <div class="task-progress">
+                        <div class="task-progress-bar" style="width: 100%"></div>
+                    </div>
+                </li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        // Simulate loading data
+        setTimeout(() => {
+            document.getElementById('activeTasks').textContent = '3';
+            document.getElementById('totalNodes').textContent = '5';
+            document.getElementById('totalPower').textContent = '1250';
+            document.getElementById('activeNodes').textContent = '3';
+            document.getElementById('tasksCompleted').textContent = '27';
+            document.getElementById('efficiency').textContent = '92%';
+        }, 1000);
+
+        // In a real implementation, you would fetch this data from your backend
+        async function fetchDistributionData() {
+            try {
+                // This would be replaced with actual API calls
+                // const res = await fetch("http://127.0.0.1:8100/distribution-data");
+                // const data = await res.json();
+                // Update the UI with the fetched data
+            } catch (err) {
+                console.error("Error fetching distribution data:", err);
+            }
+        }
+
+        // Uncomment to use real data
+        // fetchDistributionData();
+    </script>
+</body>
+</html>
