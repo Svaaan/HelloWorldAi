@@ -1,66 +1,150 @@
+import os
+import socket
+import uuid
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
-import requests
+from pydantic import BaseModel, Field
+from typing import Dict, List, Optional
 
 app = FastAPI()
 
+# CORS Middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://127.0.0.1:3000"],  # Allow frontend origin
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["*"],  # Allow all methods (GET, POST, etc.)
-    allow_headers=["*"],  # Allow all headers
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
-# Define node connection models
+class GPUCapabilities(BaseModel):
+    name: str = "No GPU"
+    total_memory: Optional[int] = None
+    free_memory: Optional[int] = None
+    load_percentage: Optional[float] = None
+    temperature: Optional[float] = None
+    cuda_cores: Optional[int] = None
+    compute_capability: Optional[str] = None
+
+class CPUCapabilities(BaseModel):
+    brand: str
+    cores: int
+    threads: int
+    max_freq: Optional[float] = None
+    min_freq: Optional[float] = None
+
 class NodeConnection(BaseModel):
-    node_id: str
+    node_id: str = Field(default_factory=lambda: f"node_{uuid.uuid4()}")
     ip: str
     port: str
-    capabilities: dict
-    isConnected: bool = False  # Track the connection status of the node
+    capabilities: Dict = {
+        "cpu": {},
+        "gpu": {}
+    }
+    isConnected: bool = False
+    last_heartbeat: Optional[float] = None
+    total_compute_score: float = 0
 
 # In-memory storage for connected nodes
-connected_nodes = {}
+connected_nodes: Dict[str, NodeConnection] = {}
+
+def calculate_compute_score(node: NodeConnection) -> float:
+    """
+    Calculate a comprehensive compute score for a node
+    """
+    cpu_score = 0
+    gpu_score = 0
+
+    # CPU Score Calculation
+    cpu = node.capabilities.get('cpu', {})
+    cpu_score = (cpu.get('cores', 0) * 10) + (cpu.get('threads', 0) * 5)
+    
+    # GPU Score Calculation
+    gpu = node.capabilities.get('gpu', {})
+    if gpu and gpu.get('name', '') != "No GPU":
+        gpu_score = (gpu.get('total_memory', 0) / 1024) * 2  # Memory in GB
+        gpu_score += (gpu.get('cuda_cores', 0) / 1000) * 3
+    
+    return cpu_score + gpu_score
 
 @app.post("/connect-node")
 def connect_node(node: NodeConnection):
-    if node.node_id in connected_nodes:
-        connected_nodes[node.node_id].isConnected = True  # Update connection status
-        return {"status": "Node already connected", "node": connected_nodes[node.node_id]}
-
+    # Calculate compute score
+    node.total_compute_score = calculate_compute_score(node)
     node.isConnected = True
-    connected_nodes[node.node_id] = node
-    return {"status": "Node connected successfully", "node": node.dict()}
 
-@app.get("/nodes")  # This is the route you're fetching from the frontend
+    # Store or update node
+    connected_nodes[node.node_id] = node
+    
+    return {
+        "status": "Node connected successfully", 
+        "node_id": node.node_id,
+        "compute_score": node.total_compute_score
+    }
+
+@app.get("/nodes")
 def get_connected_nodes():
-    return [node.dict() for node in connected_nodes.values() if node.isConnected]
+    return [
+        {
+            "node_id": node.node_id,
+            "ip": node.ip,
+            "port": node.port,
+            "capabilities": node.capabilities,
+            "compute_score": node.total_compute_score
+        } 
+        for node in connected_nodes.values() 
+        if node.isConnected
+    ]
 
 @app.get("/get-connected-nodes-count")
 def get_connected_nodes_count():
-    connected_nodes_count = len([node for node in connected_nodes.values() if node.isConnected])
-    return {"connected_nodes_count": connected_nodes_count}
-
+    return {"connected_nodes_count": len(connected_nodes)}
 
 @app.get("/get-total-power")
 def get_total_power():
-    total_cpu_power = 0
-    total_gpu_power = 0
-    cpu_weight = 1  # Weight of 1 per CPU core
-    gpu_weight = 5  # Weight of 5 for each GPU (or adjust as needed)
+    total_compute_score = sum(
+        node.total_compute_score 
+        for node in connected_nodes.values() 
+        if node.isConnected
+    )
 
-    for node in connected_nodes.values():
-        if node.isConnected:
-            total_cpu_power += node.capabilities['cpu']['cores'] * cpu_weight
-            if node.capabilities['gpu'] != "No GPU found":
-                total_gpu_power += gpu_weight
+    # Detailed breakdown
+    node_details = [
+        {
+            "node_id": node.node_id,
+            "cpu": node.capabilities.get('cpu', {}),
+            "gpu": node.capabilities.get('gpu', {}),
+            "compute_score": node.total_compute_score
+        }
+        for node in connected_nodes.values() 
+        if node.isConnected
+    ]
 
-    total_ai_power = total_cpu_power + total_gpu_power
     return {
-        "total_power": total_ai_power,
-        "cpu_power": total_cpu_power,
-        "gpu_power": total_gpu_power,
-        "ai_power": total_ai_power
+        "total_compute_score": total_compute_score,
+        "node_details": node_details,
+        "connected_nodes": len(connected_nodes)
     }
+
+@app.get("/best-nodes-for-task")
+def get_best_nodes_for_task(task_type: str = "general"):
+    """
+    Recommend best nodes for a specific task type
+    """
+    # Sort nodes by compute score in descending order
+    sorted_nodes = sorted(
+        [node for node in connected_nodes.values() if node.isConnected],
+        key=lambda x: x.total_compute_score, 
+        reverse=True
+    )
+
+    # Return top 3 nodes
+    return [
+        {
+            "node_id": node.node_id,
+            "ip": node.ip,
+            "port": node.port,
+            "compute_score": node.total_compute_score
+        }
+        for node in sorted_nodes[:3]
+    ]
