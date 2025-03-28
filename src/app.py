@@ -5,19 +5,22 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
+from dotenv import load_dotenv
+
+# Add the src directory to Python path
+src_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, src_dir)
+
+# Now import backend modules
 from backend.node import app as node_app
 from backend.coordinator import app as coordinator_app
 from backend.dashboard import router as dashboard_router
-from dotenv import load_dotenv  # Import dotenv
 
 # Load environment variables from .env file
-load_dotenv()  # This loads variables from the .env file into the environment
-
-# Lägg till sökvägar
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+load_dotenv()
 
 # Pekar på src/frontend
-template_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "frontend", "template"))
+template_dir = os.path.abspath(os.path.join(src_dir, "frontend", "template"))
 print("📂 Template path:", template_dir)
 
 # Create dashboard-app and add router
@@ -64,6 +67,8 @@ def run_dashboard():
     port = os.getenv("DASHBOARD_PORT", 3000)  # Use the environment variable or fallback to 3000
     uvicorn.run(app=dashboard_app, host="127.0.0.1", port=int(port))  # Change this to 127.0.0.1 for localhost
 
+# For Render deployment
+app = node_app  # This helps Render know which app to run
 
 if __name__ == "__main__":
     # Start the backend services
