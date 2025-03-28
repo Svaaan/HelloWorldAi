@@ -186,7 +186,7 @@
     <script>
         async function fetchTotalPower() {
             try {
-                const res = await fetch("http://127.0.0.1:8100/get-total-power");
+                const res = await fetch("/get-total-power");
                 const data = await res.json();
                 document.getElementById("totalPower").textContent = data?.ai_power ? `${data.ai_power} units` : "N/A";
             } catch (err) {
@@ -194,10 +194,10 @@
                 console.error("Total power fetch error:", err);
             }
         }
-
+    
         async function fetchConnectedNodesCount() {
             try {
-                const res = await fetch("http://127.0.0.1:8100/get-connected-nodes-count");
+                const res = await fetch("/get-connected-nodes-count");
                 const data = await res.json();
                 document.getElementById("connectedNodesCount").textContent = data?.connected_nodes_count ?? "N/A";
             } catch (err) {
@@ -205,22 +205,22 @@
                 console.error("Connected nodes count fetch error:", err);
             }
         }
-
+    
         async function fetchNodeInfo() {
             try {
-                const res = await fetch("http://127.0.0.1:8100/nodes");
+                const res = await fetch("/nodes");
                 const data = await res.json();
-
+    
                 if (data.length === 0) {
                     document.getElementById("nodeDetails").innerHTML = "<p class='status-disconnected'>❌ No nodes connected yet.</p>";
                     return;
                 }
-
+    
                 const node = data[0];
                 const isConnected = (node.isConnected !== undefined) ? 
                     (node.isConnected ? "<span class='status-connected'>✅ Connected</span>" : "<span class='status-disconnected'>❌ Not Connected</span>") :
                     "<span class='status-disconnected'>❌ Connection status unknown</span>";
-
+    
                 document.getElementById("nodeDetails").innerHTML = `
                     <div class="node-detail">
                         <span class="node-detail-label">Node ID:</span>
@@ -252,12 +252,12 @@
                 console.error("Error fetching node details:", err);
             }
         }
-
+    
         async function fetchUsageInfo() {
             try {
-                const res = await fetch("http://127.0.0.1:9100/usage");
+                const res = await fetch("/usage");
                 const data = await res.json();
-
+    
                 document.getElementById("cpuUsagePercent").textContent = `${data.cpu_usage}%`;
                 document.getElementById("gpuUsagePercent").textContent = `${data.gpu_usage}%`;
                 
@@ -268,12 +268,13 @@
                 console.error("Error fetching usage details:", err);
             }
         }
-
+    
         // Fetch all information when page loads
         fetchTotalPower();
         fetchConnectedNodesCount();
         fetchNodeInfo();
         fetchUsageInfo();
     </script>
+    
 </body>
 </html>

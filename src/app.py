@@ -15,6 +15,7 @@ sys.path.insert(0, src_dir)
 from backend.node import app as node_app
 from backend.coordinator import app as coordinator_app
 from backend.dashboard import router as dashboard_router
+from backend.proxypage import router as proxy_router  # ✅ NEW: proxy routes
 
 # Load environment variables from .env file
 load_dotenv()
@@ -35,7 +36,9 @@ dashboard_app.add_middleware(
     allow_headers=["*"],
 )
 
+# Include routers
 dashboard_app.include_router(dashboard_router)
+dashboard_app.include_router(proxy_router)  # ✅ Include proxy endpoints
 
 # Redirect root to /connect
 @dashboard_app.get("/", include_in_schema=False)
