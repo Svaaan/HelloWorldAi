@@ -4,7 +4,7 @@ import multiprocessing
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from dotenv import load_dotenv
 
 # Add the src directory to Python path
@@ -29,17 +29,22 @@ dashboard_app = FastAPI()
 # Add CORS middleware to allow requests from frontend (adjust the origins as needed)
 dashboard_app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins (adjust if necessary)
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["*"],  # Allow all methods (GET, POST, OPTIONS, etc.)
-    allow_headers=["*"],  # Allow all headers
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 dashboard_app.include_router(dashboard_router)
 
+# Redirect root to /connect
+@dashboard_app.get("/", include_in_schema=False)
+def redirect_to_connect():
+    return RedirectResponse(url="/connect")
+
 # Handle GET requests to render the dashboard (connect.html)
-@dashboard_app.get("/", response_class=HTMLResponse)
-def render_dashboard():
+@dashboard_app.get("/connect", response_class=HTMLResponse)
+def render_connect():
     path = os.path.join(template_dir, "connect.html")
     print("🔍 Serving file:", path)
     if not os.path.exists(path):
