@@ -30,11 +30,11 @@ app.add_middleware(
 
 def get_node_ip() -> str:
     try:
-        # For cloud environments, use environment variable or default to 0.0.0.0
-        return os.getenv('NODE_IP', '0.0.0.0')
+        # Use Docker container name if defined, else fallback to host IP
+        return os.getenv('NODE_HOSTNAME', socket.gethostname())
     except Exception as e:
         logger.warning(f"IP retrieval error: {e}")
-        return "0.0.0.0"
+        return "localhost"
 
 def get_advanced_gpu_capabilities() -> Dict[str, Any]:
     try:
