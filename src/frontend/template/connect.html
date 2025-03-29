@@ -4,171 +4,26 @@
 <head>
     <meta charset="UTF-8">
     <title>Node Connection</title>
-    <style>
-        body {
-            font-family: 'Segoe UI', sans-serif;
-            background-color: #111;
-            color: #fff;
-            margin: 0;
-            padding: 0;
-            display: flex;
-            flex-direction: column;
-            height: 100vh;
-            align-items: center;
-            justify-content: flex-start;
-        }
-
-        header {
-            width: 100%;
-            background-color: #222;
-            padding: 1.5rem;
-            text-align: center;
-            box-shadow: 0 0 20px rgba(0, 255, 255, 0.6);
-            display: flex;
-            justify-content: center;
-            align-items: center;
-        }
-
-        h1 {
-            color: #00FFFF;
-            margin: 0;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        .node-icon {
-            width: 40px;
-            height: 40px;
-            background-color: #00FFFF;
-            border-radius: 50%;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            animation: pulse 2s infinite;
-        }
-
-        @keyframes pulse {
-
-            0%,
-            100% {
-                transform: scale(1);
-            }
-
-            50% {
-                transform: scale(1.1);
-            }
-        }
-
-        .connect-info {
-            background: #222;
-            padding: 3rem;
-            margin: 4rem 0;
-            border-radius: 10px;
-            text-align: center;
-            box-shadow: 0 0 20px rgba(0, 255, 255, 0.6);
-            max-width: 500px;
-            width: 90%;
-            transition: all 0.3s ease;
-        }
-
-        .connect-info:hover {
-            box-shadow: 0 0 30px rgba(0, 255, 255, 0.8);
-        }
-
-        .info-text {
-            font-size: 18px;
-            color: #fff;
-            margin-bottom: 20px;
-            line-height: 1.6;
-        }
-
-        .status-message {
-            font-weight: bold;
-            color: #00FFFF;
-            margin-bottom: 20px;
-        }
-
-        button {
-            background-color: #00FFFF;
-            color: #111;
-            padding: 12px 24px;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-            font-size: 16px;
-            margin-top: 20px;
-            box-shadow: 0 0 10px rgba(0, 255, 255, 0.6);
-            transition: all 0.3s ease;
-        }
-
-        button:hover {
-            background-color: #00BFFF;
-            transform: scale(1.05);
-        }
-
-        button:disabled {
-            background-color: #555;
-            cursor: not-allowed;
-            transform: none;
-            box-shadow: none;
-        }
-
-        #processingMessage {
-            color: #00FFFF;
-            font-weight: bold;
-            margin-top: 20px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 10px;
-        }
-
-        .loading-spinner {
-            width: 20px;
-            height: 20px;
-            border: 3px solid rgba(0, 255, 255, 0.3);
-            border-radius: 50%;
-            border-top-color: #00FFFF;
-            animation: spin 1s linear infinite;
-        }
-
-        @keyframes spin {
-            0% {
-                transform: rotate(0deg);
-            }
-
-            100% {
-                transform: rotate(360deg);
-            }
-        }
-
-        .success-message {
-            color: #32CD32;
-            font-size: 18px;
-            margin-top: 20px;
-        }
-
-        .error-message {
-            color: #FF6347;
-            font-size: 18px;
-            margin-top: 20px;
-        }
-
-        @media (max-width: 600px) {
-            .connect-info {
-                padding: 2rem;
-                margin: 2rem 0;
-            }
-
-            .info-text {
-                font-size: 16px;
-            }
-        }
-    </style>
+    <link rel="stylesheet" href="/template/connect.css">
 </head>
 
 
+<body>
+    <header>
+        <h1>
+            <div class="node-icon"></div>
+            Node Connection
+        </h1>
+    </header>
+
+    <div class="connect-info">
+        <p class="info-text">Connect to the node network to access distributed resources.</p>
+        <p class="status-message">Ready to connect</p>
+        <button id="connectNodeButton">Connect Node</button>
+        <div id="processingMessage" style="display: none;">...</div>
+        <div id="resultMessage"></div>
+      
+    </div>
 
     <script>
         async function connectNode() {
@@ -179,62 +34,34 @@
             connectButton.style.display = "none";
             processingMessage.style.display = "flex";
     
-            // Configuration for node and coordinator URLs
-            const NODE_URL = window.ENV?.NODE_URL || "http://127.0.0.1:9100";
-            const COORDINATOR_URL = window.ENV?.COORDINATOR_URL || "http://127.0.0.1:8100/connect-node";
+            const CONNECT_ENDPOINT = "/connect-node"; // Removed PROXY_BASE to work inside Docker
     
             try {
-                // Check if node server is running first
-                const nodeRes = await fetch(`${NODE_URL}/`, {
-                    method: 'GET',
-                    timeout: 5000  // Increased timeout for potential cloud latency
+                const res = await fetch(CONNECT_ENDPOINT, {
+                    method: "POST"
                 });
-    
-                if (!nodeRes.ok) {
-                    throw new Error("Node server not responding");
-                }
-    
-                const node = await nodeRes.json();
-    
-                if (!node || !node.node) {
-                    throw new Error("Invalid node details received");
-                }
-    
-                const nodeData = node.node;
-                const res = await fetch(COORDINATOR_URL, {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json"
-                    },
-                    body: JSON.stringify({
-                        node_id: nodeData.node_id,
-                        ip: nodeData.ip,
-                        port: nodeData.port,
-                        capabilities: nodeData.capabilities
-                    })
-                });
-    
-                if (!res.ok) {
-                    throw new Error(`Connection failed with status: ${res.status}`);
-                }
     
                 const result = await res.json();
-                console.log("Node connected:", result);
-                showMessage("Node connected successfully!", "success");
+                console.log("Node connection result:", result);
+    
+                if (!res.ok || result.error) {
+                    throw new Error(result.error || `Connection failed with status: ${res.status}`);
+                }
+    
+                showMessage("✅ Node connection initiated!", "success");
     
                 setTimeout(() => window.location.href = "/node.html", 2000);
     
             } catch (err) {
-                console.error("Error connecting node:", err);
+                console.error("❌ Error connecting node:", err);
     
-                // More comprehensive error handling
                 let errorMessage;
                 if (err.message.includes("Failed to fetch")) {
-                    errorMessage = `Cannot reach node server at ${NODE_URL}. Is it running?`;
+                    errorMessage = "Cannot reach proxy server. Is the backend running?";
                 } else if (err.message.includes("timeout")) {
-                    errorMessage = "Connection timed out. Check server availability.";
+                    errorMessage = "Connection timed out. Check backend availability.";
                 } else {
-                    errorMessage = err.message || "Failed to connect node.";
+                    errorMessage = err.message || "Unknown error occurred.";
                 }
     
                 showMessage(errorMessage, "error");
@@ -255,8 +82,18 @@
             }, 3000);
         }
     
-        document.getElementById("connectNodeButton").addEventListener("click", connectNode);
+        // ✅ Ensure event binding after DOM is ready
+        document.addEventListener("DOMContentLoaded", () => {
+            const connectButton = document.getElementById("connectNodeButton");
+            if (connectButton) {
+                connectButton.addEventListener("click", connectNode);
+            } else {
+                console.warn("⚠️ connectNodeButton not found in DOM.");
+            }
+        });
     </script>
+    
 </body>
 
 </html>
+

@@ -30,11 +30,11 @@ app.add_middleware(
 
 def get_node_ip() -> str:
     try:
-        # For cloud environments, use environment variable or default to 0.0.0.0
-        return os.getenv('NODE_IP', '0.0.0.0')
+        # Use Docker container name if defined, else fallback to host IP
+        return os.getenv('NODE_HOSTNAME', socket.gethostname())
     except Exception as e:
         logger.warning(f"IP retrieval error: {e}")
-        return "0.0.0.0"
+        return "localhost"
 
 def get_advanced_gpu_capabilities() -> Dict[str, Any]:
     try:
@@ -99,10 +99,10 @@ def background_connection_handler(payload: Dict[str, Any]):
     except requests.exceptions.RequestException as e:
         logger.error(f"Connection error: {e}")
 
-@app.post("/frontend-connect-node")
-async def frontend_connect_node(background_tasks: BackgroundTasks):
+@app.post("/connect-node")
+async def connect_node(background_tasks: BackgroundTasks):
     """
-    Endpoint for frontend to initiate node connection
+    Endpoint to connect this node to the coordinator
     """
     if node_info["connected"]:
         return {
