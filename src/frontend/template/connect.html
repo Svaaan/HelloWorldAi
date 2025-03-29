@@ -34,11 +34,10 @@
             connectButton.style.display = "none";
             processingMessage.style.display = "flex";
     
-            const PROXY_BASE = window.location.origin;
-            const CONNECT_ENDPOINT = "/connect-node";
+            const CONNECT_ENDPOINT = "/connect-node"; // Removed PROXY_BASE to work inside Docker
     
             try {
-                const res = await fetch(`${PROXY_BASE}${CONNECT_ENDPOINT}`, {
+                const res = await fetch(CONNECT_ENDPOINT, {
                     method: "POST"
                 });
     
@@ -83,14 +82,17 @@
             }, 3000);
         }
     
-        // ✅ This will definitely work now
-        const connectButton = document.getElementById("connectNodeButton");
-        if (connectButton) {
-            connectButton.addEventListener("click", connectNode);
-        } else {
-            console.warn("⚠️ connectNodeButton not found in DOM.");
-        }
-      </script>
+        // ✅ Ensure event binding after DOM is ready
+        document.addEventListener("DOMContentLoaded", () => {
+            const connectButton = document.getElementById("connectNodeButton");
+            if (connectButton) {
+                connectButton.addEventListener("click", connectNode);
+            } else {
+                console.warn("⚠️ connectNodeButton not found in DOM.");
+            }
+        });
+    </script>
+    
 </body>
 
 </html>
