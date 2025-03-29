@@ -5,29 +5,26 @@ import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 
 # Add the src directory to Python path
 src_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, src_dir)
 
-# Now import backend modules
-from backend.node import app as node_app
-from backend.coordinator import app as coordinator_app
-from backend.dashboard import router as dashboard_router
-from backend.proxypage import router as proxy_router  # ✅ NEW: proxy routes
-
 # Load environment variables from .env file
 load_dotenv()
 
 # Path to templates
 template_dir = os.path.abspath(os.path.join(src_dir, "frontend", "template"))
-print("📂 Template path:", template_dir)
 
-# Create dashboard-app and add router
+# Create dashboard-app
 dashboard_app = FastAPI()
 
-# Add CORS middleware to allow requests from frontend (adjust the origins as needed)
+# ✅ Serve static files (e.g. connect.css)
+dashboard_app.mount("/template", StaticFiles(directory=template_dir), name="template")
+
+# CORS settings
 dashboard_app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -36,16 +33,22 @@ dashboard_app.add_middleware(
     allow_headers=["*"],
 )
 
+# Now import backend modules
+from backend.node import app as node_app
+from backend.coordinator import app as coordinator_app
+from backend.dashboard import router as dashboard_router
+from backend.proxypage import router as proxy_router  # ✅ NEW: proxy routes
+
 # Include routers
 dashboard_app.include_router(dashboard_router)
-dashboard_app.include_router(proxy_router)  # ✅ Include proxy endpoints
+dashboard_app.include_router(proxy_router)
 
 # Redirect root to /connect
 @dashboard_app.get("/", include_in_schema=False)
 def redirect_to_connect():
     return RedirectResponse(url="/connect")
 
-# Handle GET requests to render the dashboard (connect.html)
+# Serve connect.html
 @dashboard_app.get("/connect", response_class=HTMLResponse)
 def render_connect():
     path = os.path.join(template_dir, "connect.html")
@@ -54,7 +57,7 @@ def render_connect():
         return HTMLResponse("<h1>404 - connect.html not found</h1>", status_code=404)
     return FileResponse(path, media_type="text/html")
 
-# Handle GET requests to render the node page (node.html)
+# Serve node.html
 @dashboard_app.get("/node.html", response_class=HTMLResponse)
 def render_node_page():
     path = os.path.join(template_dir, "node.html")
