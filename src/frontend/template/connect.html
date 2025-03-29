@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <title>Node Connection</title>
@@ -48,8 +49,15 @@
         }
 
         @keyframes pulse {
-            0%, 100% { transform: scale(1); }
-            50% { transform: scale(1.1); }
+
+            0%,
+            100% {
+                transform: scale(1);
+            }
+
+            50% {
+                transform: scale(1.1);
+            }
         }
 
         .connect-info {
@@ -126,8 +134,13 @@
         }
 
         @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
         }
 
         .success-message {
@@ -147,58 +160,48 @@
                 padding: 2rem;
                 margin: 2rem 0;
             }
-            
+
             .info-text {
                 font-size: 16px;
             }
         }
     </style>
 </head>
-<body>
-    <header>
-        <h1>
-            <div class="node-icon">🤖</div>
-            NODE AI
-        </h1>
-    </header>
 
-    <div class="connect-info">
-        <p class="info-text">
-            Contribute to AI processing by connecting your node. Your computational power helps drive advanced AI tasks and research.
-        </p>
 
-        <p class="status-message">Are you ready to connect?</p>
-
-        <button id="connectNodeButton">Connect Node</button>
-
-        <div id="processingMessage" style="display: none;">
-            <div class="loading-spinner"></div>
-            Connecting... Please wait.
-        </div>
-
-        <div id="resultMessage"></div>
-    </div>
 
     <script>
         async function connectNode() {
             const connectButton = document.getElementById("connectNodeButton");
             const processingMessage = document.getElementById("processingMessage");
-            
-            // Disable button during connection attempt
+    
             connectButton.disabled = true;
             connectButton.style.display = "none";
             processingMessage.style.display = "flex";
-
+    
+            // Configuration for node and coordinator URLs
+            const NODE_URL = window.ENV?.NODE_URL || "http://127.0.0.1:9100";
+            const COORDINATOR_URL = window.ENV?.COORDINATOR_URL || "http://127.0.0.1:8100/connect-node";
+    
             try {
-                const nodeRes = await fetch("http://127.0.0.1:9100/");
-                const node = await nodeRes.json();
-
-                if (!node || !node.node) {
-                    throw new Error("Failed to retrieve node details");
+                // Check if node server is running first
+                const nodeRes = await fetch(`${NODE_URL}/`, {
+                    method: 'GET',
+                    timeout: 5000  // Increased timeout for potential cloud latency
+                });
+    
+                if (!nodeRes.ok) {
+                    throw new Error("Node server not responding");
                 }
-
+    
+                const node = await nodeRes.json();
+    
+                if (!node || !node.node) {
+                    throw new Error("Invalid node details received");
+                }
+    
                 const nodeData = node.node;
-                const res = await fetch("http://127.0.0.1:8100/connect-node", {
+                const res = await fetch(COORDINATOR_URL, {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json"
@@ -210,39 +213,50 @@
                         capabilities: nodeData.capabilities
                     })
                 });
-
+    
                 if (!res.ok) {
                     throw new Error(`Connection failed with status: ${res.status}`);
                 }
-
+    
                 const result = await res.json();
                 console.log("Node connected:", result);
                 showMessage("Node connected successfully!", "success");
-
+    
                 setTimeout(() => window.location.href = "/node.html", 2000);
-
+    
             } catch (err) {
                 console.error("Error connecting node:", err);
-                showMessage(err.message || "Failed to connect node.", "error");
-                
-                // Re-enable button on error
+    
+                // More comprehensive error handling
+                let errorMessage;
+                if (err.message.includes("Failed to fetch")) {
+                    errorMessage = `Cannot reach node server at ${NODE_URL}. Is it running?`;
+                } else if (err.message.includes("timeout")) {
+                    errorMessage = "Connection timed out. Check server availability.";
+                } else {
+                    errorMessage = err.message || "Failed to connect node.";
+                }
+    
+                showMessage(errorMessage, "error");
+    
                 connectButton.disabled = false;
                 connectButton.style.display = "block";
                 processingMessage.style.display = "none";
             }
         }
-
+    
         function showMessage(message, type) {
             const resultMessageElement = document.getElementById("resultMessage");
             resultMessageElement.innerHTML = message;
             resultMessageElement.className = type === "success" ? "success-message" : "error-message";
-
+    
             setTimeout(() => {
                 resultMessageElement.innerHTML = "";
             }, 3000);
         }
-
+    
         document.getElementById("connectNodeButton").addEventListener("click", connectNode);
     </script>
 </body>
+
 </html>

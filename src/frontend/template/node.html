@@ -189,22 +189,20 @@
                 const res = await fetch("/get-total-power");
                 const data = await res.json();
                 
-                // Updated to use total_compute_score instead of ai_power
                 const totalPower = data?.total_compute_score 
                     ? `${data.total_compute_score.toFixed(2)} compute units` 
                     : "N/A";
                 
                 document.getElementById("totalPower").textContent = totalPower;
     
-                // Optional: Add more detailed power breakdown
                 const nodeDetailsContainer = document.getElementById("powerNodeDetails");
                 if (nodeDetailsContainer && data.node_details) {
                     const detailsHTML = data.node_details.map(node => `
                         <div class="power-node-detail">
-                            <strong>Node ID:</strong> ${node.node_id}<br>
-                            <strong>CPU:</strong> ${node.cpu.brand} (${node.cpu.cores} cores)<br>
-                            <strong>GPU:</strong> ${node.gpu.name || 'No GPU'}<br>
-                            <strong>Compute Score:</strong> ${node.compute_score.toFixed(2)}
+                            <strong>Node ID:</strong> ${node.node_id || 'Unknown'}<br>
+                            <strong>CPU:</strong> ${node.cpu?.brand || 'Unknown'} (${node.cpu?.cores || 'N/A'} cores)<br>
+                            <strong>GPU:</strong> ${node.gpu?.name || 'No GPU'}<br>
+                            <strong>Compute Score:</strong> ${node.compute_score ? node.compute_score.toFixed(2) : 'N/A'}
                         </div>
                     `).join('');
                     nodeDetailsContainer.innerHTML = detailsHTML;
@@ -228,71 +226,71 @@
         }
     
         async function fetchNodeInfo() {
-            try {
-                const res = await fetch("/nodes");
-                const data = await res.json();
-    
-                if (data.length === 0) {
-                    document.getElementById("nodeDetails").innerHTML = 
-                        "<p class='status-disconnected'>❌ No nodes connected yet.</p>";
-                    return;
-                }
-    
-                const node = data[0];
-                const isConnected = node.isConnected !== undefined 
-                    ? (node.isConnected 
-                        ? "<span class='status-connected'>✅ Connected</span>" 
-                        : "<span class='status-disconnected'>❌ Not Connected</span>")
-                    : "<span class='status-disconnected'>❌ Connection status unknown</span>";
-    
-                // Enhanced node details display
-                document.getElementById("nodeDetails").innerHTML = `
-                    <div class="node-detail">
-                        <span class="node-detail-label">Node ID:</span>
-                        <span>${node.node_id}</span>
-                    </div>
-                    <div class="node-detail">
-                        <span class="node-detail-label">IP:</span>
-                        <span>${node.ip}</span>
-                    </div>
-                    <div class="node-detail">
-                        <span class="node-detail-label">Port:</span>
-                        <span>${node.port}</span>
-                    </div>
-                    <div class="node-detail">
-                        <span class="node-detail-label">CPU:</span>
-                        <span>${node.capabilities.cpu.brand}, ${node.capabilities.cpu.cores} cores</span>
-                    </div>
-                    <div class="node-detail">
-                        <span class="node-detail-label">GPU:</span>
-                        <span>${node.capabilities.gpu.name || 'No GPU detected'}</span>
-                    </div>
-                    <div class="node-detail">
-                        <span class="node-detail-label">Compute Score:</span>
-                        <span>${node.compute_score ? node.compute_score.toFixed(2) : 'N/A'}</span>
-                    </div>
-                    <div class="node-detail">
-                        <span class="node-detail-label">Connection Status:</span>
-                        ${isConnected}
-                    </div>
-                `;
-            } catch (err) {
-                document.getElementById("nodeDetails").innerHTML = 
-                    "<p class='status-disconnected'>⚠️ Error loading node details.</p>";
-                console.error("Error fetching node details:", err);
-            }
+    try {
+        const res = await fetch("/nodes");
+        const data = await res.json();
+
+        if (data.length === 0) {
+            document.getElementById("nodeDetails").innerHTML = 
+                "<p class='status-disconnected'>❌ No nodes connected yet.</p>";
+            return;
         }
-    
+
+        const node = data[0];
+        
+        // Ensure all values have fallbacks
+        const nodeDetails = {
+            id: node.node_id || 'Unknown',
+            ip: node.ip || 'N/A',
+            port: node.port || 'N/A',
+            cpuBrand: node.capabilities?.cpu?.brand || 'Unknown',
+            cpuCores: node.capabilities?.cpu?.cores || 'N/A',
+            gpu: node.capabilities?.gpu?.name || 'No GPU detected',
+            computeScore: node.compute_score?.toFixed(2) || 'N/A'
+        };
+
+        document.getElementById("nodeDetails").innerHTML = `
+            <div class="node-detail">
+                <span class="node-detail-label">Node ID:</span>
+                <span>${nodeDetails.id}</span>
+            </div>
+            <div class="node-detail">
+                <span class="node-detail-label">IP:</span>
+                <span>${nodeDetails.ip}</span>
+            </div>
+            <div class="node-detail">
+                <span class="node-detail-label">Port:</span>
+                <span>${nodeDetails.port}</span>
+            </div>
+            <div class="node-detail">
+                <span class="node-detail-label">CPU:</span>
+                <span>${nodeDetails.cpuBrand}, ${nodeDetails.cpuCores} cores</span>
+            </div>
+            <div class="node-detail">
+                <span class="node-detail-label">GPU:</span>
+                <span>${nodeDetails.gpu}</span>
+            </div>
+            <div class="node-detail">
+                <span class="node-detail-label">Compute Score:</span>
+                <span>${nodeDetails.computeScore}</span>
+            </div>
+        `;
+    } catch (err) {
+        document.getElementById("nodeDetails").innerHTML = 
+            "<p class='status-disconnected'>⚠️ Error loading node details.</p>";
+        console.error("Error fetching node details:", err);
+    }
+}
         async function fetchUsageInfo() {
             try {
                 const res = await fetch("/usage");
                 const data = await res.json();
     
-                document.getElementById("cpuUsagePercent").textContent = `${data.cpu_usage}%`;
-                document.getElementById("gpuUsagePercent").textContent = `${data.gpu_usage}%`;
+                document.getElementById("cpuUsagePercent").textContent = `${data.cpu_usage || 0}%`;
+                document.getElementById("gpuUsagePercent").textContent = `${data.gpu_usage || 0}%`;
                 
-                document.getElementById("cpuUsageBar").style.width = `${data.cpu_usage}%`;
-                document.getElementById("gpuUsageBar").style.width = `${data.gpu_usage}%`;
+                document.getElementById("cpuUsageBar").style.width = `${data.cpu_usage || 0}%`;
+                document.getElementById("gpuUsageBar").style.width = `${data.gpu_usage || 0}%`;
             } catch (err) {
                 document.getElementById("usageDetails").innerHTML = 
                     "<p class='status-disconnected'>⚠️ Error loading usage details.</p>";
