@@ -53,7 +53,8 @@ load_dotenv()
 router = APIRouter()
 
 # Load base URL from environment variable
-COORDINATOR_BASE = os.getenv("COORDINATOR_BASE", "http://127.0.0.1:8100")
+COORDINATOR_BASE = os.getenv("COORDINATOR_BASE", "http://coordinator:8100")
+
 
 async def fetch_node_data():
     try:
