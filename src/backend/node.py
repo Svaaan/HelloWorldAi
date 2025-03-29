@@ -36,24 +36,6 @@ def get_node_ip() -> str:
         logger.warning(f"IP retrieval error: {e}")
         return "localhost"
 
-def get_advanced_gpu_capabilities() -> Dict[str, Any]:
-    try:
-        gpus = GPUtil.getGPUs()
-        if gpus:
-            gpu = gpus[0]
-            return {
-                "name": gpu.name,
-                "total_memory": gpu.memoryTotal,
-                "free_memory": gpu.memoryFree,
-                "used_memory": gpu.memoryUsed,
-                "load_percentage": round(gpu.load * 100, 2),
-                "temperature": gpu.temperature
-            }
-        return {"name": "No GPU Detected"}
-    except Exception as e:
-        logger.error(f"GPU detection error: {e}")
-        return {"name": "GPU Detection Limited"}
-
 def get_system_capabilities() -> Dict[str, Any]:
     try:
         cpu_info = psutil.cpu_freq()
@@ -66,11 +48,50 @@ def get_system_capabilities() -> Dict[str, Any]:
             "current_freq": round(cpu_info.current, 2) if cpu_info else None
         }
 
-        gpu = get_advanced_gpu_capabilities()
-        return {"cpu": cpu, "gpu": gpu}
+        gpus = []
+        try:
+            import GPUtil
+            detected_gpus = GPUtil.getGPUs()
+            for gpu in detected_gpus:
+                gpus.append({
+                    "name": gpu.name,
+                    "total_memory": gpu.memoryTotal,
+                    "free_memory": gpu.memoryFree,
+                    "used_memory": gpu.memoryUsed,
+                    "load_percentage": round(gpu.load * 100, 2),
+                    "temperature": gpu.temperature
+                })
+        except Exception as gpu_error:
+            logger.error(f"GPU detection error: {gpu_error}")
+            gpus = [{"name": "GPU Detection Limited"}]
+
+        return {
+            "cpu": cpu,
+            "gpu": gpus if gpus else [{"name": "No GPU Detected"}]
+        }
+
     except Exception as e:
         logger.error(f"System capabilities error: {e}")
         return {"error": "Limited system capabilities"}
+    
+def get_advanced_gpu_capabilities() -> list:
+    try:
+        gpus = GPUtil.getGPUs()
+        gpu_list = []
+        for gpu in gpus:
+            gpu_list.append({
+                "name": gpu.name,
+                "total_memory": gpu.memoryTotal,
+                "free_memory": gpu.memoryFree,
+                "used_memory": gpu.memoryUsed,
+                "load_percentage": round(gpu.load * 100, 2),
+                "temperature": gpu.temperature
+            })
+        return gpu_list if gpu_list else [{"name": "No GPU Detected"}]
+    except Exception as e:
+        logger.error(f"GPU detection error: {e}")
+        return [{"name": "GPU Detection Limited"}]
+
 
 # Node configuration with environment-aware initialization
 node_info = {
@@ -88,16 +109,24 @@ def background_connection_handler(payload: Dict[str, Any]):
     Background task for handling node connection
     """
     coordinator_url = os.getenv('COORDINATOR_URL', 'http://localhost:8100/connect-node')
+    
+    logger.info(f"📡 Attempting to connect to coordinator at {coordinator_url}")
+    logger.debug(f"🔍 Payload being sent:\n{payload}")
+
     try:
         res = requests.post(coordinator_url, json=payload, timeout=10)
-        
+
+        logger.info(f"🔄 Coordinator responded with status {res.status_code}")
         if res.status_code == 200:
             node_info["connected"] = True
-            logger.info("Node connected successfully to coordinator")
+            logger.info(f"✅ Node '{node_info['node_id']}' connected successfully!")
+            logger.debug(f"📥 Coordinator response: {res.json()}")
         else:
-            logger.error(f"Connection failed: {res.text}")
+            logger.error(f"❌ Connection failed. Status: {res.status_code}, Response: {res.text}")
+
     except requests.exceptions.RequestException as e:
-        logger.error(f"Connection error: {e}")
+        logger.error(f"🚨 Connection error to coordinator: {e}")
+
 
 @app.post("/connect-node")
 async def connect_node(background_tasks: BackgroundTasks):
@@ -182,22 +211,23 @@ def compute(task: Dict[str, Any]):
     Computation handler with GPU and CPU task processing
     """
     try:
-        gpu_info = node_info["capabilities"]["gpu"]
-        
+        gpu_list = node_info["capabilities"].get("gpu", [])
+        gpu_available = next((gpu for gpu in gpu_list if gpu.get("name") != "No GPU Detected"), None)
+
         # Increment total tasks processed
         node_info["total_tasks_processed"] += 1
-        
-        # GPU computation if available
-        if gpu_info.get("name", "No GPU") != "No GPU":
+
+        # Use GPU if available
+        if gpu_available:
             result = _process_gpu_task(task)
             return {
                 "task_id": task.get("task_id", str(uuid.uuid4())),
                 "result": result,
-                "gpu_used": gpu_info["name"],
-                "gpu_load": gpu_info.get("load_percentage", 0),
+                "gpu_used": gpu_available["name"],
+                "gpu_load": gpu_available.get("load_percentage", 0),
                 "processing_method": "GPU"
             }
-        
+
         # Fallback to CPU computation
         result = _process_cpu_task(task)
         return {
@@ -205,13 +235,14 @@ def compute(task: Dict[str, Any]):
             "result": result,
             "processing_method": "CPU"
         }
-    
+
     except Exception as e:
         logger.error(f"Computation error: {e}")
         return {
             "error": "Computation failed",
             "details": str(e)
         }
+
 
 def _process_gpu_task(task):
     # Simulated GPU task processing with error handling
