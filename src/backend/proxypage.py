@@ -7,10 +7,16 @@ load_dotenv()
 
 router = APIRouter()
 
-# Load base URLs from environment variables
-COORDINATOR_BASE = os.getenv("COORDINATOR_BASE", "http://127.0.0.1:8100")
-NODE_BASE = os.getenv("NODE_BASE", "http://127.0.0.1:9100")
+# Detect if we're running inside Docker
+USE_DOCKER = os.getenv("USE_DOCKER", "false").lower() == "true"
 
+# Set dynamic base URLs based on environment
+if USE_DOCKER:
+    COORDINATOR_BASE = "http://coordinator:8100"
+    NODE_BASE = "http://node:9100"
+else:
+    COORDINATOR_BASE = "http://127.0.0.1:8100"
+    NODE_BASE = "http://127.0.0.1:9100"
 
 @router.get("/get-total-power")
 async def proxy_total_power():
@@ -54,3 +60,16 @@ async def proxy_usage():
             return res.json()
     except httpx.RequestError as e:
         return {"error": f"Failed to fetch usage info: {e}"}
+
+
+@router.post("/connect-node")
+async def proxy_connect_node():
+    try:
+        async with httpx.AsyncClient() as client:
+            res = await client.post(f"{NODE_BASE}/connect-node")
+            res.raise_for_status()
+            return res.json()
+    except httpx.RequestError as e:
+        return {"error": f"Failed to reach node at {NODE_BASE}: {str(e)}"}
+    except Exception as e:
+        return {"error": f"Unexpected error: {str(e)}"}

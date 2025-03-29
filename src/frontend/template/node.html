@@ -3,139 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <title>Node Information</title>
-    <style>
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }
-
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: #111;
-            color: #fff;
-            line-height: 1.6;
-        }
-
-        .header {
-            background-color: #222;
-            color: #00FFFF;
-            padding: 1rem;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            box-shadow: 0 2px 5px rgba(0, 255, 255, 0.3);
-        }
-
-        .header-logo {
-            display: flex;
-            align-items: center;
-            font-size: 1.5rem;
-            font-weight: bold;
-        }
-
-        .header-details {
-            text-align: right;
-        }
-
-        .header-details .info {
-            color: #fff;
-            margin: 5px 0;
-            font-size: 0.9rem;
-        }
-
-        .header-details .info span {
-            color: #00FFFF;
-            font-weight: bold;
-        }
-
-        .dashboard-container {
-            display: flex;
-            max-width: 1200px;
-            margin: 2rem auto;
-            gap: 2rem;
-            padding: 0 1rem;
-        }
-
-        .node-info, .usage-info {
-            background: #222;
-            padding: 2rem;
-            border-radius: 10px;
-            box-shadow: 0 0 20px rgba(0, 255, 255, 0.6);
-            flex: 1;
-        }
-
-        .node-info h2, .usage-info h2 {
-            color: #00FFFF;
-            border-bottom: 2px solid #00FFFF;
-            padding-bottom: 0.5rem;
-            margin-bottom: 1rem;
-        }
-
-        .node-detail {
-            display: flex;
-            justify-content: space-between;
-            margin-bottom: 0.5rem;
-        }
-
-        .node-detail-label {
-            color: #00FFFF;
-            font-weight: bold;
-        }
-
-        .usage-bar {
-            background-color: #333;
-            height: 20px;
-            border-radius: 10px;
-            overflow: hidden;
-            margin-bottom: 1rem;
-        }
-
-        .usage-bar-fill {
-            background-color: #00FFFF;
-            height: 100%;
-            transition: width 0.5s ease;
-        }
-
-        .status-connected {
-            color: #32CD32;
-        }
-
-        .status-disconnected {
-            color: #ff6347;
-        }
-
-        .action-button {
-            display: inline-block;
-            background-color: #00FFFF;
-            color: #111;
-            padding: 0.75rem 1.5rem;
-            border-radius: 5px;
-            font-weight: bold;
-            text-decoration: none;
-            margin-top: 1.5rem;
-            transition: all 0.3s ease;
-            border: none;
-            cursor: pointer;
-            text-align: center;
-        }
-
-        .action-button:hover {
-            background-color: #fff;
-            box-shadow: 0 0 15px rgba(0, 255, 255, 0.8);
-        }
-
-        .action-section {
-            margin-top: 1.5rem;
-            text-align: center;
-        }
-
-        @media (max-width: 768px) {
-            .dashboard-container {
-                flex-direction: column;
-            }
-        }
-    </style>
+    <link rel="stylesheet" href="/template/node.css">
 </head>
 <body>
     <!-- Embedded Header -->
@@ -188,11 +56,11 @@
             try {
                 const res = await fetch("/get-total-power");
                 const data = await res.json();
-                
-                const totalPower = data?.total_compute_score 
-                    ? `${data.total_compute_score.toFixed(2)} compute units` 
+    
+                const totalPower = typeof data.total_compute_score === "number"
+                    ? `${data.total_compute_score.toFixed(2)} compute units`
                     : "N/A";
-                
+    
                 document.getElementById("totalPower").textContent = totalPower;
     
                 const nodeDetailsContainer = document.getElementById("powerNodeDetails");
@@ -202,7 +70,7 @@
                             <strong>Node ID:</strong> ${node.node_id || 'Unknown'}<br>
                             <strong>CPU:</strong> ${node.cpu?.brand || 'Unknown'} (${node.cpu?.cores || 'N/A'} cores)<br>
                             <strong>GPU:</strong> ${node.gpu?.name || 'No GPU'}<br>
-                            <strong>Compute Score:</strong> ${node.compute_score ? node.compute_score.toFixed(2) : 'N/A'}
+                            <strong>Compute Score:</strong> ${typeof node.compute_score === "number" ? node.compute_score.toFixed(2) : 'N/A'}
                         </div>
                     `).join('');
                     nodeDetailsContainer.innerHTML = detailsHTML;
@@ -217,7 +85,7 @@
             try {
                 const res = await fetch("/get-connected-nodes-count");
                 const data = await res.json();
-                document.getElementById("connectedNodesCount").textContent = 
+                document.getElementById("connectedNodesCount").textContent =
                     data?.connected_nodes_count ?? "N/A";
             } catch (err) {
                 document.getElementById("connectedNodesCount").textContent = "Error";
@@ -226,61 +94,61 @@
         }
     
         async function fetchNodeInfo() {
-    try {
-        const res = await fetch("/nodes");
-        const data = await res.json();
-
-        if (data.length === 0) {
-            document.getElementById("nodeDetails").innerHTML = 
-                "<p class='status-disconnected'>❌ No nodes connected yet.</p>";
-            return;
+            try {
+                const res = await fetch("/nodes");
+                const data = await res.json();
+    
+                if (!data || data.length === 0) {
+                    document.getElementById("nodeDetails").innerHTML =
+                        "<p class='status-disconnected'>❌ No nodes connected yet.</p>";
+                    return;
+                }
+    
+                const node = data[0];
+    
+                const nodeDetails = {
+                    id: node.node_id || 'Unknown',
+                    ip: node.ip || 'N/A',
+                    port: node.port || 'N/A',
+                    cpuBrand: node.capabilities?.cpu?.brand || 'Unknown',
+                    cpuCores: node.capabilities?.cpu?.cores || 'N/A',
+                    gpu: node.capabilities?.gpu?.name || 'No GPU detected',
+                    computeScore: typeof node.compute_score === "number" ? node.compute_score.toFixed(2) : 'N/A'
+                };
+    
+                document.getElementById("nodeDetails").innerHTML = `
+                    <div class="node-detail">
+                        <span class="node-detail-label">Node ID:</span>
+                        <span>${nodeDetails.id}</span>
+                    </div>
+                    <div class="node-detail">
+                        <span class="node-detail-label">IP:</span>
+                        <span>${nodeDetails.ip}</span>
+                    </div>
+                    <div class="node-detail">
+                        <span class="node-detail-label">Port:</span>
+                        <span>${nodeDetails.port}</span>
+                    </div>
+                    <div class="node-detail">
+                        <span class="node-detail-label">CPU:</span>
+                        <span>${nodeDetails.cpuBrand}, ${nodeDetails.cpuCores} cores</span>
+                    </div>
+                    <div class="node-detail">
+                        <span class="node-detail-label">GPU:</span>
+                        <span>${nodeDetails.gpu}</span>
+                    </div>
+                    <div class="node-detail">
+                        <span class="node-detail-label">Compute Score:</span>
+                        <span>${nodeDetails.computeScore}</span>
+                    </div>
+                `;
+            } catch (err) {
+                document.getElementById("nodeDetails").innerHTML =
+                    "<p class='status-disconnected'>⚠️ Error loading node details.</p>";
+                console.error("Error fetching node details:", err);
+            }
         }
-
-        const node = data[0];
-        
-        // Ensure all values have fallbacks
-        const nodeDetails = {
-            id: node.node_id || 'Unknown',
-            ip: node.ip || 'N/A',
-            port: node.port || 'N/A',
-            cpuBrand: node.capabilities?.cpu?.brand || 'Unknown',
-            cpuCores: node.capabilities?.cpu?.cores || 'N/A',
-            gpu: node.capabilities?.gpu?.name || 'No GPU detected',
-            computeScore: node.compute_score?.toFixed(2) || 'N/A'
-        };
-
-        document.getElementById("nodeDetails").innerHTML = `
-            <div class="node-detail">
-                <span class="node-detail-label">Node ID:</span>
-                <span>${nodeDetails.id}</span>
-            </div>
-            <div class="node-detail">
-                <span class="node-detail-label">IP:</span>
-                <span>${nodeDetails.ip}</span>
-            </div>
-            <div class="node-detail">
-                <span class="node-detail-label">Port:</span>
-                <span>${nodeDetails.port}</span>
-            </div>
-            <div class="node-detail">
-                <span class="node-detail-label">CPU:</span>
-                <span>${nodeDetails.cpuBrand}, ${nodeDetails.cpuCores} cores</span>
-            </div>
-            <div class="node-detail">
-                <span class="node-detail-label">GPU:</span>
-                <span>${nodeDetails.gpu}</span>
-            </div>
-            <div class="node-detail">
-                <span class="node-detail-label">Compute Score:</span>
-                <span>${nodeDetails.computeScore}</span>
-            </div>
-        `;
-    } catch (err) {
-        document.getElementById("nodeDetails").innerHTML = 
-            "<p class='status-disconnected'>⚠️ Error loading node details.</p>";
-        console.error("Error fetching node details:", err);
-    }
-}
+    
         async function fetchUsageInfo() {
             try {
                 const res = await fetch("/usage");
@@ -288,27 +156,39 @@
     
                 document.getElementById("cpuUsagePercent").textContent = `${data.cpu_usage || 0}%`;
                 document.getElementById("gpuUsagePercent").textContent = `${data.gpu_usage || 0}%`;
-                
+    
                 document.getElementById("cpuUsageBar").style.width = `${data.cpu_usage || 0}%`;
                 document.getElementById("gpuUsageBar").style.width = `${data.gpu_usage || 0}%`;
             } catch (err) {
-                document.getElementById("usageDetails").innerHTML = 
+                document.getElementById("usageDetails").innerHTML =
                     "<p class='status-disconnected'>⚠️ Error loading usage details.</p>";
                 console.error("Error fetching usage details:", err);
             }
         }
     
-        // Periodic refresh every 5 seconds
+        // Debounced periodic refresh to avoid overlapping
+        let isRefreshing = false;
         function startPeriodicRefresh() {
-            setInterval(() => {
-                fetchTotalPower();
-                fetchConnectedNodesCount();
-                fetchNodeInfo();
-                fetchUsageInfo();
+            setInterval(async () => {
+                if (isRefreshing) return;
+                isRefreshing = true;
+    
+                try {
+                    await Promise.all([
+                        fetchTotalPower(),
+                        fetchConnectedNodesCount(),
+                        fetchNodeInfo(),
+                        fetchUsageInfo()
+                    ]);
+                } catch (err) {
+                    console.error("Periodic refresh error:", err);
+                }
+    
+                isRefreshing = false;
             }, 5000);
         }
     
-        // Fetch all information when page loads and start periodic refresh
+        // Initial fetch on page load
         window.addEventListener('load', () => {
             fetchTotalPower();
             fetchConnectedNodesCount();
@@ -317,6 +197,7 @@
             startPeriodicRefresh();
         });
     </script>
+    
     
 </body>
 </html>
