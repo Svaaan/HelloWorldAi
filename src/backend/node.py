@@ -99,10 +99,10 @@ def background_connection_handler(payload: Dict[str, Any]):
     except requests.exceptions.RequestException as e:
         logger.error(f"Connection error: {e}")
 
-@app.post("/frontend-connect-node")
-async def frontend_connect_node(background_tasks: BackgroundTasks):
+@app.post("/connect-node")
+async def connect_node(background_tasks: BackgroundTasks):
     """
-    Endpoint for frontend to initiate node connection
+    Endpoint to connect this node to the coordinator
     """
     if node_info["connected"]:
         return {
