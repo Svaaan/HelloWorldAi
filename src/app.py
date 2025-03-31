@@ -70,6 +70,15 @@ def render_connect():
 def redirect_to_node_html():
     return RedirectResponse(url="/node.html")
 
+@dashboard_app.get("/distribution", include_in_schema=False)
+def redirect_to_node_html():
+    return RedirectResponse(url="/distribution.html")
+
+@dashboard_app.get("/distribution.html", response_class=HTMLResponse)
+def render_distribution_page():
+    path = os.path.join(TEMPLATE_DIR, "distribution.html")
+    return FileResponse(path) if os.path.exists(path) else HTMLResponse("<h1>404 - distribution.html not found</h1>", status_code=404)
+
 @dashboard_app.get("/node.html", response_class=HTMLResponse)
 def render_node_page():
     path = os.path.join(TEMPLATE_DIR, "node.html")

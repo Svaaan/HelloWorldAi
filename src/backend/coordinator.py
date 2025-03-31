@@ -9,15 +9,11 @@ from GPUtil import getGPUs
 from pydantic import BaseModel, Field
 from typing import Dict, List, Optional
 from backend.mocked_task import (
-    simulate_verification_task,
     run_cpu_task,
     run_gpu_task
 )
+import torch
 
-try:
-    import torch
-except ImportError:
-    pass  
 
 app = FastAPI()
 
@@ -52,18 +48,21 @@ class CPUCapabilities(BaseModel):
 class NodeConnection(BaseModel):
     node_id: str = Field(default_factory=lambda: f"node_{uuid.uuid4()}")
     ip: str
-    country: Optional[str] = "Unknown"  # Nytt fält
+    country: Optional[str] = "Unknown"
     capabilities: Dict = {
         "cpu": {},
         "gpu": {}
     }
     isConnected: bool = False
-    last_heartbeat: Optional[float] = None
+    isAvailable: bool = False 
     total_compute_score: float = 0
     cpu_verified: bool = False
     gpu_verified: bool = False
     cpu_usage: float = 0.0
     gpu_usage: float = 0.0
+    cpu_benchmark: Optional[int] = None
+    gpu_benchmark: Optional[int] = None
+
 
 
 
@@ -105,12 +104,24 @@ def calculate_compute_score(node: NodeConnection) -> float:
 
     return cpu_score + gpu_score
 
+@app.patch("/toggle-availability/{node_id}")
+def toggle_availability(node_id: str):
+    result = toggle_node_availability(node_id, connected_nodes)
+    if result is None:
+        return {"status": "error", "message": f"Node {node_id} not found"}, 404
+    
+    return {
+        "status": "success", 
+        "node_id": node_id, 
+        "isAvailable": result,
+        "message": f"Node availability toggled to {result}"
+    }
+
 @app.post("/connect-node")
 def connect_node(node: NodeConnection, request: Request):
     node.ip = request.client.host
     node.total_compute_score = calculate_compute_score(node)
     node.isConnected = True  # Setting connection status to true
-    node.last_heartbeat = time.time()
     node.cpu_verified = False
     node.gpu_verified = False
     node.cpu_usage = 0.0
@@ -132,19 +143,27 @@ def get_connected_nodes():
         {
             "node_id": node.node_id,
             "ip": node.ip,
-            "country": getattr(node, "country", "Unknown"),  # 👈 Lägg till detta
+            "country": getattr(node, "country", "Unknown"),
             "capabilities": node.capabilities,
             "compute_score": node.total_compute_score,
             "cpu_verified": node.cpu_verified,
             "gpu_verified": node.gpu_verified,
             "cpu_usage": node.cpu_usage,
-            "gpu_usage": node.gpu_usage
+            "gpu_usage": node.gpu_usage,
+            "isConnected": node.isConnected,
+            "isAvailable": node.isAvailable
+
         }
         for node in connected_nodes.values()
-        if node.isConnected
     ]
 
-
+def toggle_node_availability(node_id: str, connected_nodes: dict):
+    if node_id in connected_nodes:
+        node = connected_nodes[node_id]
+        node.isAvailable = not getattr(node, 'isAvailable', False)
+        print(f"🔁 Toggled availability for {node_id} to {node.isAvailable}")
+        return node.isAvailable
+    return None
 
 @app.get("/get-connected-nodes-count")
 def get_connected_nodes_count():
@@ -222,23 +241,6 @@ def get_usage_info():
         "last_updated": system_usage["last_updated"]
     }
 
-# Add a function to check for stale nodes and mark them as disconnected
-def cleanup_stale_nodes():
-    """
-    Periodically check for nodes that haven't sent a heartbeat
-    and mark them as disconnected
-    """
-    while True:
-        current_time = time.time()
-        stale_threshold = 60  # 60 seconds without heartbeat = stale
-        
-        for node_id, node in list(connected_nodes.items()):
-            if node.isConnected and node.last_heartbeat and (current_time - node.last_heartbeat) > stale_threshold:
-                print(f"⚠️ Node {node_id} appears to be stale. Marking as disconnected.")
-                node.isConnected = False
-        
-        time.sleep(30)  # Check every 30 seconds
-
 
 
 # Add endpoints for specific test types
@@ -287,11 +289,9 @@ def get_node_performance(node_id: str):
         "gpu_verified": getattr(node, 'gpu_verified', False),
         "cpu_usage": getattr(node, 'cpu_usage', 0),
         "gpu_usage": getattr(node, 'gpu_usage', 0),
-        "last_heartbeat": getattr(node, 'last_heartbeat', None)
+        "cpu_benchmark": getattr(node, "cpu_benchmark", None),
+        "gpu_benchmark": getattr(node, "gpu_benchmark", None),
+
     }
-# Start the cleanup thread when the application starts
-@app.on_event("startup")
-def startup_event():
-    # Start the cleanup thread
-    threading.Thread(target=cleanup_stale_nodes, daemon=True).start()
+
     
