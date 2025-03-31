@@ -48,7 +48,7 @@ class CPUCapabilities(BaseModel):
 class NodeConnection(BaseModel):
     node_id: str = Field(default_factory=lambda: f"node_{uuid.uuid4()}")
     ip: str
-    country: Optional[str] = "Unknown"  # Nytt fält
+    country: Optional[str] = "Unknown"
     capabilities: Dict = {
         "cpu": {},
         "gpu": {}
@@ -59,6 +59,9 @@ class NodeConnection(BaseModel):
     gpu_verified: bool = False
     cpu_usage: float = 0.0
     gpu_usage: float = 0.0
+    cpu_benchmark: Optional[int] = None
+    gpu_benchmark: Optional[int] = None
+
 
 
 
@@ -264,6 +267,9 @@ def get_node_performance(node_id: str):
         "gpu_verified": getattr(node, 'gpu_verified', False),
         "cpu_usage": getattr(node, 'cpu_usage', 0),
         "gpu_usage": getattr(node, 'gpu_usage', 0),
+        "cpu_benchmark": getattr(node, "cpu_benchmark", None),
+        "gpu_benchmark": getattr(node, "gpu_benchmark", None),
+
     }
 
     
