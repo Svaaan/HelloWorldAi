@@ -76,7 +76,6 @@
         </div>
     </div>
 
-    <!-- Load Header and Stats -->
     <script type="module">
         import { loadHeader } from "/static/js/header.js";
         loadHeader();
@@ -143,7 +142,7 @@
             </div>
                    <div class="node-detail">
         <span class="node-detail-label">Availability:</span> 
-        <span style="color:${node.isAvailable ? 'green' : 'red'}">
+        <span style="color:${node.isAvailable ? '#00ff9d' : '#ff4d4d'}">
             ${node.isAvailable ? '🟢 Available' : '🔴 Not Available'}
         </span>
     </div>
@@ -161,9 +160,9 @@
         function updateAvailabilityStatus(isAvailable) {
             const availabilityStatus = document.getElementById("availabilityStatus");
             if (isAvailable) {
-                availabilityStatus.innerHTML = '<span style="color:green;">🟢 Available</span>';
+                availabilityStatus.innerHTML = '<span style="color:#00ff9d;">🟢 Available</span>';
             } else {
-                availabilityStatus.innerHTML = '<span style="color:red;">🔴 Not Available</span>';
+                availabilityStatus.innerHTML = '<span style="color:#ff4d4d;">🔴 Not Available</span>';
             }
         }
 
