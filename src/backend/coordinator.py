@@ -54,7 +54,6 @@ class NodeConnection(BaseModel):
         "gpu": {}
     }
     isConnected: bool = False
-    last_heartbeat: Optional[float] = None
     total_compute_score: float = 0
     cpu_verified: bool = False
     gpu_verified: bool = False
@@ -106,7 +105,6 @@ def connect_node(node: NodeConnection, request: Request):
     node.ip = request.client.host
     node.total_compute_score = calculate_compute_score(node)
     node.isConnected = True  # Setting connection status to true
-    node.last_heartbeat = time.time()
     node.cpu_verified = False
     node.gpu_verified = False
     node.cpu_usage = 0.0
@@ -218,23 +216,6 @@ def get_usage_info():
         "last_updated": system_usage["last_updated"]
     }
 
-# Add a function to check for stale nodes and mark them as disconnected
-def cleanup_stale_nodes():
-    """
-    Periodically check for nodes that haven't sent a heartbeat
-    and mark them as disconnected
-    """
-    while True:
-        current_time = time.time()
-        stale_threshold = 60  # 60 seconds without heartbeat = stale
-        
-        for node_id, node in list(connected_nodes.items()):
-            if node.isConnected and node.last_heartbeat and (current_time - node.last_heartbeat) > stale_threshold:
-                print(f"⚠️ Node {node_id} appears to be stale. Marking as disconnected.")
-                node.isConnected = False
-        
-        time.sleep(30)  # Check every 30 seconds
-
 
 
 # Add endpoints for specific test types
@@ -283,11 +264,6 @@ def get_node_performance(node_id: str):
         "gpu_verified": getattr(node, 'gpu_verified', False),
         "cpu_usage": getattr(node, 'cpu_usage', 0),
         "gpu_usage": getattr(node, 'gpu_usage', 0),
-        "last_heartbeat": getattr(node, 'last_heartbeat', None)
     }
-# Start the cleanup thread when the application starts
-@app.on_event("startup")
-def startup_event():
-    # Start the cleanup thread
-    threading.Thread(target=cleanup_stale_nodes, daemon=True).start()
+
     

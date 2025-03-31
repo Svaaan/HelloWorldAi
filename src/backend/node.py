@@ -53,7 +53,6 @@ node_info = {
     "connected": False,
     "accept_tasks": True,
     "allowed_clients": ["trusted-client-1", "trusted-client-2"],
-    "last_heartbeat": None,
     "total_tasks_processed": 0
 }
 
