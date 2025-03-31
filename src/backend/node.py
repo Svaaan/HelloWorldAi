@@ -2,6 +2,7 @@ import os
 import socket
 import uuid
 import logging
+import requests
 from fastapi import FastAPI, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Dict, Any
@@ -16,7 +17,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# FastAPI app
 app = FastAPI(title="Compute Node", description="Distributed Computing Node")
 
 # Enable CORS
@@ -30,16 +30,25 @@ app.add_middleware(
 
 def get_node_ip() -> str:
     try:
-        return os.getenv('NODE_HOSTNAME', socket.gethostname())
+        return socket.gethostbyname(socket.gethostname())
     except Exception as e:
         logger.warning(f"IP retrieval error: {e}")
-        return "localhost"
+        return "127.0.0.1"
+
+def get_country_from_ip(ip: str) -> str:
+    try:
+        res = requests.get(f"https://ipapi.co/{ip}/country_name/", timeout=5)
+        if res.status_code == 200:
+            return res.text.strip()
+    except Exception as e:
+        logger.warning(f"Failed to get country for IP {ip}: {e}")
+    return "Unknown"
 
 # Node configuration
+public_ip = get_node_ip()
 node_info = {
     "node_id": f"node_{uuid.uuid4()}",
-    "ip": get_node_ip(),
-    "port": os.getenv('PORT', '9100'),
+    "country": get_country_from_ip(public_ip),
     "capabilities": get_system_capabilities(),
     "connected": False,
     "accept_tasks": True,
@@ -59,8 +68,8 @@ async def connect_node(background_tasks: BackgroundTasks):
 
     payload = {
         "node_id": node_info["node_id"],
-        "ip": node_info["ip"],
-        "port": node_info["port"],
+        "ip": public_ip,
+        "country": node_info["country"],
         "capabilities": node_info["capabilities"]
     }
 
@@ -103,10 +112,7 @@ def get_detailed_capabilities():
     return {
         "node_id": node_info["node_id"],
         "system_info": node_info["capabilities"],
-        "network": {
-            "ip": node_info["ip"],
-            "port": node_info["port"]
-        },
+        "country": node_info["country"],
         "status": {
             "connected": node_info["connected"],
             "total_tasks_processed": node_info["total_tasks_processed"]

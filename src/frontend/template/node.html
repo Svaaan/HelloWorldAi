@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <title>Node Information</title>
-    <link rel="stylesheet" href="/template/node.css">
+    <link rel="stylesheet" href="/static/css/node.css">
 </head>
 
 <body>
@@ -123,7 +123,7 @@
             }
     
             updateHeaderStats();
-            setInterval(updateHeaderStats, 5000);
+            setInterval(updateHeaderStats, 60000);
         }
     
         async function fetchUsageInfo() {
@@ -157,7 +157,7 @@
                 }
     
                 isRefreshing = false;
-            }, 5000);
+            }, 6000);
         }
     
         window.addEventListener('load', () => {
@@ -165,7 +165,7 @@
             fetchUsageInfo();
             startPeriodicRefresh();
         });
-    </script>
+    </script>    
     
 </body>
 

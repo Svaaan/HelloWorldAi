@@ -7,7 +7,8 @@ import logging
 logger = logging.getLogger(__name__)
 
 def background_connection_handler(payload, node_info):
-    coordinator_url = os.getenv('COORDINATOR_URL', 'http://localhost:8100/connect-node')
+    # Byt från localhost till 127.0.0.1 som fallback
+    coordinator_url = os.getenv('COORDINATOR_URL', 'http://127.0.0.1:8100/connect-node')
     logger.info(f"📡 Attempting to connect to coordinator at {coordinator_url}")
     try:
         res = requests.post(coordinator_url, json=payload, timeout=10)
@@ -18,3 +19,4 @@ def background_connection_handler(payload, node_info):
             logger.error(f"❌ Connection failed. Status: {res.status_code}, Response: {res.text}")
     except requests.exceptions.RequestException as e:
         logger.error(f"🚨 Connection error to coordinator: {e}")
+

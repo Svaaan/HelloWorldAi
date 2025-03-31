@@ -51,7 +51,7 @@ class CPUCapabilities(BaseModel):
 class NodeConnection(BaseModel):
     node_id: str = Field(default_factory=lambda: f"node_{uuid.uuid4()}")
     ip: str
-    port: str
+    country: Optional[str] = "Unknown"  # Nytt fält
     capabilities: Dict = {
         "cpu": {},
         "gpu": {}
@@ -61,8 +61,10 @@ class NodeConnection(BaseModel):
     total_compute_score: float = 0
     cpu_verified: bool = False
     gpu_verified: bool = False
-    cpu_usage: float = 0.0  # Current CPU usage percentage
-    gpu_usage: float = 0.0  # Current GPU usage percentage
+    cpu_usage: float = 0.0
+    gpu_usage: float = 0.0
+
+
 
 
 # In-memory storage for connected nodes
@@ -133,7 +135,7 @@ def get_connected_nodes():
         {
             "node_id": node.node_id,
             "ip": node.ip,
-            "port": node.port,
+            "country": getattr(node, "country", "Unknown"),  # 👈 Lägg till detta
             "capabilities": node.capabilities,
             "compute_score": node.total_compute_score,
             "cpu_verified": node.cpu_verified,
@@ -144,6 +146,7 @@ def get_connected_nodes():
         for node in connected_nodes.values()
         if node.isConnected
     ]
+
 
 
 @app.get("/get-connected-nodes-count")
