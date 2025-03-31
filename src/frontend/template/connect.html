@@ -39,7 +39,6 @@
             try {
                 const res = await fetch(CONNECT_ENDPOINT, {
                     method: "POST"
-                    // 🔒 No body needed — backend handles IP & country internally
                 });
 
                 const result = await res.json();

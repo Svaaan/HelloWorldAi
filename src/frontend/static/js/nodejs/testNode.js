@@ -59,43 +59,62 @@ const testNode = {
         });
     },
     
-    // Poll for test results
-    _pollForResults: function(nodeId, testType) {
+    _pollForResults: function (nodeId, testType) {
         const resultElement = document.getElementById(`${testType}-test-result`);
         const pollInterval = setInterval(() => {
             fetch(`/node-performance/${nodeId}`)
-            .then(response => response.json())
-            .then(data => {
-                if (data.status === 'success') {
-                    const isVerified = testType === 'cpu' ? data.cpu_verified : data.gpu_verified;
-                    const usage = testType === 'cpu' ? data.cpu_usage : data.gpu_usage;
-                    
-                    if (isVerified) {
-                        clearInterval(pollInterval);
-                        if (resultElement) {
+                .then((response) => response.json())
+                .then((data) => {
+                    if (data.status === "success") {
+                        const isVerified =
+                            testType === "cpu"
+                                ? data.cpu_verified
+                                : data.gpu_verified;
+                        const usage =
+                            testType === "cpu"
+                                ? data.cpu_usage
+                                : data.gpu_usage;
+                        const benchmark =
+                            testType === "cpu"
+                                ? data.cpu_benchmark
+                                : data.gpu_benchmark;
+    
+                        if (isVerified) {
+                            clearInterval(pollInterval);
+    
+                            // Format benchmark display
+                            const benchmarkLabel =
+                                testType === "cpu"
+                                    ? `${benchmark?.toLocaleString()} operations`
+                                    : `${benchmark}x${benchmark} tensor`;
+    
                             resultElement.innerHTML = `
                                 <div class="alert alert-success">
                                     <strong>✅ ${testType.toUpperCase()} Test Passed</strong>
                                     <div>Usage: ${usage.toFixed(2)}%</div>
+                                    <div>Performance Benchmark: ${benchmarkLabel ?? 'N/A'}</div>
                                 </div>
                             `;
                         }
                     }
-                }
-            })
-            .catch(error => {
-                console.error('Error polling for results:', error);
-            });
-        }, 1000); // Poll every second
-        
-        // Stop polling after 30 seconds if no success
+                })
+                .catch((error) => {
+                    console.error("Error polling for results:", error);
+                });
+        }, 1000);
+    
         setTimeout(() => {
             clearInterval(pollInterval);
-            if (resultElement && resultElement.innerHTML.includes('Running test')) {
-                resultElement.innerHTML = '<span class="text-warning">Test timed out</span>';
+            if (
+                resultElement &&
+                resultElement.innerHTML.includes("Running test")
+            ) {
+                resultElement.innerHTML =
+                    '<span class="text-warning">Test timed out</span>';
             }
         }, 30000);
     },
+    
     
     // Initialize buttons
     init: function() {
