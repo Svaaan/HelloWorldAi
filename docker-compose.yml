@@ -1,0 +1,34 @@
+
+services:
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    command: uvicorn src.app:app --host 0.0.0.0 --port 3000
+    environment:
+      - NODE_BASE=http://node:9100   # 👈 use "node", not node1
+      - COORDINATOR_BASE=http://coordinator:8100
+    depends_on:
+      - coordinator
+      - node
+
+  coordinator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8100:8100"
+    command: uvicorn src.backend.coordinator:app --host 0.0.0.0 --port 8100
+
+  node:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "9100:9100"
+    environment:
+      - NODE_PORT=9100
+      - COORDINATOR_URL=http://coordinator:8100/connect-node
+    command: uvicorn src.backend.node:app --host 0.0.0.0 --port 9100
