@@ -54,6 +54,7 @@ class NodeConnection(BaseModel):
         "gpu": {}
     }
     isConnected: bool = False
+    isAvailable: bool = False 
     total_compute_score: float = 0
     cpu_verified: bool = False
     gpu_verified: bool = False
@@ -103,6 +104,19 @@ def calculate_compute_score(node: NodeConnection) -> float:
 
     return cpu_score + gpu_score
 
+@app.patch("/toggle-availability/{node_id}")
+def toggle_availability(node_id: str):
+    result = toggle_node_availability(node_id, connected_nodes)
+    if result is None:
+        return {"status": "error", "message": f"Node {node_id} not found"}, 404
+    
+    return {
+        "status": "success", 
+        "node_id": node_id, 
+        "isAvailable": result,
+        "message": f"Node availability toggled to {result}"
+    }
+
 @app.post("/connect-node")
 def connect_node(node: NodeConnection, request: Request):
     node.ip = request.client.host
@@ -129,19 +143,27 @@ def get_connected_nodes():
         {
             "node_id": node.node_id,
             "ip": node.ip,
-            "country": getattr(node, "country", "Unknown"),  # 👈 Lägg till detta
+            "country": getattr(node, "country", "Unknown"),
             "capabilities": node.capabilities,
             "compute_score": node.total_compute_score,
             "cpu_verified": node.cpu_verified,
             "gpu_verified": node.gpu_verified,
             "cpu_usage": node.cpu_usage,
-            "gpu_usage": node.gpu_usage
+            "gpu_usage": node.gpu_usage,
+            "isConnected": node.isConnected,
+            "isAvailable": node.isAvailable
+
         }
         for node in connected_nodes.values()
-        if node.isConnected
     ]
 
-
+def toggle_node_availability(node_id: str, connected_nodes: dict):
+    if node_id in connected_nodes:
+        node = connected_nodes[node_id]
+        node.isAvailable = not getattr(node, 'isAvailable', False)
+        print(f"🔁 Toggled availability for {node_id} to {node.isAvailable}")
+        return node.isAvailable
+    return None
 
 @app.get("/get-connected-nodes-count")
 def get_connected_nodes_count():

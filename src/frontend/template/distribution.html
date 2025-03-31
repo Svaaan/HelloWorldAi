@@ -1,22 +1,26 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
     <title>Distribution Center</title>
-    <link rel="stylesheet" href="/static/css/distribution.css">
-    <style>
-
-    </style>
 </head>
-
 <body>
-
-    <div id="header-placeholder"></div>
+    <!-- Header with navigation -->
+    <header class="header">
+        <div class="header-logo">
+            <img src="/api/placeholder/40/40" alt="Logo" />
+            <span>AI Node Network</span>
+            <link rel="stylesheet" href="/static/css/distribution.css">
+        </div>
+        <div class="header-details">
+            <p class="info">Active Nodes: <span id="activeNodes">Loading...</span></p>
+            <p class="info">Open Requests: <span id="openRequests">Loading...</span></p>
+        </div>
+    </header>
 
     <div class="distribution-container">
         <a href="node.html" class="back-link">← Back to Node Overview</a>
-
+        
         <div class="distribution-panel">
             <h2>Distribution Statistics</h2>
             <div class="stats-grid">
@@ -38,12 +42,12 @@
                 </div>
             </div>
         </div>
-
+        
         <div class="distribution-grid">
-
+            <!-- Left Column: Connected Nodes -->
             <div class="column">
                 <div class="distribution-panel">
-                    <h2>Connected Nodes</h2>
+                    <h2>Nodes</h2>
                     <div id="nodesEmpty" class="empty-message">
                         <p>No nodes currently connected to the network.</p>
                     </div>
@@ -52,10 +56,11 @@
                     </div>
                 </div>
             </div>
-
+            
+            <!-- Right Column: Task Requests -->
             <div class="column">
                 <div class="distribution-panel">
-                    <h2>Task Requests</h2>
+                    <h2>Tasks</h2>
                     <div id="requestsEmpty" class="empty-message">
                         <p>No open task requests available.</p>
                     </div>
@@ -67,26 +72,20 @@
         </div>
     </div>
 
-
-    <script type="module">
-        import { loadHeader } from "/static/js/header.js";
-        loadHeader();
-    </script>
-
     <script>
         // DOM elements
         const nodesList = document.getElementById('nodesList');
         const nodesEmpty = document.getElementById('nodesEmpty');
         const requestsList = document.getElementById('requestsList');
         const requestsEmpty = document.getElementById('requestsEmpty');
-
+        
         // Fetch network statistics
         async function fetchNetworkStats() {
             try {
                 // In production, replace with actual API endpoint
                 const response = await fetch('/api/network-stats');
                 const data = await response.json();
-
+                
                 // Update UI with fetched data
                 document.getElementById('activeNodes').textContent = data.activeNodes || '0';
                 document.getElementById('openRequests').textContent = data.openRequests || '0';
@@ -105,23 +104,23 @@
                 document.getElementById('completedTasks').textContent = '0';
             }
         }
-
+        
         // Fetch connected nodes
         async function fetchConnectedNodes() {
             try {
                 // In production, replace with actual API endpoint
                 const response = await fetch('/api/connected-nodes');
                 const nodes = await response.json();
-
+                
                 // Clear existing nodes
                 nodesList.innerHTML = '';
-
+                
                 // Show or hide empty state
                 if (nodes.length === 0) {
                     nodesEmpty.style.display = 'block';
                 } else {
                     nodesEmpty.style.display = 'none';
-
+                    
                     // Render each node
                     nodes.forEach(node => {
                         const nodeElement = createNodeElement(node);
@@ -134,23 +133,23 @@
                 nodesList.innerHTML = '';
             }
         }
-
+        
         // Fetch task requests
         async function fetchTaskRequests() {
             try {
                 // In production, replace with actual API endpoint
                 const response = await fetch('/api/task-requests');
                 const requests = await response.json();
-
+                
                 // Clear existing requests
                 requestsList.innerHTML = '';
-
+                
                 // Show or hide empty state
                 if (requests.length === 0) {
                     requestsEmpty.style.display = 'block';
                 } else {
                     requestsEmpty.style.display = 'none';
-
+                    
                     // Render each request
                     requests.forEach(request => {
                         const requestElement = createRequestElement(request);
@@ -163,12 +162,12 @@
                 requestsList.innerHTML = '';
             }
         }
-
+        
         // Create node element
         function createNodeElement(node) {
             const div = document.createElement('div');
             div.className = 'node-item';
-
+            
             // Determine status class
             let statusClass = '';
             switch (node.status) {
@@ -177,7 +176,7 @@
                 case 'busy': statusClass = 'status-busy'; break;
                 default: statusClass = 'status-offline';
             }
-
+            
             div.innerHTML = `
                 <div class="node-header">
                     <span class="node-id">${node.id}</span>
@@ -205,15 +204,15 @@
                     <button class="node-button" onclick="viewNodeDetails('${node.id}')">View Details</button>
                 </div>
             `;
-
+            
             return div;
         }
-
+        
         // Create request element
         function createRequestElement(request) {
             const div = document.createElement('div');
             div.className = 'request-item';
-
+            
             // Determine priority class
             let priorityClass = '';
             switch (request.priority) {
@@ -223,7 +222,7 @@
                 case 'critical': priorityClass = 'priority-critical'; break;
                 default: priorityClass = 'priority-medium';
             }
-
+            
             div.innerHTML = `
                 <div class="request-header">
                     <span class="request-title">${request.title}</span>
@@ -254,22 +253,22 @@
                     <button class="apply-button" onclick="applyForTask('${request.id}')">Apply</button>
                 </div>
             `;
-
+            
             return div;
         }
-
+        
         // View node details
         function viewNodeDetails(nodeId) {
             // In production, implement navigation to node details page
             console.log(`View details for node: ${nodeId}`);
             alert(`Viewing details for node: ${nodeId}`);
         }
-
+        
         // Apply for task
         function applyForTask(taskId) {
             // In production, implement task application logic
             console.log(`Applying for task: ${taskId}`);
-
+            
             // Example implementation
             fetch('/api/apply-for-task', {
                 method: 'POST',
@@ -278,22 +277,22 @@
                 },
                 body: JSON.stringify({ taskId })
             })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        alert(`Successfully applied for task: ${taskId}`);
-                        // Refresh the task requests
-                        fetchTaskRequests();
-                    } else {
-                        alert(`Failed to apply for task: ${data.message}`);
-                    }
-                })
-                .catch(error => {
-                    console.error('Error applying for task:', error);
-                    alert('Failed to apply for task. Please try again later.');
-                });
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert(`Successfully applied for task: ${taskId}`);
+                    // Refresh the task requests
+                    fetchTaskRequests();
+                } else {
+                    alert(`Failed to apply for task: ${data.message}`);
+                }
+            })
+            .catch(error => {
+                console.error('Error applying for task:', error);
+                alert('Failed to apply for task. Please try again later.');
+            });
         }
-
+        
         // For demo purposes - simulate data
         function simulateData() {
             // Simulate network stats
@@ -305,7 +304,7 @@
                 pendingRequests: Math.floor(Math.random() * 10) + 3,
                 completedTasks: Math.floor(Math.random() * 100) + 50
             };
-
+            
             // Update stats
             document.getElementById('activeNodes').textContent = networkStats.activeNodes;
             document.getElementById('openRequests').textContent = networkStats.openRequests;
@@ -313,12 +312,12 @@
             document.getElementById('connectedNodes').textContent = networkStats.connectedNodes;
             document.getElementById('pendingRequests').textContent = networkStats.pendingRequests;
             document.getElementById('completedTasks').textContent = networkStats.completedTasks;
-
+            
             // Simulate nodes
             const nodeTypes = ['Compute', 'Storage', 'Inference', 'Training'];
             const gpuTypes = ['NVIDIA RTX 4090', 'NVIDIA A100', 'AMD Radeon Pro', 'None'];
             const nodes = [];
-
+            
             for (let i = 0; i < networkStats.connectedNodes; i++) {
                 const status = Math.random() > 0.7 ? 'busy' : (Math.random() > 0.3 ? 'online' : 'offline');
                 nodes.push({
@@ -331,7 +330,7 @@
                     type: nodeTypes[Math.floor(Math.random() * nodeTypes.length)]
                 });
             }
-
+            
             // Clear and populate nodes list
             nodesList.innerHTML = '';
             if (nodes.length === 0) {
@@ -343,18 +342,18 @@
                     nodesList.appendChild(nodeElement);
                 });
             }
-
+            
             // Simulate requests
             const taskTypes = ['Image Generation', 'Text Translation', 'Data Analysis', 'Model Training', 'Video Processing'];
             const priorities = ['low', 'medium', 'high', 'critical'];
             const requests = [];
-
+            
             for (let i = 0; i < networkStats.openRequests; i++) {
                 const taskType = taskTypes[Math.floor(Math.random() * taskTypes.length)];
                 const priority = priorities[Math.floor(Math.random() * priorities.length)];
                 const hours = Math.floor(Math.random() * 5) + 1;
                 const minutes = Math.floor(Math.random() * 60);
-
+                
                 requests.push({
                     id: `Task-${Math.random().toString(36).substring(2, 8)}`,
                     title: taskType,
@@ -366,7 +365,7 @@
                     applicants: Math.floor(Math.random() * 5)
                 });
             }
-
+            
             // Clear and populate requests list
             requestsList.innerHTML = '';
             if (requests.length === 0) {
@@ -379,29 +378,28 @@
                 });
             }
         }
-
+        
         // Initialize page
         function initPage() {
             // For demo purposes, use simulated data
             simulateData();
-
+            
             // In production, use these instead:
             // fetchNetworkStats();
             // fetchConnectedNodes();
             // fetchTaskRequests();
-
+            
             // Set up periodic refresh for demo
             setInterval(simulateData, 30000); // Every 30 seconds
-
+            
             // In production, use these instead:
             // setInterval(fetchNetworkStats, 30000);
             // setInterval(fetchConnectedNodes, 20000);
             // setInterval(fetchTaskRequests, 15000);
         }
-
+        
         // Start the application
         document.addEventListener('DOMContentLoaded', initPage);
     </script>
 </body>
-
 </html>
