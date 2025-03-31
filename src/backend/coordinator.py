@@ -9,15 +9,11 @@ from GPUtil import getGPUs
 from pydantic import BaseModel, Field
 from typing import Dict, List, Optional
 from backend.mocked_task import (
-    simulate_verification_task,
     run_cpu_task,
     run_gpu_task
 )
+import torch
 
-try:
-    import torch
-except ImportError:
-    pass  
 
 app = FastAPI()
 
