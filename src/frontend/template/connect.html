@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <title>Node Connection</title>
-    <link rel="stylesheet" href="/template/connect.css">
+    <link rel="stylesheet" href="/static/css/connect.css">
 </head>
 
 
@@ -22,39 +22,40 @@
         <button id="connectNodeButton">Connect Node</button>
         <div id="processingMessage" style="display: none;">...</div>
         <div id="resultMessage"></div>
-      
+
     </div>
 
     <script>
         async function connectNode() {
             const connectButton = document.getElementById("connectNodeButton");
             const processingMessage = document.getElementById("processingMessage");
-    
+
             connectButton.disabled = true;
             connectButton.style.display = "none";
             processingMessage.style.display = "flex";
-    
-            const CONNECT_ENDPOINT = "/connect-node"; // Removed PROXY_BASE to work inside Docker
-    
+
+            const CONNECT_ENDPOINT = "/connect-node";
+
             try {
                 const res = await fetch(CONNECT_ENDPOINT, {
                     method: "POST"
+                    // 🔒 No body needed — backend handles IP & country internally
                 });
-    
+
                 const result = await res.json();
                 console.log("Node connection result:", result);
-    
+
                 if (!res.ok || result.error) {
                     throw new Error(result.error || `Connection failed with status: ${res.status}`);
                 }
-    
+
                 showMessage("✅ Node connection initiated!", "success");
-    
+
                 setTimeout(() => window.location.href = "/node.html", 2000);
-    
+
             } catch (err) {
                 console.error("❌ Error connecting node:", err);
-    
+
                 let errorMessage;
                 if (err.message.includes("Failed to fetch")) {
                     errorMessage = "Cannot reach proxy server. Is the backend running?";
@@ -63,25 +64,25 @@
                 } else {
                     errorMessage = err.message || "Unknown error occurred.";
                 }
-    
+
                 showMessage(errorMessage, "error");
-    
+
                 connectButton.disabled = false;
                 connectButton.style.display = "block";
                 processingMessage.style.display = "none";
             }
         }
-    
+
         function showMessage(message, type) {
             const resultMessageElement = document.getElementById("resultMessage");
             resultMessageElement.innerHTML = message;
             resultMessageElement.className = type === "success" ? "success-message" : "error-message";
-    
+
             setTimeout(() => {
                 resultMessageElement.innerHTML = "";
             }, 3000);
         }
-    
+
         // ✅ Ensure event binding after DOM is ready
         document.addEventListener("DOMContentLoaded", () => {
             const connectButton = document.getElementById("connectNodeButton");
@@ -92,8 +93,7 @@
             }
         });
     </script>
-    
+
 </body>
 
 </html>
-

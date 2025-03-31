@@ -1,4 +1,4 @@
-<link rel="stylesheet" href="/template/header.css">
+<link rel="stylesheet" href="/static/css/header.css">
 
 <header class="header">
     <div class="header-logo">
@@ -8,34 +8,6 @@
         <p class="info">Total Power: <span id="totalPower">Loading...</span></p>
         <p class="info">Connected Nodes: <span id="connectedNodesCount">Loading...</span></p>
     </div>
-
-    <script>
-        async function updateHeaderStats() {
-            try {
-                const [powerRes, nodesRes] = await Promise.all([
-                    fetch("/get-total-power"),
-                    fetch("/get-connected-nodes-count")
-                ]);
-                const powerData = await powerRes.json();
-                const nodesData = await nodesRes.json();
-
-                document.getElementById("totalPower").textContent = 
-                    typeof powerData.total_compute_score === "number"
-                        ? `${powerData.total_compute_score.toFixed(2)} compute units`
-                        : "N/A";
-
-                document.getElementById("connectedNodesCount").textContent =
-                    nodesData.connected_nodes_count ?? "N/A";
-
-            } catch (error) {
-                console.error("Error updating header stats:", error);
-                document.getElementById("totalPower").textContent = "Error";
-                document.getElementById("connectedNodesCount").textContent = "Error";
-            }
-        }
-
-        // Refresh stats every 5 seconds
-        updateHeaderStats();
-        setInterval(updateHeaderStats, 5000);
-    </script>
 </header>
+
+<script type="module" src="/static/js/header.js"></script>

@@ -73,3 +73,33 @@ async def proxy_connect_node():
         return {"error": f"Failed to reach node at {NODE_BASE}: {str(e)}"}
     except Exception as e:
         return {"error": f"Unexpected error: {str(e)}"}
+    
+@router.post("/verify-node/{node_id}/cpu")
+async def proxy_verify_cpu(node_id: str):
+    try:
+        async with httpx.AsyncClient() as client:
+            res = await client.post(f"{COORDINATOR_BASE}/verify-node/{node_id}/cpu")
+            res.raise_for_status()
+            return res.json()
+    except httpx.RequestError as e:
+        return {"error": f"Failed to start CPU test: {e}"}
+    
+@router.post("/verify-node/{node_id}/gpu")
+async def proxy_verify_gpu(node_id: str):
+    try:
+        async with httpx.AsyncClient() as client:
+            res = await client.post(f"{COORDINATOR_BASE}/verify-node/{node_id}/gpu")
+            res.raise_for_status()
+            return res.json()
+    except httpx.RequestError as e:
+        return {"error": f"Failed to start GPU test: {e}"}
+    
+@router.get("/node-performance/{node_id}")
+async def proxy_node_performance(node_id: str):
+    try:
+        async with httpx.AsyncClient() as client:
+            res = await client.get(f"{COORDINATOR_BASE}/node-performance/{node_id}")
+            res.raise_for_status()
+            return res.json()
+    except httpx.RequestError as e:
+        return {"error": f"Failed to fetch node performance: {e}"}

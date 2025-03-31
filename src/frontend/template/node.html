@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <title>Node Information</title>
-    <link rel="stylesheet" href="/template/node.css">
+    <link rel="stylesheet" href="/static/css/node.css">
 </head>
 
 <body>
@@ -14,6 +14,7 @@
     <div class="dashboard-container">
         <div class="node-info">
             <h2>Node Details</h2>
+
             <div id="nodeDetails">
                 <p>Loading node information...</p>
             </div>
@@ -23,6 +24,7 @@
         </div>
 
         <div class="usage-info">
+            <button class="refresh-button" onclick="manualRefresh()">🔄 Refresh</button>
             <h2>System Usage</h2>
             <div>
                 <div class="node-detail">
@@ -41,17 +43,27 @@
                     <div id="gpuUsageBar" class="usage-bar-fill" style="width: 0%"></div>
                 </div>
             </div>
+            <div class="test-buttons">
+                <button id="run-cpu-test-btn" class="test-button" disabled> Test CPU</button>
+                <div id="cpu-test-result" class="test-result"></div>
+
+                <button id="run-gpu-test-btn" class="test-button" disabled> Test GPU</button>
+                <div id="gpu-test-result" class="test-result"></div>
+            </div>
+
+
         </div>
     </div>
 
-    <script>
-        // Load shared header
-        fetch('/template/header.html')
-            .then(res => res.text())
-            .then(html => {
-                document.getElementById('header-placeholder').innerHTML = html;
-            });
+    <!-- Load Header and Stats -->
+    <script type="module">
+        import { loadHeader } from "/static/js/header.js";
+        loadHeader();
+    </script>
 
+    <script src="/static/js/nodejs/testNode.js"></script>
+
+    <script>
         async function fetchNodeInfo() {
             try {
                 const res = await fetch("/nodes");
@@ -64,30 +76,31 @@
                 }
 
                 const node = data[0];
+                testNode.updateTestButtons(node.node_id); // 🔥 This makes the test buttons active
+
 
                 const nodeDetailsHTML = `
-            <div class="node-detail"><span class="node-detail-label">Node ID:</span> <span>${node.node_id}</span></div>
-            <div class="node-detail"><span class="node-detail-label">IP:</span> <span>${node.ip}</span></div>
-            <div class="node-detail"><span class="node-detail-label">Port:</span> <span>${node.port}</span></div>
-            <div class="node-detail"><span class="node-detail-label">CPU:</span>
-                <span>${node.capabilities?.cpu?.brand || 'Unknown'}, ${node.capabilities?.cpu?.cores || 'N/A'} cores</span>
-            </div>
-            <div class="node-detail"><span class="node-detail-label">Compute Score:</span> <span>${(node.compute_score || 0).toFixed(2)}</span></div>
-            <div class="node-detail"><span class="node-detail-label">GPUs:</span></div>
-            ${(Array.isArray(node.capabilities?.gpu) ? node.capabilities.gpu : [node.capabilities.gpu || {}])
-                        .map(gpu => `
-                    <div class="node-detail">
-                        <span class="node-detail-label">→ ${gpu.name || 'Unknown'}</span>
-                        <span>
-                            ${gpu.total_memory ?? '?'} MB total,
-                            ${gpu.free_memory ?? '?'} MB free,
-                            ${gpu.used_memory ?? '?'} MB used,
-                            ${gpu.load_percentage ?? '?'}% load,
-                            ${gpu.temperature ?? '?'}°C
-                        </span>
+                    <div class="node-detail"><span class="node-detail-label">Node ID:</span> <span>${node.node_id}</span></div>
+                    <div class="node-detail"><span class="node-detail-label">Country:</span> <span>${node.country || 'Unknown'}</span></div>
+                    <div class="node-detail"><span class="node-detail-label">CPU:</span>
+                        <span>${node.capabilities?.cpu?.brand || 'Unknown'}, ${node.capabilities?.cpu?.cores || 'N/A'} cores</span>
                     </div>
-                `).join('')}
-        `;
+                    <div class="node-detail"><span class="node-detail-label">Compute Score:</span> <span>${(node.compute_score || 0).toFixed(2)}</span></div>
+                    <div class="node-detail"><span class="node-detail-label">GPUs:</span></div>
+                    ${(Array.isArray(node.capabilities?.gpu) ? node.capabilities.gpu : [node.capabilities.gpu || {}])
+                        .map(gpu => `
+                            <div class="node-detail">
+                                <span class="node-detail-label">→ ${gpu.name || 'Unknown'}</span>
+                                <span>
+                                    ${gpu.total_memory ?? '?'} MB total,
+                                    ${gpu.free_memory ?? '?'} MB free,
+                                    ${gpu.used_memory ?? '?'} MB used,
+                                    ${gpu.load_percentage ?? '?'}% load,
+                                    ${gpu.temperature ?? '?'}°C
+                                </span>
+                            </div>
+                        `).join('')}
+                `;
 
                 document.getElementById("nodeDetails").innerHTML = nodeDetailsHTML;
             } catch (err) {
@@ -95,43 +108,6 @@
                     "<p class='status-disconnected'>⚠️ Error loading node details.</p>";
                 console.error("Error fetching node details:", err);
             }
-        }
-
-        fetch("/template/header.html")
-            .then(res => res.text())
-            .then(html => {
-                document.getElementById("header-placeholder").innerHTML = html;
-                initHeaderStats(); // Call manually after load
-            });
-
-        function initHeaderStats() {
-            async function updateHeaderStats() {
-                try {
-                    const [powerRes, nodesRes] = await Promise.all([
-                        fetch("/get-total-power"),
-                        fetch("/get-connected-nodes-count")
-                    ]);
-                    const powerData = await powerRes.json();
-                    const nodesData = await nodesRes.json();
-
-                    document.getElementById("totalPower").textContent =
-                        typeof powerData.total_compute_score === "number"
-                            ? `${powerData.total_compute_score.toFixed(2)} compute units`
-                            : "N/A";
-
-                    document.getElementById("connectedNodesCount").textContent =
-                        nodesData.connected_nodes_count ?? "N/A";
-
-                } catch (error) {
-                    console.error("Error updating header stats:", error);
-                    document.getElementById("totalPower").textContent = "Error";
-                    document.getElementById("connectedNodesCount").textContent = "Error";
-                }
-            }
-
-            // Initial fetch + interval
-            updateHeaderStats();
-            setInterval(updateHeaderStats, 5000);
         }
 
         async function fetchUsageInfo() {
@@ -147,6 +123,11 @@
             } catch (err) {
                 console.error("Error fetching usage details:", err);
             }
+        }
+
+        function manualRefresh() {
+            fetchNodeInfo();
+            fetchUsageInfo();
         }
 
         let isRefreshing = false;
@@ -165,12 +146,11 @@
                 }
 
                 isRefreshing = false;
-            }, 5000);
+            }, 60000);
         }
 
         window.addEventListener('load', () => {
-            fetchNodeInfo();
-            fetchUsageInfo();
+            manualRefresh(); // Initial
             startPeriodicRefresh();
         });
     </script>

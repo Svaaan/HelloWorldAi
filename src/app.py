@@ -8,34 +8,44 @@ from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 
-# Load environment variables from .env file
+# Load environment variables
 load_dotenv()
 
-# Determine host based on environment
+# Set Docker flag and host
 USE_DOCKER = os.getenv("USE_DOCKER", "false").lower() == "true"
 HOST = "0.0.0.0" if USE_DOCKER else "127.0.0.1"
 
-# Add src directory to Python path
-src_dir = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, src_dir)
+# Path config
+SRC_DIR = os.path.dirname(os.path.abspath(__file__))
+TEMPLATE_DIR = os.path.join(SRC_DIR, "frontend", "template")
+STATIC_DIR = os.path.join(SRC_DIR, "frontend", "static")
 
-# ✅ Import from backend utility
-from backend.terminate_port import kill_process_on_port
+# Add src dir to path
+sys.path.insert(0, SRC_DIR)
 
-# ✅ Kill ports before starting (only if not using Docker)
+# Kill ports (if not Docker)
 if not USE_DOCKER:
+    from backend.terminate_port import kill_process_on_port
     kill_process_on_port(8100)
     kill_process_on_port(9100)
     kill_process_on_port(3000)
 
-# Path to templates
-template_dir = os.path.join(src_dir, "frontend", "template")
+# Import apps and routers
+from backend.node import app as node_app
+from backend.coordinator import app as coordinator_app
+from backend.dashboard import router as dashboard_router
+from backend.proxypage import router as proxy_router
 
-# Create FastAPI dashboard app
-dashboard_app = FastAPI()
+# Dashboard app
+dashboard_app = FastAPI(title="AI Node Dashboard")
 
-# Mount static files (e.g., CSS, JS)
-dashboard_app.mount("/template", StaticFiles(directory=template_dir), name="template")
+# Routers
+dashboard_app.include_router(dashboard_router)
+dashboard_app.include_router(proxy_router)
+
+# Mount static + template files
+dashboard_app.mount("/template", StaticFiles(directory=TEMPLATE_DIR), name="template")
+dashboard_app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 # CORS
 dashboard_app.add_middleware(
@@ -46,16 +56,6 @@ dashboard_app.add_middleware(
     allow_headers=["*"],
 )
 
-# Import backend services and routers
-from backend.node import app as node_app
-from backend.coordinator import app as coordinator_app
-from backend.dashboard import router as dashboard_router
-from backend.proxypage import router as proxy_router
-
-# Register routers
-dashboard_app.include_router(dashboard_router)
-dashboard_app.include_router(proxy_router)
-
 # Frontend routes
 @dashboard_app.get("/", include_in_schema=False)
 def redirect_to_connect():
@@ -63,7 +63,7 @@ def redirect_to_connect():
 
 @dashboard_app.get("/connect", response_class=HTMLResponse)
 def render_connect():
-    path = os.path.join(template_dir, "connect.html")
+    path = os.path.join(TEMPLATE_DIR, "connect.html")
     return FileResponse(path) if os.path.exists(path) else HTMLResponse("<h1>404 - connect.html not found</h1>", status_code=404)
 
 @dashboard_app.get("/node", include_in_schema=False)
@@ -72,27 +72,25 @@ def redirect_to_node_html():
 
 @dashboard_app.get("/node.html", response_class=HTMLResponse)
 def render_node_page():
-    path = os.path.join(template_dir, "node.html")
+    path = os.path.join(TEMPLATE_DIR, "node.html")
     return FileResponse(path) if os.path.exists(path) else HTMLResponse("<h1>404 - node.html not found</h1>", status_code=404)
 
-# Functions to run each FastAPI app
+# Run each service
 def run_node():
-    port = int(os.getenv("NODE_PORT", 9100))
-    uvicorn.run(app=node_app, host=HOST, port=port)
+    uvicorn.run(app=node_app, host=HOST, port=int(os.getenv("NODE_PORT", 9100)))
 
 def run_coordinator():
-    port = int(os.getenv("COORDINATOR_PORT", 8100))
-    uvicorn.run(app=coordinator_app, host=HOST, port=port)
+    uvicorn.run(app=coordinator_app, host=HOST, port=int(os.getenv("COORDINATOR_PORT", 8100)))
 
 def run_dashboard():
-    port = int(os.getenv("DASHBOARD_PORT", 3000))
-    uvicorn.run(app=dashboard_app, host=HOST, port=port)
+    uvicorn.run(app=dashboard_app, host=HOST, port=int(os.getenv("DASHBOARD_PORT", 3000)))
 
-# Final app for deployment
+# Final exportable app
 app = dashboard_app
 
-# Run locally
+# Run processes
 if __name__ == "__main__":
+    multiprocessing.set_start_method("spawn")
     processes = [
         multiprocessing.Process(target=run_node),
         multiprocessing.Process(target=run_coordinator),
