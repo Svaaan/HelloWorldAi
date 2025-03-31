@@ -9,8 +9,9 @@ from GPUtil import getGPUs
 from pydantic import BaseModel, Field
 from typing import Dict, List, Optional
 from backend.mocked_task import (
-    run_mini_tasks,
-    simulate_verification_task
+    simulate_verification_task,
+    run_cpu_task,
+    run_gpu_task
 )
 
 try:
@@ -117,12 +118,8 @@ def connect_node(node: NodeConnection, request: Request):
 
     connected_nodes[node.node_id] = node
 
-    # Kick off background task to simulate compute verification
-    threading.Thread(target=simulate_verification_task,
-                     args=(node.node_id,)).start()
-
     return {
-        "status": "Node connected and test task started",
+        "status": "Node connected",
         "node_id": node.node_id,
         "ip": node.ip,
         "compute_score": node.total_compute_score
@@ -187,11 +184,7 @@ def get_total_power():
 
 @app.get("/usage")
 def get_usage_info():
-    """
-    Return the current system usage information for the dashboard
-    """
-    import psutil
-    from GPUtil import getGPUs
+
 
     # Refresh live usage values for each connected node
     for node in connected_nodes.values():
@@ -246,49 +239,59 @@ def cleanup_stale_nodes():
         
         time.sleep(30)  # Check every 30 seconds
 
-# Add a function to periodically run small tasks to maintain minimal usage
-def maintain_minimal_usage():
-    """
-    Periodically run small CPU/GPU tasks on active nodes
-    to maintain the minimal 1% usage as requested
-    """
-    while True:
-        # For each connected node
-        for node_id, node in list(connected_nodes.items()):
-            if node.isConnected:
-                # Gradually decrease usage if no recent task (simulates decay)
-                current_time = time.time()
-                time_since_heartbeat = current_time - (node.last_heartbeat or current_time)
-                
-                # If it's been more than 5 seconds since the last heartbeat
-                if time_since_heartbeat > 120:
-                    # Run mini tasks to maintain usage
-                    threading.Thread(target=run_mini_tasks, args=(node_id, connected_nodes, torch)).start()
 
-        
-        # Run every 5 seconds
-        time.sleep(120)
 
-# Add an endpoint to manually trigger verification
-@app.post("/verify-node/{node_id}")
-def verify_node(node_id: str):
+# Add endpoints for specific test types
+@app.post("/verify-node/{node_id}/cpu")
+def verify_node_cpu(node_id: str):
     if node_id not in connected_nodes:
         return {"status": "error", "message": f"Node {node_id} not found"}
     
     if not connected_nodes[node_id].isConnected:
         return {"status": "error", "message": f"Node {node_id} is not connected"}
     
-    # Start verification in background
-    threading.Thread(target=simulate_verification_task, args=(node_id, connected_nodes, torch)).start()
-
+    # Start CPU verification in background
+    thread = threading.Thread(target=run_cpu_task, args=(node_id, connected_nodes))
+    thread.daemon = True
+    thread.start()
     
-    return {"status": "success", "message": f"Verification started for node {node_id}"}
+    return {"status": "success", "message": f"CPU verification started for node {node_id}"}
 
+@app.post("/verify-node/{node_id}/gpu")
+def verify_node_gpu(node_id: str):
+    if node_id not in connected_nodes:
+        return {"status": "error", "message": f"Node {node_id} not found"}
+    
+    if not connected_nodes[node_id].isConnected:
+        return {"status": "error", "message": f"Node {node_id} is not connected"}
+    
+    # Start GPU verification in background
+    thread = threading.Thread(target=run_gpu_task, args=(node_id, connected_nodes, torch))
+    thread.daemon = True
+    thread.start()
+    
+    return {"status": "success", "message": f"GPU verification started for node {node_id}"}
+
+# Add endpoint to get test results
+@app.get("/node-performance/{node_id}")
+def get_node_performance(node_id: str):
+    if node_id not in connected_nodes:
+        return {"status": "error", "message": f"Node {node_id} not found"}
+    
+    node = connected_nodes[node_id]
+    
+    return {
+        "status": "success",
+        "node_id": node_id,
+        "cpu_verified": getattr(node, 'cpu_verified', False),
+        "gpu_verified": getattr(node, 'gpu_verified', False),
+        "cpu_usage": getattr(node, 'cpu_usage', 0),
+        "gpu_usage": getattr(node, 'gpu_usage', 0),
+        "last_heartbeat": getattr(node, 'last_heartbeat', None)
+    }
 # Start the cleanup thread when the application starts
 @app.on_event("startup")
 def startup_event():
     # Start the cleanup thread
     threading.Thread(target=cleanup_stale_nodes, daemon=True).start()
     
-    # Start the minimal usage maintenance thread
-    threading.Thread(target=maintain_minimal_usage, daemon=True).start()
