@@ -64,42 +64,32 @@
                 }
 
                 const node = data[0];
-                const nodeDetails = {
-                    id: node.node_id || 'Unknown',
-                    ip: node.ip || 'N/A',
-                    port: node.port || 'N/A',
-                    cpuBrand: node.capabilities?.cpu?.brand || 'Unknown',
-                    cpuCores: node.capabilities?.cpu?.cores || 'N/A',
-                    gpu: node.capabilities?.gpu?.name || 'No GPU detected',
-                    computeScore: typeof node.compute_score === "number" ? node.compute_score.toFixed(2) : 'N/A'
-                };
 
-                document.getElementById("nodeDetails").innerHTML = `
+                const nodeDetailsHTML = `
+            <div class="node-detail"><span class="node-detail-label">Node ID:</span> <span>${node.node_id}</span></div>
+            <div class="node-detail"><span class="node-detail-label">IP:</span> <span>${node.ip}</span></div>
+            <div class="node-detail"><span class="node-detail-label">Port:</span> <span>${node.port}</span></div>
+            <div class="node-detail"><span class="node-detail-label">CPU:</span>
+                <span>${node.capabilities?.cpu?.brand || 'Unknown'}, ${node.capabilities?.cpu?.cores || 'N/A'} cores</span>
+            </div>
+            <div class="node-detail"><span class="node-detail-label">Compute Score:</span> <span>${(node.compute_score || 0).toFixed(2)}</span></div>
+            <div class="node-detail"><span class="node-detail-label">GPUs:</span></div>
+            ${(Array.isArray(node.capabilities?.gpu) ? node.capabilities.gpu : [node.capabilities.gpu || {}])
+                        .map(gpu => `
                     <div class="node-detail">
-                        <span class="node-detail-label">Node ID:</span>
-                        <span>${nodeDetails.id}</span>
+                        <span class="node-detail-label">→ ${gpu.name || 'Unknown'}</span>
+                        <span>
+                            ${gpu.total_memory ?? '?'} MB total,
+                            ${gpu.free_memory ?? '?'} MB free,
+                            ${gpu.used_memory ?? '?'} MB used,
+                            ${gpu.load_percentage ?? '?'}% load,
+                            ${gpu.temperature ?? '?'}°C
+                        </span>
                     </div>
-                    <div class="node-detail">
-                        <span class="node-detail-label">IP:</span>
-                        <span>${nodeDetails.ip}</span>
-                    </div>
-                    <div class="node-detail">
-                        <span class="node-detail-label">Port:</span>
-                        <span>${nodeDetails.port}</span>
-                    </div>
-                    <div class="node-detail">
-                        <span class="node-detail-label">CPU:</span>
-                        <span>${nodeDetails.cpuBrand}, ${nodeDetails.cpuCores} cores</span>
-                    </div>
-                    <div class="node-detail">
-                        <span class="node-detail-label">GPU:</span>
-                        <span>${nodeDetails.gpu}</span>
-                    </div>
-                    <div class="node-detail">
-                        <span class="node-detail-label">Compute Score:</span>
-                        <span>${nodeDetails.computeScore}</span>
-                    </div>
-                `;
+                `).join('')}
+        `;
+
+                document.getElementById("nodeDetails").innerHTML = nodeDetailsHTML;
             } catch (err) {
                 document.getElementById("nodeDetails").innerHTML =
                     "<p class='status-disconnected'>⚠️ Error loading node details.</p>";
@@ -108,41 +98,41 @@
         }
 
         fetch("/template/header.html")
-        .then(res => res.text())
-        .then(html => {
-            document.getElementById("header-placeholder").innerHTML = html;
-            initHeaderStats(); // Call manually after load
-        });
+            .then(res => res.text())
+            .then(html => {
+                document.getElementById("header-placeholder").innerHTML = html;
+                initHeaderStats(); // Call manually after load
+            });
 
-    function initHeaderStats() {
-        async function updateHeaderStats() {
-            try {
-                const [powerRes, nodesRes] = await Promise.all([
-                    fetch("/get-total-power"),
-                    fetch("/get-connected-nodes-count")
-                ]);
-                const powerData = await powerRes.json();
-                const nodesData = await nodesRes.json();
+        function initHeaderStats() {
+            async function updateHeaderStats() {
+                try {
+                    const [powerRes, nodesRes] = await Promise.all([
+                        fetch("/get-total-power"),
+                        fetch("/get-connected-nodes-count")
+                    ]);
+                    const powerData = await powerRes.json();
+                    const nodesData = await nodesRes.json();
 
-                document.getElementById("totalPower").textContent =
-                    typeof powerData.total_compute_score === "number"
-                        ? `${powerData.total_compute_score.toFixed(2)} compute units`
-                        : "N/A";
+                    document.getElementById("totalPower").textContent =
+                        typeof powerData.total_compute_score === "number"
+                            ? `${powerData.total_compute_score.toFixed(2)} compute units`
+                            : "N/A";
 
-                document.getElementById("connectedNodesCount").textContent =
-                    nodesData.connected_nodes_count ?? "N/A";
+                    document.getElementById("connectedNodesCount").textContent =
+                        nodesData.connected_nodes_count ?? "N/A";
 
-            } catch (error) {
-                console.error("Error updating header stats:", error);
-                document.getElementById("totalPower").textContent = "Error";
-                document.getElementById("connectedNodesCount").textContent = "Error";
+                } catch (error) {
+                    console.error("Error updating header stats:", error);
+                    document.getElementById("totalPower").textContent = "Error";
+                    document.getElementById("connectedNodesCount").textContent = "Error";
+                }
             }
-        }
 
-        // Initial fetch + interval
-        updateHeaderStats();
-        setInterval(updateHeaderStats, 5000);
-    }
+            // Initial fetch + interval
+            updateHeaderStats();
+            setInterval(updateHeaderStats, 5000);
+        }
 
         async function fetchUsageInfo() {
             try {
@@ -185,4 +175,5 @@
         });
     </script>
 </body>
+
 </html>
