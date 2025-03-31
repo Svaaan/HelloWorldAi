@@ -1,6 +1,6 @@
 import os
 import httpx
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -27,7 +27,18 @@ async def proxy_total_power():
             return res.json()
     except httpx.RequestError as e:
         return {"error": f"Failed to reach coordinator: {e}"}
-
+    
+@router.patch("/toggle-availability/{node_id}")
+async def proxy_toggle_availability(node_id: str):
+    try:
+        async with httpx.AsyncClient() as client:
+            res = await client.patch(f"{COORDINATOR_BASE}/toggle-availability/{node_id}")
+            res.raise_for_status()
+            return res.json()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=str(e))
+    except httpx.RequestError as e:
+        return {"error": f"Failed to toggle availability: {e}"}
 
 @router.get("/get-connected-nodes-count")
 async def proxy_nodes_count():
