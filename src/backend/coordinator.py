@@ -13,9 +13,6 @@ from backend.mocked_task import (
     simulate_verification_task
 )
 
-
-
-
 try:
     import torch
 except ImportError:
