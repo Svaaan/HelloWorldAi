@@ -4,6 +4,12 @@ import numpy as np
 import psutil
 from GPUtil import getGPUs
 
+try:
+    import torch
+except ImportError:
+    torch = None
+
+
 def run_cpu_task(node_id: str, connected_nodes: dict):
     if node_id not in connected_nodes:
         return False
