@@ -1,4 +1,4 @@
-import { showNodeModal } from "./modalHandler.js";
+import { showNodeModal } from "./modalhandler.js";
 
 export async function fetchAvailableNodes() {
     try {
