@@ -94,6 +94,8 @@ def connect_node(node: NodeConnection, request: Request):
 
     connected_nodes[node.node_id] = node
 
+    print(f"🔌 Node connected: {node.node_id}, Available: {node.isAvailable}")
+
     return {
         "status": "Node connected",
         "node_id": node.node_id,
