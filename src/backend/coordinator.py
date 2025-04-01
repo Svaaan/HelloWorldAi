@@ -14,7 +14,6 @@ from backend.mocked_task import (
 )
 import torch
 
-
 app = FastAPI()
 
 # CORS Middleware
@@ -26,7 +25,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
 class GPUCapabilities(BaseModel):
     name: str = "No GPU"
     total_memory: Optional[int] = None
@@ -36,14 +34,12 @@ class GPUCapabilities(BaseModel):
     cuda_cores: Optional[int] = None
     compute_capability: Optional[str] = None
 
-
 class CPUCapabilities(BaseModel):
     brand: str
     cores: int
     threads: int
     max_freq: Optional[float] = None
     min_freq: Optional[float] = None
-
 
 class NodeConnection(BaseModel):
     node_id: str = Field(default_factory=lambda: f"node_{uuid.uuid4()}")
@@ -63,10 +59,6 @@ class NodeConnection(BaseModel):
     cpu_benchmark: Optional[int] = None
     gpu_benchmark: Optional[int] = None
 
-
-
-
-
 # In-memory storage for connected nodes
 connected_nodes: Dict[str, NodeConnection] = {}
 
@@ -77,32 +69,6 @@ system_usage = {
     "last_updated": time.time()
 }
 
-
-def calculate_compute_score(node: NodeConnection) -> float:
-    """
-    Calculate a comprehensive compute score for a node
-    """
-    cpu_score = 0
-    gpu_score = 0
-
-    # CPU Score Calculation
-    cpu = node.capabilities.get('cpu', {})
-    cpu_score = (cpu.get('cores', 0) * 10) + (cpu.get('threads', 0) * 5)
-
-    # GPU Score Calculation (loop over all GPUs if it's a list)
-    gpus = node.capabilities.get('gpu', [])
-    if isinstance(gpus, list):
-        for gpu in gpus:
-            if gpu.get('name', '') != "No GPU" and gpu.get('name', '') != "GPU Detection Limited":
-                gpu_score += (gpu.get('total_memory', 0) / 1024) * 2  # Memory in GB
-                gpu_score += (gpu.get('cuda_cores', 0) / 1000) * 3
-    else:
-        gpu = gpus
-        if gpu.get('name', '') != "No GPU":
-            gpu_score = (gpu.get('total_memory', 0) / 1024) * 2
-            gpu_score += (gpu.get('cuda_cores', 0) / 1000) * 3
-
-    return cpu_score + gpu_score
 
 @app.patch("/toggle-availability/{node_id}")
 def toggle_availability(node_id: str):
@@ -120,7 +86,6 @@ def toggle_availability(node_id: str):
 @app.post("/connect-node")
 def connect_node(node: NodeConnection, request: Request):
     node.ip = request.client.host
-    node.total_compute_score = calculate_compute_score(node)
     node.isConnected = True  # Setting connection status to true
     node.cpu_verified = False
     node.gpu_verified = False
@@ -170,37 +135,6 @@ def get_connected_nodes_count():
     return {"connected_nodes_count": len([n for n in connected_nodes.values() if n.isConnected])}
 
 
-@app.get("/get-total-power")
-def get_total_power():
-    total_compute_score = sum(
-        node.total_compute_score
-        for node in connected_nodes.values()
-        if node.isConnected
-    )
-
-    # Detailed breakdown
-    node_details = [
-        {
-            "node_id": node.node_id,
-            "cpu": node.capabilities.get('cpu', {}),
-            "gpu": node.capabilities.get('gpu', {}),
-            "compute_score": node.total_compute_score,
-            "cpu_verified": node.cpu_verified,
-            "gpu_verified": node.gpu_verified,
-            "cpu_usage": node.cpu_usage,
-            "gpu_usage": node.gpu_usage
-        }
-        for node in connected_nodes.values()
-        if node.isConnected
-    ]
-
-    return {
-        "total_compute_score": total_compute_score,
-        "node_details": node_details,
-        "connected_nodes": len([n for n in connected_nodes.values() if n.isConnected])
-    }
-
-
 @app.get("/usage")
 def get_usage_info():
 
@@ -240,8 +174,6 @@ def get_usage_info():
         "gpu_usage": round(avg_gpu_usage, 1),
         "last_updated": system_usage["last_updated"]
     }
-
-
 
 # Add endpoints for specific test types
 @app.post("/verify-node/{node_id}/cpu")

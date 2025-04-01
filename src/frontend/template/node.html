@@ -126,7 +126,6 @@
     <div class="node-detail"><span class="node-detail-label">CPU:</span>
         <span>${node.capabilities?.cpu?.brand || 'Unknown'}, ${node.capabilities?.cpu?.cores || 'N/A'} cores</span>
     </div>
-    <div class="node-detail"><span class="node-detail-label">Compute Score:</span> <span>${(node.compute_score || 0).toFixed(2)}</span></div>
     <div class="node-detail"><span class="node-detail-label">GPUs:</span></div>
     ${(Array.isArray(node.capabilities?.gpu) ? node.capabilities.gpu : [node.capabilities.gpu || {}])
                         .map(gpu => `
@@ -139,13 +138,6 @@
                     ${gpu.load_percentage ?? '?'}% load,
                     ${gpu.temperature ?? '?'}°C
                 </span>
-            </div>
-                   <div class="node-detail">
-        <span class="node-detail-label">Availability:</span> 
-        <span style="color:${node.isAvailable ? '#00ff9d' : '#ff4d4d'}">
-            ${node.isAvailable ? '🟢 Available' : '🔴 Not Available'}
-        </span>
-    </div>
         `).join('')}
     `;
 
