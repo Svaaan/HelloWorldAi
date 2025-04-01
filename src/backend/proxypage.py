@@ -18,16 +18,6 @@ else:
     COORDINATOR_BASE = "http://127.0.0.1:8100"
     NODE_BASE = "http://127.0.0.1:9100"
 
-@router.get("/get-total-power")
-async def proxy_total_power():
-    try:
-        async with httpx.AsyncClient() as client:
-            res = await client.get(f"{COORDINATOR_BASE}/get-total-power")
-            res.raise_for_status()
-            return res.json()
-    except httpx.RequestError as e:
-        return {"error": f"Failed to reach coordinator: {e}"}
-    
 @router.patch("/toggle-availability/{node_id}")
 async def proxy_toggle_availability(node_id: str):
     try:
