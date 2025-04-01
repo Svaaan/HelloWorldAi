@@ -82,17 +82,21 @@ const testNode = {
                         if (isVerified) {
                             clearInterval(pollInterval);
     
-                            // Format benchmark display
-                            const benchmarkLabel =
-                                testType === "cpu"
-                                    ? `${benchmark?.toLocaleString()} operations`
-                                    : `${benchmark}x${benchmark} tensor`;
+                            let benchmarkLabel = "N/A";
+                            if (typeof benchmark === "number") {
+                                benchmarkLabel =
+                                    testType === "cpu"
+                                        ? `${benchmark.toLocaleString()} operations`
+                                        : `${benchmark}x${benchmark} tensor`;
+                            } else if (typeof benchmark === "string") {
+                                benchmarkLabel = benchmark;
+                            }
     
                             resultElement.innerHTML = `
                                 <div class="alert alert-success">
-                                    <strong>✅ ${testType.toUpperCase()} Test Passed</strong>
-                                    <div>Usage: ${usage.toFixed(2)}%</div>
-                                    <div>Performance Benchmark: ${benchmarkLabel ?? 'N/A'}</div>
+                                    <strong>${testType.toUpperCase()} Test Passed</strong>
+                                    <div>Usage during test: ${usage.toFixed(2)}%</div>
+                                    <div>${benchmarkLabel !== "N/A" ? "Result: " + benchmarkLabel : ""}</div>
                                 </div>
                             `;
                         }
@@ -103,6 +107,7 @@ const testNode = {
                 });
         }, 1000);
     
+        // Timeout after 30s
         setTimeout(() => {
             clearInterval(pollInterval);
             if (
@@ -110,7 +115,7 @@ const testNode = {
                 resultElement.innerHTML.includes("Running test")
             ) {
                 resultElement.innerHTML =
-                    '<span class="text-warning">Test timed out</span>';
+                    '<div class="alert alert-warning">Test timed out. Please try again.</div>';
             }
         }, 30000);
     },

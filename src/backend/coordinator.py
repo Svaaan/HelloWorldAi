@@ -9,8 +9,8 @@ from GPUtil import getGPUs
 from pydantic import BaseModel, Field
 from typing import Dict, List, Optional
 from backend.mocked_task import (
-    run_cpu_task,
-    run_gpu_task
+    verify_cpu_connected,
+    verify_gpu_connected
 )
 import torch
 
@@ -185,7 +185,7 @@ def verify_node_cpu(node_id: str):
         return {"status": "error", "message": f"Node {node_id} is not connected"}
     
     # Start CPU verification in background
-    thread = threading.Thread(target=run_cpu_task, args=(node_id, connected_nodes))
+    thread = threading.Thread(target=verify_cpu_connected, args=(node_id, connected_nodes))
     thread.daemon = True
     thread.start()
     
@@ -200,7 +200,7 @@ def verify_node_gpu(node_id: str):
         return {"status": "error", "message": f"Node {node_id} is not connected"}
     
     # Start GPU verification in background
-    thread = threading.Thread(target=run_gpu_task, args=(node_id, connected_nodes, torch))
+    thread = threading.Thread(target=verify_gpu_connected, args=(node_id, connected_nodes, torch))
     thread.daemon = True
     thread.start()
     
