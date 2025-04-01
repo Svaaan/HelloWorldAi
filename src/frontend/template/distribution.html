@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <title>Distribution Center</title>
     <link rel="stylesheet" href="/static/css/distribution.css">
+    <link rel="stylesheet" href="/static/css/modalHandler.css">
 </head>
 <body>
     <!-- Dynamic Header Include -->
@@ -13,14 +14,13 @@
         <a href="node.html" class="back-link">← Back to Node Overview</a>
         
         <div class="distribution-panel">
-            <h2>Connected & Available Nodes</h2>
+            <h2>Available Nodes</h2>
             <div id="nodesList">
                 <!-- Dynamic content inserted by fetchAvailableNodes -->
             </div>
         </div>
     </div>
 
-      <!-- Modal for detailed node view -->
       <div id="nodeModal" class="modal hidden">
         <div class="modal-content">
             <span id="modalClose" class="close-button">&times;</span>
@@ -29,7 +29,7 @@
     </div>
 
     <script type="module">
-        import { loadHeader } from "/static/js/header.js";
+        import { loadHeader } from "/static/js/component/header.js";
         import { fetchAvailableNodes } from "/static/js/distribution/fetchNode.js";
         import { initModalCloseHandler } from "/static/js/distribution/modalHandler.js";
 
