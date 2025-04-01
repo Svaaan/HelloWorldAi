@@ -1,7 +1,13 @@
 import os
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from dotenv import load_dotenv
+from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
+import os
+
+TEMPLATE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "frontend", "template")
+templates = Jinja2Templates(directory=TEMPLATE_DIR)
 
 load_dotenv()
 
@@ -104,3 +110,26 @@ async def proxy_node_performance(node_id: str):
             return res.json()
     except httpx.RequestError as e:
         return {"error": f"Failed to fetch node performance: {e}"}
+
+@router.get("/distribution", response_class=HTMLResponse)
+async def proxy_distribution_page(request: Request):
+    try:
+        async with httpx.AsyncClient() as client:
+            res = await client.get(f"{COORDINATOR_BASE}/nodes")
+            res.raise_for_status()
+            all_nodes = res.json()
+
+            # ✅ FILTER nodes based on both availability and connection
+            available_nodes = [
+                node for node in all_nodes
+                if node.get("isConnected") and node.get("isAvailable")
+            ]
+
+    except httpx.RequestError as e:
+        available_nodes = []
+        print(f"Failed to fetch nodes: {e}")
+
+    return templates.TemplateResponse("distribution.html", {
+        "request": request,
+        "available_nodes": available_nodes
+    })
