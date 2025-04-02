@@ -6,4 +6,7 @@ COPY . .
 
 RUN pip install --no-cache-dir -r requirements.txt
 
-CMD ["uvicorn", "src.app:app", "--host", "0.0.0.0", "--port", "3000"]
+ENV USE_DOCKER=true
+ENV PYTHONPATH=/app/src
+
+CMD ["python", "src/app.py"]
