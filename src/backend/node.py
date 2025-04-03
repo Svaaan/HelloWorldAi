@@ -9,6 +9,7 @@ from typing import Dict, Any
 from backend.service.runningNodeService import process_task
 from backend.service.systemInfoService import get_system_capabilities
 from backend.service.connectionService import background_connection_handler
+from GPUtil import getGPUs
 
 # Logging setup
 logging.basicConfig(
@@ -56,7 +57,21 @@ node_info = {
     "total_tasks_processed": 0
 }
 
-@app.post("/connect-node")
+def get_gpu_info_list():
+    try:
+        gpus = getGPUs()
+        return [{
+            "name": gpu.name,
+            "total_memory": gpu.memoryTotal,
+            "free_memory": gpu.memoryFree,
+            "load_percentage": round(gpu.load * 100, 1),
+            "temperature": gpu.temperature
+        } for gpu in gpus]
+    except Exception as e:
+        print("⚠️ GPU detection failed:", e)
+        return []
+
+
 async def connect_node(background_tasks: BackgroundTasks):
     if node_info["connected"]:
         return {
@@ -64,6 +79,24 @@ async def connect_node(background_tasks: BackgroundTasks):
             "connected": True,
             "node_id": node_info["node_id"]
         }
+
+    # Auto-fetch GPU capabilities before sending (multi-GPU support)
+    try:
+        from GPUtil import getGPUs
+        gpus = getGPUs()
+        node_info["capabilities"]["gpus"] = []
+
+        for gpu in gpus:
+            node_info["capabilities"]["gpus"].append({
+                "name": gpu.name,
+                "total_memory": gpu.memoryTotal,
+                "free_memory": gpu.memoryFree,
+                "load_percentage": round(gpu.load * 100, 1),
+                "temperature": gpu.temperature
+            })
+    except Exception as e:
+        print("⚠️ Could not fetch GPU info:", e)
+        node_info["capabilities"]["gpus"] = []
 
     payload = {
         "node_id": node_info["node_id"],
@@ -80,13 +113,6 @@ async def connect_node(background_tasks: BackgroundTasks):
         "node_id": node_info["node_id"]
     }
 
-@app.get("/")
-def get_node_status():
-    return {
-        "status": "online",
-        "connected": node_info["connected"],
-        "node": node_info
-    }
 
 @app.get("/usage")
 def get_usage():
