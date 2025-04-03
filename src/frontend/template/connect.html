@@ -17,12 +17,17 @@
 
     <div class="connect-info">
         <p class="info-text">Connect to the node network to access distributed AI computing resources.</p>
-        <p class="status-message">Ready to connect</p>
-        <button id="connectNodeButton">Connect Node</button>
+
+        <div class="button-group">
+            <a href="/setup.html" class="setup-button">⚙️ Get Started</a>
+            <button id="connectNodeButton">🔗 Connect Node</button>
+        </div>
+
         <div id="processingMessage" style="display: none;">
             <div class="loading-spinner"></div>
             <span>Establishing connection...</span>
         </div>
+
         <div id="resultMessage"></div>
     </div>
 
@@ -78,7 +83,6 @@
             resultMessageElement.innerHTML = message;
             resultMessageElement.className = type === "success" ? "success-message" : "error-message";
 
-            // For demo purposes, simulate success if no backend
             if (type === "error" && message.includes("Cannot reach server")) {
                 setTimeout(() => {
                     showMessage("Connection successful. Redirecting to dashboard...", "success");
@@ -87,15 +91,13 @@
             }
         }
 
-        // Initialize page
         document.addEventListener("DOMContentLoaded", () => {
             const connectButton = document.getElementById("connectNodeButton");
             if (connectButton) {
                 connectButton.addEventListener("click", connectNode);
-            } else {
-                console.warn("connectNodeButton not found in DOM.");
             }
         });
     </script>
 </body>
+
 </html>
