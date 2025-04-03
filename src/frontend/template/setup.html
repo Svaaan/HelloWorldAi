@@ -1,416 +1,158 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>NodeAI Setup Guide</title>
-  <style>
-    :root {
-      --primary: #00ff9d;
-      --primary-hover: #00cc7a;
-      --background: #121212;
-      --card: #1f1f1f;
-      --card-hover: #2a2a2a;
-      --text: #ffffff;
-      --text-secondary: #cccccc;
-      --border-radius: 12px;
-      --spacing-sm: 0.5rem;
-      --spacing-md: 1rem;
-      --spacing-lg: 2rem;
-    }
-
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
-
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
-      background-color: var(--background);
-      color: var(--text);
-      line-height: 1.6;
-      padding: var(--spacing-md);
-    }
-
-    .container {
-      max-width: 800px;
-      margin: 0 auto;
-      padding: var(--spacing-lg);
-    }
-
-    .setup-container {
-      background-color: var(--card);
-      border-radius: var(--border-radius);
-      padding: var(--spacing-lg);
-      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2);
-      margin-bottom: var(--spacing-lg);
-    }
-
-    .header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: var(--spacing-lg);
-    }
-
-    h2 {
-      font-size: 1.8rem;
-      color: var(--text);
-      margin-bottom: var(--spacing-md);
-    }
-
-    .toggle-btn {
-      background: none;
-      border: 1px solid var(--primary);
-      color: var(--primary);
-      padding: 0.5rem 1rem;
-      border-radius: 6px;
-      cursor: pointer;
-      font-size: 0.9rem;
-      transition: all 0.2s ease;
-    }
-
-    .toggle-btn:hover {
-      background-color: var(--primary);
-      color: var(--background);
-    }
-
-    .info-section {
-      background-color: rgba(0, 0, 0, 0.2);
-      border-radius: var(--border-radius);
-      padding: var(--spacing-md);
-      margin-bottom: var(--spacing-lg);
-      border-left: 3px solid var(--primary);
-    }
-
-    .info-section p {
-      margin-bottom: var(--spacing-md);
-    }
-
-    .info-section ul {
-      margin-left: var(--spacing-lg);
-      margin-bottom: var(--spacing-md);
-    }
-
-    .info-section li {
-      margin-bottom: var(--spacing-sm);
-    }
-
-    .step {
-      margin-bottom: var(--spacing-lg);
-      padding: var(--spacing-md);
-      border-radius: var(--border-radius);
-      background-color: rgba(255, 255, 255, 0.05);
-      transition: all 0.2s ease;
-    }
-
-    .step:hover {
-      background-color: var(--card-hover);
-    }
-
-    .step-header {
-      display: flex;
-      align-items: center;
-      margin-bottom: var(--spacing-md);
-    }
-
-    .step-number {
-      background-color: var(--primary);
-      color: var(--background);
-      width: 30px;
-      height: 30px;
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-weight: bold;
-      margin-right: var(--spacing-md);
-    }
-
-    .step-title {
-      font-weight: bold;
-      font-size: 1.1rem;
-    }
-
-    .command-box, .link-box {
-      background-color: rgba(0, 0, 0, 0.3);
-      padding: var(--spacing-md);
-      border-radius: 8px;
-      font-family: 'Courier New', monospace;
-      color: var(--primary);
-      overflow-x: auto;
-      margin: var(--spacing-md) 0;
-      position: relative;
-    }
-
-    .command-box code {
-      display: block;
-      white-space: pre;
-    }
-
-    .link-box a {
-      color: var(--primary);
-      text-decoration: none;
-      display: inline-block;
-      padding: var(--spacing-sm) 0;
-    }
-
-    .link-box a:hover {
-      text-decoration: underline;
-    }
-
-    .note {
-      font-size: 0.9rem;
-      color: var(--text-secondary);
-      margin-top: var(--spacing-sm);
-    }
-
-    .option-label {
-      font-weight: bold;
-      margin-top: var(--spacing-md);
-      margin-bottom: var(--spacing-sm);
-      color: var(--primary);
-    }
-
-    .button-row {
-      display: flex;
-      justify-content: space-between;
-      margin-top: var(--spacing-lg);
-    }
-
-    .btn {
-      background-color: var(--primary);
-      color: var(--background);
-      border: none;
-      padding: 0.75rem 1.5rem;
-      border-radius: 8px;
-      font-weight: bold;
-      cursor: pointer;
-      text-decoration: none;
-      transition: background-color 0.2s;
-      display: inline-block;
-    }
-
-    .btn:hover {
-      background-color: var(--primary-hover);
-    }
-
-    .btn-secondary {
-      background-color: transparent;
-      border: 1px solid var(--primary);
-      color: var(--primary);
-    }
-
-    .btn-secondary:hover {
-      background-color: rgba(0, 255, 157, 0.1);
-    }
-
-    .copy-btn {
-      position: absolute;
-      top: 8px;
-      right: 8px;
-      background-color: rgba(0, 0, 0, 0.5);
-      border: 1px solid var(--primary);
-      color: var(--primary);
-      padding: 4px 8px;
-      border-radius: 4px;
-      font-size: 0.8rem;
-      cursor: pointer;
-    }
-
-    .copy-btn:hover {
-      background-color: var(--primary);
-      color: var(--background);
-    }
-
-    .platform-message {
-      margin: var(--spacing-md) 0;
-      padding: var(--spacing-md);
-      background-color: rgba(0, 255, 157, 0.1);
-      border-radius: 8px;
-      border-left: 3px solid var(--primary);
-    }
-
-    @media (max-width: 768px) {
-      .container {
-        padding: var(--spacing-md);
-      }
-      
-      .setup-container {
-        padding: var(--spacing-md);
-      }
-      
-      .header {
-        flex-direction: column;
-        align-items: flex-start;
-      }
-      
-      .toggle-btn {
-        margin-top: var(--spacing-sm);
-      }
-    }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NodeAI Setup Guide</title>
+    <link rel="stylesheet" href="/static/css/setup.css">
 </head>
+
 <body>
-  <div class="container">
     <div class="setup-container">
-      <div class="header">
-        <h2>Setup Guide for Node Contribution</h2>
-        <button id="toggleWhyBtn" class="toggle-btn">Why Contribute?</button>
-      </div>
+        <div class="header">
+            <h2>Setup Guide for Node Contribution</h2>
 
-      <div id="whySection" class="info-section" style="display: none;">
-        <p><strong>Why connect your GPU to the AI Network?</strong></p>
-        <ul>
-          <li><strong>Earn passive income:</strong> You can generate revenue by renting out your GPU power.</li>
-          <li><strong>No access to your system:</strong> <u>HelloWorldAI never directly accesses your GPU.</u> All tasks run locally on your machine using open-source code inside a Docker container, ensuring full control and transparency.</li>
-          <li><strong>Use what you already have:</strong> Many people already have high-performance GPU(s) that are idle or underutilized. This is a way to put them to work, contributing to real AI workloads.</li>
-        </ul>
-        
-        <p>
-          This project is about building an open, privacy-respecting, and decentralized infrastructure for AI. Every connected GPU strengthens the network — and everyone is welcome to contribute.
-        </p>
-        
-        <p>
-          By participating, you help make powerful computing available to independent developers and researchers who otherwise couldn't afford centralized services. This opens up new opportunities for AI innovation, experimentation, and collaboration — without relying on large corporations.
-        </p>
-      </div>
+            <p style="margin-top: 0.5rem; background-color: #2a2a2a; padding: 1rem; border-left: 4px solid #ff4c4c; color: #ccc; border-radius: 8px;">
+                <strong>⚠️ Warning:</strong> This setup may challenge your technical skills. It is part of exploring new and exciting ground. We’re building something innovative, and your contribution is key!
+            </p>
 
-      <div class="step">
-        <div class="step-header">
-          <div class="step-number">1</div>
-          <div class="step-title">Hardware Requirements</div>
-        </div>
-        <p>Ensure you have an <strong>NVIDIA GPU</strong> with the latest drivers.</p>
-        <div class="link-box">
-          <a href="https://www.nvidia.com/Download/index.aspx" target="_blank">Download NVIDIA Drivers →</a>
-        </div>
-      </div>
-
-      <div class="step">
-        <div class="step-header">
-          <div class="step-number">2</div>
-          <div class="step-title">Choose Your Setup Method</div>
+            <button id="toggleWhyBtn" class="toggle-btn">Why Contribute?</button>
         </div>
 
-        <div id="platformMessage" class="platform-message">Detecting your system...</div>
+        <div id="whySection" class="info-section" style="display: none;">
+            <p><strong>Why connect your GPU to the AI Network?</strong></p>
+            <ul>
+                <li><strong>Earn passive income:</strong> You can generate revenue by renting out your GPU power.</li>
+                <li><strong>No access to your system:</strong> <u>HelloWorldAI never directly accesses your GPU.</u> All tasks run locally on your machine using open-source code inside a Docker container, ensuring full control and transparency.</li>
+                <li><strong>Use what you already have:</strong> Many people already have high-performance GPU(s) that are idle or underutilized. This is a way to put them to work, contributing to real AI workloads.</li>
+            </ul>
 
-        <div class="option-label">Option A – Ubuntu or WSL2 (Recommended):</div>
-        <div class="command-box">
-          <button class="copy-btn" onclick="copyToClipboard('scriptCommand')">Copy</button>
-          <code id="scriptCommand">curl -fsSL https://get.docker.com | sh
-sudo apt install -y nvidia-container-toolkit wget
+            <p>
+                This project is about building an open, privacy-respecting, and decentralized infrastructure for AI. Every connected GPU strengthens the network — and everyone is welcome to contribute.
+            </p>
+
+            <p>
+                By participating, you help make powerful computing available to independent developers and researchers who otherwise couldn't afford centralized services. This opens up new opportunities for AI innovation, experimentation, and collaboration — without relying on large corporations.
+            </p>
+        </div>
+
+        <div class="step">
+            <div class="step-header">
+                <div class="step-number">1</div>
+                <div class="step-title">Install NVIDIA GPU Driver</div>
+            </div>
+            <p>Install the latest NVIDIA GPU driver on Windows (do not install a Linux driver inside WSL).</p>
+            <div class="link-box">
+                <a href="https://www.nvidia.com/Download/index.aspx" target="_blank">→ Download NVIDIA Drivers</a>
+            </div>
+        </div>
+
+        <div class="step">
+            <div class="step-header">
+                <div class="step-number">1.5</div>
+                <div class="step-title">Run Auto Setup Script</div>
+            </div>
+            <p>To test automate install and go thru the terminal process click below.</p>
+            <p>If you already have wsl2 installed copy below inside Ubuntu</p>
+            <div class="command-box">
+                <code>bash <(curl -fsSL http://127.0.0.1:3000/static/scripts/setup-node.sh)</code>
+            </div>
+            <div class="button-row" style="margin-top: 1rem;">
+                <a href="http://127.0.0.1:3000/static/scripts/setup-node.sh" target="_blank" class="btn">Download setup-node.sh</a>
+            </div>
+        </div>
+
+        <div class="step">
+            <div class="step-header">
+                <div class="step-number">2</div>
+                <div class="step-title">Install WSL 2 (Windows Subsystem for Linux)</div>
+            </div>
+            <p>Install WSL 2 with Ubuntu to run Linux tools on Windows without needing a USB or dual boot.</p>
+            <div class="link-box">
+                <a href="https://learn.microsoft.com/windows/wsl/install" target="_blank">→ WSL2 Installation Guide</a>
+            </div>
+        </div>
+
+        <div class="step">
+            <div class="step-header">
+                <div class="step-number">3</div>
+                <div class="step-title">Install Docker and Toolkit in Ubuntu (inside WSL)</div>
+            </div>
+            <p>Launch Ubuntu from Start Menu and run the following:</p>
+            <div class="command-box">
+                <code>curl -fsSL https://get.docker.com | sh
+sudo apt install -y wget
 sudo systemctl restart docker</code>
+            </div>
         </div>
 
-        <div class="option-label">Option B – Use installer script (Ubuntu/WSL2):</div>
-        <div class="command-box">
-          <button class="copy-btn" onclick="copyToClipboard('scriptB')">Copy</button>
-          <code id="scriptB">wget http://127.0.0.1:3000/static/scripts/setup-node.sh
-chmod +x setup-node.sh
-./setup-node.sh</code>
-        </div>
-        <div class="link-box">
-          <a href="/static/scripts/setup-node.sh" download>Download setup-node.sh</a>
+        <div class="step">
+            <div class="step-header">
+                <div class="step-number">4</div>
+                <div class="step-title">Install CUDA Toolkit for WSL</div>
+            </div>
+            <p>Run the following commands to install CUDA 12.8 Toolkit for WSL:</p>
+            <div class="command-box">
+                <code>wget https://developer.download.nvidia.com/compute/cuda/repos/wsl-ubuntu/x86_64/cuda-wsl-ubuntu.pin
+sudo mv cuda-wsl-ubuntu.pin /etc/apt/preferences.d/cuda-repository-pin-600
+wget https://developer.download.nvidia.com/compute/cuda/12.8.1/local_installers/cuda-repo-wsl-ubuntu-12-8-local_12.8.1-1_amd64.deb
+sudo dpkg -i cuda-repo-wsl-ubuntu-12-8-local_12.8.1-1_amd64.deb
+sudo cp /var/cuda-repo-wsl-ubuntu-12-8-local/cuda-*-keyring.gpg /usr/share/keyrings/
+sudo apt-get update
+sudo apt-get install -y cuda-toolkit-12-8</code>
+            </div>
         </div>
 
-        <div class="option-label">Option C – Windows (Docker Desktop + Git Bash):</div>
-        <div class="command-box">
-          <button class="copy-btn" onclick="copyToClipboard('scriptC')">Copy</button>
-          <code id="scriptC">docker run --rm --gpus all nvidia/cuda:12.2.0-base-ubuntu22.04 nvidia-smi</code>
+        <div class="step">
+            <div class="step-header">
+                <div class="step-number">5</div>
+                <div class="step-title">(Optional) Add CUDA Compiler (nvcc)</div>
+            </div>
+            <p>If you want to compile CUDA programs, install the compiler separately:</p>
+            <div class="command-box">
+                <code>sudo apt-get install -y cuda-compiler-12-8</code>
+            </div>
         </div>
-        <p class="note">Make sure "Enable GPU Support" is turned on in Docker Desktop settings.</p>
-      </div>
 
-      <div class="step">
-        <div class="step-header">
-          <div class="step-number">3</div>
-          <div class="step-title">Verify GPU Detection</div>
+        <div class="step">
+            <div class="step-header">
+                <div class="step-number">6</div>
+                <div class="step-title">Verify GPU Detection</div>
+            </div>
+            <p>Check that your GPU is detected correctly:</p>
+            <div class="command-box">
+                <code>docker run --rm --gpus all nvidia/cuda:12.2.0-base-ubuntu22.04 nvidia-smi</code>
+            </div>
         </div>
-        <p>If your GPU was detected and you saw a table from <code>nvidia-smi</code>, you're ready to proceed.</p>
-      </div>
 
-      <div class="step">
-        <div class="step-header">
-          <div class="step-number">4</div>
-          <div class="step-title">Connect to AI Network</div>
+        <div class="step">
+            <div class="step-header">
+                <div class="step-number">7</div>
+                <div class="step-title">Connect to the AI Network</div>
+            </div>
+            <p>You’re now ready to contribute your GPU to decentralized AI computing.</p>
+            <a href="/connect" class="btn">← Back to Connect</a>
         </div>
-        <p>Proceed to connect your system to the AI network.</p>
-      </div>
-
-      <div class="button-row">
-        <a href="/connect" class="btn">← Back to Connect</a>
-        
-      </div>
     </div>
-  </div>
 
-  <script>
-    function detectPlatform() {
-      const ua = navigator.userAgent.toLowerCase();
-      const isLinux = ua.includes("linux");
-      const isWindows = ua.includes("windows");
-      const isMac = ua.includes("mac");
-      
-      const platformMessage = document.getElementById("platformMessage");
-      const scriptBox = document.getElementById("scriptCommand");
-      const copyBtns = document.querySelectorAll('.copy-btn');
-      
-      if (isWindows) {
-        platformMessage.innerHTML = "<strong>Windows Detected:</strong> We recommend using WSL2 or Git Bash with Docker Desktop.";
-      } else if (isMac) {
-        platformMessage.innerHTML = "<strong>macOS Detected:</strong> This setup script is not compatible with macOS.";
-        document.getElementById("scriptCommand").textContent = "# Not available for macOS.";
-        // Disable copy buttons for macOS
-        copyBtns.forEach(btn => {
-          if (btn.parentNode.querySelector('code').id === 'scriptCommand') {
-            btn.disabled = true;
-            btn.style.opacity = 0.5;
-          }
+    <script>
+        function copyToClipboard(elementId) {
+            const text = document.getElementById(elementId).textContent;
+            navigator.clipboard.writeText(text).then(() => {
+                alert("Copied to clipboard!");
+            });
+        }
+
+        function toggleWhySection() {
+            const section = document.getElementById("whySection");
+            section.style.display = section.style.display === "none" ? "block" : "none";
+        }
+
+        document.addEventListener("DOMContentLoaded", () => {
+            document.getElementById("toggleWhyBtn").addEventListener("click", toggleWhySection);
         });
-      } else if (isLinux) {
-        platformMessage.innerHTML = "<strong>Linux Detected:</strong> Your system is compatible with our setup process!";
-      } else {
-        platformMessage.innerHTML = "<strong>Unknown Platform:</strong> Please verify your environment supports Linux commands.";
-      }
-    }
-    
-    function copyToClipboard(elementId) {
-      const text = document.getElementById(elementId).textContent;
-      navigator.clipboard.writeText(text).then(() => {
-        const btn = event.target;
-        const originalText = btn.textContent;
-        btn.textContent = "Copied!";
-        setTimeout(() => {
-          btn.textContent = originalText;
-        }, 2000);
-      }).catch(err => {
-        alert("Copy failed. Please copy manually.");
-        console.error(err);
-      });
-    }
-    
-    function toggleWhySection() {
-      const section = document.getElementById("whySection");
-      const btn = document.getElementById("toggleWhyBtn");
-      if (section.style.display === "none") {
-        section.style.display = "block";
-        btn.textContent = "Hide Info";
-      } else {
-        section.style.display = "none";
-        btn.textContent = "Why Contribute?";
-      }
-    }
-    
-    function testGpuConnection() {
-      alert("This would test your GPU connection to the AI network. Feature coming soon!");
-    }
-    
-    document.addEventListener("DOMContentLoaded", () => {
-      detectPlatform();
-      document.getElementById("toggleWhyBtn").addEventListener("click", toggleWhySection);
-    });
-  </script>
+    </script>
 </body>
+
 </html>
