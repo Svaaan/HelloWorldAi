@@ -1,28 +1,34 @@
-# Use official Python 3.11 slim base for smaller image size
-FROM python:3.11-slim
+# Use NVIDIA CUDA runtime image with Ubuntu and Python preinstalled
+FROM nvidia/cuda:12.2.0-runtime-ubuntu22.04
 
 # Set working directory inside the container
 WORKDIR /app
 
-# Install system dependencies first (if any)
-RUN apt-get update && apt-get install -y \
-    gcc \
-    build-essential \
+# Install Python + tools (Ubuntu base doesn't include them by default)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.11 \
+    python3-pip \
+    python3.11-venv \
+    python3.11-dev \
     curl \
+    && ln -s /usr/bin/python3.11 /usr/bin/python \
+    && ln -s /usr/bin/pip3 /usr/bin/pip \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy only the requirements first for better layer caching
+# Upgrade pip and install Python deps early for cache reuse
 COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
 
-# Install Python dependencies (without caching to reduce image size)
-RUN pip install --no-cache-dir -r requirements.txt
+# Copy the application code
+COPY ./src ./src
+COPY ./static ./static
+COPY ./templates ./templates
+COPY app.py .
 
-# Now copy the rest of your app
-COPY . .
-
-# Set environment variables
+# Environment variables
 ENV USE_DOCKER=true
 ENV PYTHONPATH=/app/src
 
-# Default command
-CMD ["python", "src/app.py"]
+# Run FastAPI app via Uvicorn
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "3000"]
