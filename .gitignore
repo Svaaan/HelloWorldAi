@@ -1,25 +1,28 @@
-# Python related
+# ─── Python ─────────────────────────────────────────────────────────────
 *.pyc
 *.pyo
-__pycache__/
 *.pyd
-.git/
-# Virtual environments
+__pycache__/
+
+# ─── Virtual Environments ───────────────────────────────────────────────
 venv/
 env/
 .venv/
 
-# Editor related
+# ─── Git & VCS ──────────────────────────────────────────────────────────
+.git/
+
+# ─── Editors / IDEs ─────────────────────────────────────────────────────
 .vscode/
 .idea/
 
-# OS files
+# ─── OS / System Files ──────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
 
-# .env files for environment variables
+# ─── Environment Variables ──────────────────────────────────────────────
 .env
 
-# Keep src folder and everything inside it
+# ─── Keep Source Folder ─────────────────────────────────────────────────
 !src/
 !src/**/*
