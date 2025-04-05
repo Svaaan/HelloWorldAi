@@ -5,14 +5,10 @@ import numpy as np
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 import psutil
-from GPUtil import getGPUs
 from pydantic import BaseModel, Field
-from typing import Dict, List, Optional
-from backend.mocked_task import (
-    verify_cpu_connected,
-    verify_gpu_connected
-)
-import torch
+from typing import Dict, Optional
+from backend.mocked_task import verify_cpu_connected, verify_gpu_connected
+import pynvml
 
 app = FastAPI()
 
@@ -29,10 +25,9 @@ class GPUCapabilities(BaseModel):
     name: str = "No GPU"
     total_memory: Optional[int] = None
     free_memory: Optional[int] = None
+    used_memory: Optional[int] = None
     load_percentage: Optional[float] = None
     temperature: Optional[float] = None
-    cuda_cores: Optional[int] = None
-    compute_capability: Optional[str] = None
 
 class CPUCapabilities(BaseModel):
     brand: str
@@ -40,6 +35,7 @@ class CPUCapabilities(BaseModel):
     threads: int
     max_freq: Optional[float] = None
     min_freq: Optional[float] = None
+    current_freq: Optional[float] = None
 
 class NodeConnection(BaseModel):
     node_id: str = Field(default_factory=lambda: f"node_{uuid.uuid4()}")
@@ -50,7 +46,7 @@ class NodeConnection(BaseModel):
         "gpu": {}
     }
     isConnected: bool = False
-    isAvailable: bool = False 
+    isAvailable: bool = False
     total_compute_score: float = 0
     cpu_verified: bool = False
     gpu_verified: bool = False
@@ -59,26 +55,52 @@ class NodeConnection(BaseModel):
     cpu_benchmark: Optional[int] = None
     gpu_benchmark: Optional[int] = None
 
-# In-memory storage for connected nodes
 connected_nodes: Dict[str, NodeConnection] = {}
 
-# Track system-wide usage
 system_usage = {
     "cpu_usage": 0.0,
     "gpu_usage": 0.0,
     "last_updated": time.time()
 }
 
+def get_gpu_info():
+    try:
+        pynvml.nvmlInit()
+        device_count = pynvml.nvmlDeviceGetCount()
+        gpu_info = []
+
+        for i in range(device_count):
+            handle = pynvml.nvmlDeviceGetHandleByIndex(i)
+            name = pynvml.nvmlDeviceGetName(handle)
+            memory_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+            utilization = pynvml.nvmlDeviceGetUtilizationRates(handle)
+            temperature = pynvml.nvmlDeviceGetTemperature(handle, pynvml.NVML_TEMPERATURE_GPU)
+
+            gpu_info.append({
+                "name": name,
+                "total_memory": round(memory_info.total / 1024 ** 2),
+                "free_memory": round(memory_info.free / 1024 ** 2),
+                "used_memory": round(memory_info.used / 1024 ** 2),
+                "load_percentage": utilization.gpu,
+                "temperature": temperature
+            })
+
+        pynvml.nvmlShutdown()
+        return gpu_info
+
+    except pynvml.NVMLError as e:
+        print("⚠️ NVML error:", e)
+        return []
 
 @app.patch("/toggle-availability/{node_id}")
 def toggle_availability(node_id: str):
     result = toggle_node_availability(node_id, connected_nodes)
     if result is None:
         return {"status": "error", "message": f"Node {node_id} not found"}, 404
-    
+
     return {
-        "status": "success", 
-        "node_id": node_id, 
+        "status": "success",
+        "node_id": node_id,
         "isAvailable": result,
         "message": f"Node availability toggled to {result}"
     }
@@ -86,11 +108,16 @@ def toggle_availability(node_id: str):
 @app.post("/connect-node")
 def connect_node(node: NodeConnection, request: Request):
     node.ip = request.client.host
-    node.isConnected = True  # Setting connection status to true
+    node.isConnected = True
     node.cpu_verified = False
     node.gpu_verified = False
     node.cpu_usage = 0.0
     node.gpu_usage = 0.0
+
+    # ✅ Important:
+    # Coordinator does not detect GPU, node sends its own GPU info!
+    # Trust the node container
+    node.capabilities["gpu"] = node.capabilities.get("gpu", [{"name": "No GPU Detected"}])
 
     connected_nodes[node.node_id] = node
 
@@ -103,23 +130,20 @@ def connect_node(node: NodeConnection, request: Request):
         "compute_score": node.total_compute_score
     }
 
-
 @app.get("/nodes")
 def get_connected_nodes():
     return [
         {
             "node_id": node.node_id,
             "ip": node.ip,
-            "country": getattr(node, "country", "Unknown"),
+            "country": node.country,
             "capabilities": node.capabilities,
-            "compute_score": node.total_compute_score,
             "cpu_verified": node.cpu_verified,
             "gpu_verified": node.gpu_verified,
             "cpu_usage": node.cpu_usage,
             "gpu_usage": node.gpu_usage,
             "isConnected": node.isConnected,
             "isAvailable": node.isAvailable
-
         }
         for node in connected_nodes.values()
     ]
@@ -127,7 +151,7 @@ def get_connected_nodes():
 def toggle_node_availability(node_id: str, connected_nodes: dict):
     if node_id in connected_nodes:
         node = connected_nodes[node_id]
-        node.isAvailable = not getattr(node, 'isAvailable', False)
+        node.isAvailable = not node.isAvailable
         print(f"🔁 Toggled availability for {node_id} to {node.isAvailable}")
         return node.isAvailable
     return None
@@ -136,28 +160,14 @@ def toggle_node_availability(node_id: str, connected_nodes: dict):
 def get_connected_nodes_count():
     return {"connected_nodes_count": len([n for n in connected_nodes.values() if n.isConnected])}
 
-
 @app.get("/usage")
 def get_usage_info():
-
-
-    # Refresh live usage values for each connected node
     for node in connected_nodes.values():
         if node.isConnected:
             try:
                 node.cpu_usage = psutil.cpu_percent(interval=0.1)
             except Exception:
                 node.cpu_usage = 0.0
-
-            try:
-                gpus = getGPUs()
-                if gpus:
-                    avg_load = sum(gpu.load for gpu in gpus) / len(gpus)
-                    node.gpu_usage = round(avg_load * 100, 2)
-                else:
-                    node.gpu_usage = 0.0
-            except Exception:
-                node.gpu_usage = 0.0
 
     connected = [n for n in connected_nodes.values() if n.isConnected]
     if connected:
@@ -177,55 +187,46 @@ def get_usage_info():
         "last_updated": system_usage["last_updated"]
     }
 
-# Add endpoints for specific test types
 @app.post("/verify-node/{node_id}/cpu")
 def verify_node_cpu(node_id: str):
     if node_id not in connected_nodes:
         return {"status": "error", "message": f"Node {node_id} not found"}
-    
     if not connected_nodes[node_id].isConnected:
         return {"status": "error", "message": f"Node {node_id} is not connected"}
-    
-    # Start CPU verification in background
+
     thread = threading.Thread(target=verify_cpu_connected, args=(node_id, connected_nodes))
     thread.daemon = True
     thread.start()
-    
+
     return {"status": "success", "message": f"CPU verification started for node {node_id}"}
 
 @app.post("/verify-node/{node_id}/gpu")
 def verify_node_gpu(node_id: str):
     if node_id not in connected_nodes:
         return {"status": "error", "message": f"Node {node_id} not found"}
-    
     if not connected_nodes[node_id].isConnected:
         return {"status": "error", "message": f"Node {node_id} is not connected"}
-    
-    # Start GPU verification in background
-    thread = threading.Thread(target=verify_gpu_connected, args=(node_id, connected_nodes, torch))
+
+    thread = threading.Thread(target=verify_gpu_connected, args=(node_id, connected_nodes, pynvml))
     thread.daemon = True
     thread.start()
-    
+
     return {"status": "success", "message": f"GPU verification started for node {node_id}"}
 
-# Add endpoint to get test results
 @app.get("/node-performance/{node_id}")
 def get_node_performance(node_id: str):
     if node_id not in connected_nodes:
         return {"status": "error", "message": f"Node {node_id} not found"}
-    
+
     node = connected_nodes[node_id]
-    
+
     return {
         "status": "success",
         "node_id": node_id,
-        "cpu_verified": getattr(node, 'cpu_verified', False),
-        "gpu_verified": getattr(node, 'gpu_verified', False),
-        "cpu_usage": getattr(node, 'cpu_usage', 0),
-        "gpu_usage": getattr(node, 'gpu_usage', 0),
-        "cpu_benchmark": getattr(node, "cpu_benchmark", None),
-        "gpu_benchmark": getattr(node, "gpu_benchmark", None),
-
+        "cpu_verified": node.cpu_verified,
+        "gpu_verified": node.gpu_verified,
+        "cpu_usage": node.cpu_usage,
+        "gpu_usage": node.gpu_usage,
+        "cpu_benchmark": node.cpu_benchmark,
+        "gpu_benchmark": node.gpu_benchmark
     }
-
-    

@@ -1,34 +1,36 @@
-# Use NVIDIA CUDA runtime image with Ubuntu and Python preinstalled
+# Use base image with NVIDIA CUDA support
 FROM nvidia/cuda:12.2.0-runtime-ubuntu22.04
 
-# Set working directory inside the container
+# Set working directory
 WORKDIR /app
 
-# Install Python + tools (Ubuntu base doesn't include them by default)
+# Install system-level dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.11 \
     python3-pip \
     python3.11-venv \
     python3.11-dev \
     curl \
-    && ln -s /usr/bin/python3.11 /usr/bin/python \
-    && ln -s /usr/bin/pip3 /usr/bin/pip \
-    && rm -rf /var/lib/apt/lists/*
+ && ln -sf /usr/bin/python3.11 /usr/bin/python \
+ && ln -sf /usr/bin/pip3 /usr/bin/pip \
+ && rm -rf /var/lib/apt/lists/*
 
-# Upgrade pip and install Python deps early for cache reuse
+# Copy only requirements for layer caching
 COPY requirements.txt .
+
+# Install Python dependencies (will be cached unless requirements.txt changes)
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-# Copy the application code
+# ✅ Copy source code after installing deps
 COPY ./src ./src
-COPY ./static ./static
-COPY ./templates ./templates
-COPY app.py .
+COPY ./src/frontend/static ./static
+COPY ./src/frontend/template ./templates
+COPY ./src/app.py .
 
-# Environment variables
+# Set environment variables
 ENV USE_DOCKER=true
 ENV PYTHONPATH=/app/src
 
-# Run FastAPI app via Uvicorn
+# Run FastAPI app
 CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "3000"]

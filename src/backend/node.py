@@ -9,7 +9,8 @@ from typing import Dict, Any
 from backend.service.runningNodeService import process_task
 from backend.service.systemInfoService import get_system_capabilities
 from backend.service.connectionService import background_connection_handler
-from GPUtil import getGPUs
+from psutil import cpu_percent, virtual_memory
+import pynvml  
 
 # Logging setup
 logging.basicConfig(
@@ -59,19 +60,40 @@ node_info = {
 
 def get_gpu_info_list():
     try:
-        gpus = getGPUs()
-        return [{
-            "name": gpu.name,
-            "total_memory": gpu.memoryTotal,
-            "free_memory": gpu.memoryFree,
-            "load_percentage": round(gpu.load * 100, 1),
-            "temperature": gpu.temperature
-        } for gpu in gpus]
-    except Exception as e:
-        print("⚠️ GPU detection failed:", e)
+        pynvml.nvmlInit()
+        device_count = pynvml.nvmlDeviceGetCount()
+        gpu_info = []
+
+        for i in range(device_count):
+            handle = pynvml.nvmlDeviceGetHandleByIndex(i)
+            name = pynvml.nvmlDeviceGetName(handle)
+            memory_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+            utilization = pynvml.nvmlDeviceGetUtilizationRates(handle)
+            temperature = pynvml.nvmlDeviceGetTemperature(handle, pynvml.NVML_TEMPERATURE_GPU)
+
+            gpu_info.append({
+                "name": name,
+                "total_memory": round(memory_info.total / 1024 ** 2),
+                "free_memory": round(memory_info.free / 1024 ** 2),
+                "used_memory": round(memory_info.used / 1024 ** 2),
+                "load_percentage": utilization.gpu,
+                "temperature": temperature
+            })
+
+        return gpu_info
+
+    except pynvml.NVMLError as e:
+        print("⚠️ NVML error:", e)
         return []
 
+    finally:
+        try:
+            pynvml.nvmlShutdown()
+        except:
+            pass
 
+    
+@app.post("/connect-node")
 async def connect_node(background_tasks: BackgroundTasks):
     if node_info["connected"]:
         return {
@@ -80,30 +102,23 @@ async def connect_node(background_tasks: BackgroundTasks):
             "node_id": node_info["node_id"]
         }
 
-    # Auto-fetch GPU capabilities before sending (multi-GPU support)
-    try:
-        from GPUtil import getGPUs
-        gpus = getGPUs()
-        node_info["capabilities"]["gpus"] = []
-
-        for gpu in gpus:
-            node_info["capabilities"]["gpus"].append({
-                "name": gpu.name,
-                "total_memory": gpu.memoryTotal,
-                "free_memory": gpu.memoryFree,
-                "load_percentage": round(gpu.load * 100, 1),
-                "temperature": gpu.temperature
-            })
-    except Exception as e:
-        print("⚠️ Could not fetch GPU info:", e)
-        node_info["capabilities"]["gpus"] = []
+    node_info["capabilities"]["gpu"] = get_gpu_info_list()
 
     payload = {
-        "node_id": node_info["node_id"],
-        "ip": public_ip,
-        "country": node_info["country"],
-        "capabilities": node_info["capabilities"]
-    }
+    "node_id": node_info["node_id"],
+    "ip": public_ip,
+    "country": node_info["country"],
+    "capabilities": node_info["capabilities"],
+    "isConnected": node_info.get("connected", False),
+    "isAvailable": node_info.get("isAvailable", False),
+    "total_compute_score": node_info.get("total_compute_score", 0),
+    "cpu_verified": node_info.get("cpu_verified", False),
+    "gpu_verified": node_info.get("gpu_verified", False),
+    "cpu_usage": node_info.get("cpu_usage", 0.0),
+    "gpu_usage": node_info.get("gpu_usage", 0.0),
+    "cpu_benchmark": node_info.get("cpu_benchmark"),
+    "gpu_benchmark": node_info.get("gpu_benchmark")
+}
 
     background_tasks.add_task(background_connection_handler, payload, node_info)
 
@@ -113,24 +128,32 @@ async def connect_node(background_tasks: BackgroundTasks):
         "node_id": node_info["node_id"]
     }
 
-
 @app.get("/usage")
 def get_usage():
-    from psutil import cpu_percent, virtual_memory
-    import GPUtil
-
     try:
         cpu_usage = cpu_percent(interval=1)
-        gpus = GPUtil.getGPUs()
-        gpu_usage = round(gpus[0].load * 100, 2) if gpus else 0
+        gpu_usage = 0
+
+        try:
+            pynvml.nvmlInit()
+            handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+            utilization = pynvml.nvmlDeviceGetUtilizationRates(handle)
+            gpu_usage = utilization.gpu
+            pynvml.nvmlShutdown()
+        except Exception as e:
+            logger.warning(f"GPU usage retrieval failed: {e}")
+            gpu_usage = "N/A"
+
         return {
             "cpu_usage": cpu_usage,
             "gpu_usage": gpu_usage,
             "memory_usage": virtual_memory().percent
         }
+
     except Exception as e:
         logger.error(f"Usage retrieval error: {e}")
         return {"error": "Failed to retrieve usage information"}
+
 
 @app.get("/node-capabilities")
 def get_detailed_capabilities():

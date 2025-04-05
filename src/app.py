@@ -6,16 +6,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from dotenv import load_dotenv
+from backend.config import USE_DOCKER, NODE_PORT, COORDINATOR_PORT, DASHBOARD_PORT  # ✅ import from config
 
-# Load environment variables
-load_dotenv()
-
-# Set Docker flag and host
-USE_DOCKER = os.getenv("USE_DOCKER", "false").lower() == "true"
-HOST = "0.0.0.0" if USE_DOCKER else "127.0.0.1"
-
-# Path config
+# Paths
 SRC_DIR = os.path.dirname(os.path.abspath(__file__))
 TEMPLATE_DIR = os.path.join(SRC_DIR, "frontend", "template")
 STATIC_DIR = os.path.join(SRC_DIR, "frontend", "static")
@@ -27,9 +20,9 @@ sys.path.insert(0, SRC_DIR)
 # Kill ports (if not Docker)
 if not USE_DOCKER:
     from backend.terminate_port import kill_process_on_port
-    kill_process_on_port(8100)
-    kill_process_on_port(9100)
-    kill_process_on_port(3000)
+    kill_process_on_port(COORDINATOR_PORT)
+    kill_process_on_port(NODE_PORT)
+    kill_process_on_port(DASHBOARD_PORT)
 
 # Import apps and routers
 from backend.node import app as node_app
@@ -57,7 +50,7 @@ dashboard_app.add_middleware(
     allow_headers=["*"],
 )
 
-# Frontend routes
+# === Frontend routes ===
 @dashboard_app.get("/", include_in_schema=False)
 def redirect_to_connect():
     return RedirectResponse(url="/connect")
@@ -98,20 +91,21 @@ def render_distribution_page():
     path = os.path.join(TEMPLATE_DIR, "distribution.html")
     return FileResponse(path) if os.path.exists(path) else HTMLResponse("<h1>404 - distribution.html not found</h1>", status_code=404)
 
-# Run each service
+# === Run services ===
+
 def run_node():
-    uvicorn.run(app=node_app, host=HOST, port=int(os.getenv("NODE_PORT", 9100)))
+    uvicorn.run(app=node_app, host="0.0.0.0" if USE_DOCKER else "127.0.0.1", port=NODE_PORT)
 
 def run_coordinator():
-    uvicorn.run(app=coordinator_app, host=HOST, port=int(os.getenv("COORDINATOR_PORT", 8100)))
+    uvicorn.run(app=coordinator_app, host="0.0.0.0" if USE_DOCKER else "127.0.0.1", port=COORDINATOR_PORT)
 
 def run_dashboard():
-    uvicorn.run(app=dashboard_app, host=HOST, port=int(os.getenv("DASHBOARD_PORT", 3000)))
+    uvicorn.run(app=dashboard_app, host="0.0.0.0" if USE_DOCKER else "127.0.0.1", port=DASHBOARD_PORT)
 
 # Final exportable app
 app = dashboard_app
 
-# Run processes
+# Multiprocessing entrypoint
 if __name__ == "__main__":
     multiprocessing.set_start_method("spawn")
     processes = [

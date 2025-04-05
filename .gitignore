@@ -22,6 +22,16 @@ Thumbs.db
 
 # ─── Environment Variables ──────────────────────────────────────────────
 .env
+.env.local
+.env.production
+
+# ✅ Keep example file
+!.env.example
+
+# ─── Docker stuff (optional, but good practice) ─────────────────────────
+*.log
+docker-compose.override.yml
+*.pid
 
 # ─── Keep Source Folder ─────────────────────────────────────────────────
 !src/
