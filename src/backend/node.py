@@ -58,6 +58,30 @@ node_info = {
     "total_tasks_processed": 0
 }
 
+def connect_to_coordinator():
+    try:
+        coordinator_url = os.getenv("COORDINATOR_URL", "http://79.76.55.71:8100")
+        payload = {
+            "node_id": node_info["node_id"],
+            "ip": public_ip,
+            "country": node_info["country"],
+            "capabilities": node_info["capabilities"],
+            "isConnected": True,
+            "isAvailable": True,
+            "total_compute_score": node_info.get("total_compute_score", 0),
+            "cpu_verified": node_info.get("cpu_verified", False),
+            "gpu_verified": node_info.get("gpu_verified", False),
+            "cpu_usage": node_info.get("cpu_usage", 0.0),
+            "gpu_usage": node_info.get("gpu_usage", 0.0),
+            "cpu_benchmark": node_info.get("cpu_benchmark"),
+            "gpu_benchmark": node_info.get("gpu_benchmark")
+        }
+        response = requests.post(f"{coordinator_url}/connect-node", json=payload, timeout=5)
+        print(f"✅ Coordinator response: {response.json()}")
+    except Exception as e:
+        print(f"❌ Failed to connect to coordinator: {e}")
+
+
 def get_gpu_info_list():
     try:
         pynvml.nvmlInit()
@@ -170,3 +194,7 @@ def get_detailed_capabilities():
 @app.post("/compute")
 def compute(task: Dict[str, Any], request: Request):
     return process_task(task, node_info, request)
+
+@app.on_event("startup")
+async def startup_event():
+    connect_to_coordinator()
