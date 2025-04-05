@@ -98,56 +98,58 @@
                     return;
                 }
 
-                const node = data[0];
-                currentNodeId = node.node_id;
-                testNode.updateTestButtons(node.node_id);
+                let nodeDetailsHTML = '';
 
-                const connectionStatus = node.isConnected
-                    ? '<span class="status-connected">✅ Connected</span>'
-                    : '<span class="status-disconnected">❌ Disconnected</span>';
+                data.forEach((node, index) => {
+                    const connectionStatus = node.isConnected
+                        ? '<span class="status-connected">✅ Connected</span>'
+                        : '<span class="status-disconnected">❌ Disconnected</span>';
 
-                // Update toggle switch to match node availability
-                const availabilityToggle = document.getElementById("availabilityToggle");
-                if (availabilityToggle) {
-                    availabilityToggle.checked = node.isAvailable;
-                    availabilityToggle.disabled = !node.isConnected;
-                }
-
-                // Update availability text display
-                updateAvailabilityStatus(node.isAvailable);
-
-                const nodeDetailsHTML = `
-    <div class="node-detail">
-        <span class="node-detail-label">Node ID:</span> <span>${node.node_id}</span>
-    </div>
-    <div class="node-detail"><span class="node-detail-label">Country:</span> <span>${node.country || 'Unknown'}</span></div>
-    <div class="node-detail"><span class="node-detail-label">Status:</span> ${connectionStatus}</div>
-   
-    <div class="node-detail"><span class="node-detail-label">CPU:</span>
-        <span>${node.capabilities?.cpu?.brand || 'Unknown'}, ${node.capabilities?.cpu?.cores || 'N/A'} cores</span>
-    </div>
-    <div class="node-detail"><span class="node-detail-label">GPUs:</span></div>
-    ${(Array.isArray(node.capabilities?.gpu) ? node.capabilities.gpu : [node.capabilities.gpu || {}])
-                        .map(gpu => `
-            <div class="node-detail">
-                <span class="node-detail-label">→ ${gpu.name || 'Unknown'}</span>
-                <span>
-                    ${gpu.total_memory ?? '?'} MB total,
-                    ${gpu.free_memory ?? '?'} MB free,
-                    ${gpu.used_memory ?? '?'} MB used,
-                    ${gpu.load_percentage ?? '?'}% load,
-                    ${gpu.temperature ?? '?'}°C
-                </span>
-        `).join('')}
-    `;
+                    nodeDetailsHTML += `
+            <div class="node-detail-group">
+                <div class="node-detail">
+                    <span class="node-detail-label">Node ID:</span> <span>${node.node_id}</span>
+                </div>
+                <div class="node-detail">
+                    <span class="node-detail-label">Country:</span> <span>${node.country || 'Unknown'}</span>
+                </div>
+                <div class="node-detail">
+                    <span class="node-detail-label">Status:</span> ${connectionStatus}
+                </div>
+                <div class="node-detail">
+                    <span class="node-detail-label">CPU:</span>
+                    <span>${node.capabilities?.cpu?.brand || 'Unknown'}, ${node.capabilities?.cpu?.cores || 'N/A'} cores</span>
+                </div>
+                <div class="node-detail">
+                    <span class="node-detail-label">GPUs:</span>
+                </div>
+                ${(Array.isArray(node.capabilities?.gpu) ? node.capabilities.gpu : [node.capabilities.gpu || {}])
+                            .map(gpu => `
+                        <div class="node-detail">
+                            <span class="node-detail-label">→ ${gpu.name || 'Unknown'}</span>
+                            <span>
+                                ${gpu.total_memory ?? '?'} MB total,
+                                ${gpu.free_memory ?? '?'} MB free,
+                                ${gpu.used_memory ?? '?'} MB used,
+                                ${gpu.load_percentage ?? '?'}% load,
+                                ${gpu.temperature ?? '?'}°C
+                            </span>
+                        </div>
+                    `).join('')}
+                <hr />
+            </div>
+            `;
+                });
 
                 document.getElementById("nodeDetails").innerHTML = nodeDetailsHTML;
+
             } catch (err) {
                 document.getElementById("nodeDetails").innerHTML =
                     "<p class='status-disconnected'>⚠️ Error loading node details.</p>";
                 console.error("Error fetching node details:", err);
             }
         }
+
 
         function updateAvailabilityStatus(isAvailable) {
             const availabilityStatus = document.getElementById("availabilityStatus");

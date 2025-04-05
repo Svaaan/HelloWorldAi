@@ -11,7 +11,7 @@
     <header>
         <h1>
             <div class="node-icon"></div>
-            Node Connection
+            Node Connections
         </h1>
     </header>
 
@@ -32,80 +32,55 @@
     </div>
 
     <script>
-        async function detectGPUAvailable() {
-            try {
-                const canvas = document.createElement("canvas");
-                const gl = canvas.getContext("webgl") || canvas.getContext("experimental-webgl");
-                if (!gl) return false;
-    
-                const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
-                const renderer = debugInfo
-                    ? gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL)
-                    : "Unknown";
-    
-                return !renderer.includes("SwiftShader") && !renderer.includes("Software");
-            } catch {
-                return false;
-            }
-        }
-    
+
         async function connectNode() {
             const connectButton = document.getElementById("connectNodeButton");
             const processingMessage = document.getElementById("processingMessage");
-    
+
             connectButton.disabled = true;
             connectButton.style.display = "none";
             processingMessage.style.display = "flex";
-    
-            // Detect GPU presence (optional Web fallback)
-            const gpuAvailable = await detectGPUAvailable();
-            if (!gpuAvailable) {
-                showMessage("⚠️ No GPU detected in browser. If you're using WSL or Docker, please confirm GPU support is enabled.", "error");
-                connectButton.disabled = false;
-                connectButton.style.display = "block";
-                processingMessage.style.display = "none";
-                return;
-            }
-    
+
             const CONNECT_ENDPOINT = "/connect-node";
-    
+
             try {
                 const res = await fetch(CONNECT_ENDPOINT, { method: "POST" });
                 const result = await res.json();
-    
+
                 if (!res.ok || result.error) {
                     throw new Error(result.error || `Connection failed with status: ${res.status}`);
                 }
-    
+
                 showMessage("✅ Connection successful. Redirecting to node dashboard...", "success");
                 setTimeout(() => window.location.href = "/node.html", 2000);
-    
+
             } catch (err) {
                 console.error("Error connecting node:", err);
                 let errorMessage = err.message.includes("Failed to fetch")
                     ? "Cannot reach server. Please check your connection."
                     : err.message || "An error occurred during connection.";
-    
+
                 showMessage(errorMessage, "error");
                 connectButton.disabled = false;
                 connectButton.style.display = "block";
                 processingMessage.style.display = "none";
             }
         }
-    
+
+
         function showMessage(message, type) {
             const resultMessageElement = document.getElementById("resultMessage");
             resultMessageElement.innerHTML = message;
             resultMessageElement.className = type === "success" ? "success-message" : "error-message";
         }
-    
+
         document.addEventListener("DOMContentLoaded", () => {
             const connectButton = document.getElementById("connectNodeButton");
             connectButton?.addEventListener("click", connectNode);
         });
     </script>
-    
-    
+
+
 </body>
 
 </html>

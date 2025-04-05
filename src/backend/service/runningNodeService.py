@@ -1,25 +1,32 @@
 import uuid
 import psutil
-import GPUtil
 import logging
+import pynvml  # ✅ Use pynvml instead of GPUtil
 from typing import Dict, Any
 from fastapi import Request
 
 logger = logging.getLogger(__name__)
 
-
 def is_node_overloaded(cpu_threshold=90.0, gpu_threshold=90.0, memory_threshold=90.0) -> bool:
     try:
         cpu = psutil.cpu_percent(interval=0.1)
         memory = psutil.virtual_memory().percent
-        gpus = GPUtil.getGPUs()
-        gpu = max((gpu.load * 100 for gpu in gpus), default=0.0)
+
+        # ✅ Use pynvml to get GPU usage
+        try:
+            pynvml.nvmlInit()
+            handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+            utilization = pynvml.nvmlDeviceGetUtilizationRates(handle)
+            gpu = utilization.gpu
+            pynvml.nvmlShutdown()
+        except Exception as e:
+            logger.warning(f"⚠️ GPU usage retrieval failed: {e}")
+            gpu = 0.0
 
         return cpu > cpu_threshold or memory > memory_threshold or gpu > gpu_threshold
     except Exception as e:
         logger.warning(f"⚠️ Failed to check node load: {e}")
         return False  # Fail-safe: allow task if we can't check
-
 
 def process_task(task: Dict[str, Any], node_info: Dict[str, Any], request: Request) -> Dict[str, Any]:
     try:
@@ -82,17 +89,17 @@ def process_task(task: Dict[str, Any], node_info: Dict[str, Any], request: Reque
             "details": str(e)
         }
 
-
 def _process_gpu_task(task: Dict[str, Any]) -> str:
     try:
+        # Simulate task processing
         return str(task).upper()
     except Exception as e:
         logger.error(f"GPU task processing error: {e}")
         return f"GPU_ERROR: {e}"
 
-
 def _process_cpu_task(task: Dict[str, Any]) -> str:
     try:
+        # Simulate task processing
         return str(task).lower()
     except Exception as e:
         logger.error(f"CPU task processing error: {e}")

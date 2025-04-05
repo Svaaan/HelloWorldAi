@@ -1,0 +1,45 @@
+# ─── Python Cache ─────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# ─── Virtual Environments ────────────────────────────────────
+venv/
+env/
+.venv/
+
+# ─── Git ─────────────────────────────────────────────────────
+.git
+.gitignore
+
+# ─── Local Environment Variables ────────────────────────────
+.env
+.env.local
+.env.production
+.env.*
+
+# ─── OS / System Files ───────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ─── IDE / Editor Files ──────────────────────────────────────
+.vscode/
+.idea/
+
+# ─── Docker Specific ─────────────────────────────────────────
+Dockerfile.dev
+docker-compose.override.yml
+docker-compose.local.yml
+
+# ─── Logs ────────────────────────────────────────────────────
+*.log
+
+# ─── Node Modules (if you add frontend later) ───────────────
+node_modules/
+
+# ─── Miscellaneous ──────────────────────────────────────────
+*.md
+*.sh
+build/
+dist/
