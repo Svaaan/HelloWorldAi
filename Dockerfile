@@ -32,5 +32,5 @@ COPY ./src/app.py .
 ENV USE_DOCKER=true
 ENV PYTHONPATH=/app/src
 
-# Run FastAPI app
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "3000"]
+# ✅ No hardcoded app
+CMD ["sleep", "infinity"]

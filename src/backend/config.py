@@ -11,7 +11,7 @@ if ENVIRONMENT == "production":
 else:
     env_file = ".env.local"
 
-load_dotenv(dotenv_path=env_file)
+load_dotenv(dotenv_path=env_file, override=True)
 
 # === Shared Config Variables ===
 USE_DOCKER = os.getenv("USE_DOCKER", "false").lower() == "true"

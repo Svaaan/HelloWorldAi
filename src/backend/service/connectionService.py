@@ -11,7 +11,7 @@ def background_connection_handler(payload, node_info):
     coordinator_url = os.getenv('COORDINATOR_URL', 'http://127.0.0.1:8100/connect-node')
     logger.info(f"📡 Attempting to connect to coordinator at {coordinator_url}")
     try:
-        res = requests.post(coordinator_url, json=payload, timeout=10)
+        res = requests.post(f"{coordinator_url}/connect-node", json=payload, timeout=10)
         if res.status_code == 200:
             node_info["connected"] = True
             logger.info(f"✅ Node '{node_info['node_id']}' connected successfully!")
