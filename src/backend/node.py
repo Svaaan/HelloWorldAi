@@ -68,7 +68,6 @@ def connect_to_coordinator():
             "capabilities": node_info["capabilities"],
             "isConnected": True,
             "isAvailable": True,
-            "total_compute_score": node_info.get("total_compute_score", 0),
             "cpu_verified": node_info.get("cpu_verified", False),
             "gpu_verified": node_info.get("gpu_verified", False),
             "cpu_usage": node_info.get("cpu_usage", 0.0),

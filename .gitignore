@@ -22,6 +22,9 @@ Thumbs.db
 
 # ─── Environment Variables ──────────────────────────────────────────────
 .env
+.env.local
+
+.env.production
 
 
 # ✅ Keep example file
