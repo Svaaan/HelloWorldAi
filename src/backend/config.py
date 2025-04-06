@@ -1,13 +1,13 @@
-# backend/config.py
-
 import os
 from dotenv import load_dotenv
 
-# === Load the correct .env file ===
+# === Load the correct .env file based on ENV variable ===
 ENVIRONMENT = os.getenv("ENV", "local")
 
 if ENVIRONMENT == "production":
     env_file = ".env.production"
+elif ENVIRONMENT == "test":
+    env_file = ".env.test"
 else:
     env_file = ".env.local"
 
