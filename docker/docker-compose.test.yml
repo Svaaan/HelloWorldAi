@@ -1,13 +1,12 @@
-
 services:
   dashboard:
     build:
-      context: .
-      dockerfile: docker/Dockerfile  
+      context: ../
+      dockerfile: docker/Dockerfile
     ports:
       - "3000:3000"
     env_file:
-      - env/.env.test  
+      - ../env/.env.test
     environment:
       - USE_DOCKER=true
       - ENV=test
@@ -19,12 +18,12 @@ services:
 
   coordinator:
     build:
-      context: .
-      dockerfile: docker/Dockerfile 
+      context: ../
+      dockerfile: docker/Dockerfile
     ports:
       - "8100:8100"
     env_file:
-      - env/.env.test  
+      - ../env/.env.test
     environment:
       - USE_DOCKER=true
       - ENV=test
@@ -33,12 +32,12 @@ services:
 
   node:
     build:
-      context: .
+      context: ../  
       dockerfile: docker/Dockerfile  
     ports:
       - "9100:9100"
     env_file:
-      - env/.env.test 
+      - ../env/.env.test 
     environment:
       - NODE_PORT=9100
       - USE_DOCKER=true
