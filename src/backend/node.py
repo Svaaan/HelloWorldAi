@@ -59,6 +59,12 @@ node_info = {
 }
 
 def connect_to_coordinator():
+    # ✅ Check for GPU first!
+    gpu_info = get_gpu_info_list()
+    if not gpu_info:
+        print("❌ No eligible GPU found. Skipping coordinator connection.")
+        return  # Abort early
+
     try:
         coordinator_url = os.getenv("COORDINATOR_URL", "http://79.76.55.71:8100")
         payload = {

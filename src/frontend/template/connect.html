@@ -51,6 +51,9 @@
                     throw new Error(result.error || `Connection failed with status: ${res.status}`);
                 }
 
+                // ✅ Save the node ID to localStorage!
+                localStorage.setItem("currentNodeId", result.node_id);
+
                 showMessage("✅ Connection successful. Redirecting to node dashboard...", "success");
                 setTimeout(() => window.location.href = "/node.html", 2000);
 
@@ -66,6 +69,8 @@
                 processingMessage.style.display = "none";
             }
         }
+
+
 
 
         function showMessage(message, type) {

@@ -119,3 +119,23 @@ async def proxy_distribution_page(request: Request):
         "request": request,
         "available_nodes": available_nodes
     })
+
+@router.get("/available-nodes")
+async def proxy_available_nodes():
+    try:
+        async with httpx.AsyncClient() as client:
+            res = await client.get(f"{COORDINATOR_URL}/nodes")
+            res.raise_for_status()
+            all_nodes = res.json()
+
+            # Filter for only available and connected nodes
+            available_nodes = [
+                node for node in all_nodes
+                if node.get("isConnected") and node.get("isAvailable")
+            ]
+
+            return available_nodes
+
+    except httpx.RequestError as e:
+        return {"error": f"Failed to fetch available nodes: {e}"}
+
