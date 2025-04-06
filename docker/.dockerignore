@@ -10,14 +10,15 @@ env/
 .venv/
 
 # ─── Git ─────────────────────────────────────────────────────
-.git
+.git/
 .gitignore
 
-# ─── Local Environment Variables ────────────────────────────
+# ─── Local Environment Variables ─────────────────────────────
 .env
 .env.local
 .env.production
 .env.*
+env/*
 
 # ─── OS / System Files ───────────────────────────────────────
 .DS_Store
@@ -27,15 +28,17 @@ Thumbs.db
 .vscode/
 .idea/
 
-# ─── Docker Specific ─────────────────────────────────────────
-Dockerfile.dev
+# ─── Docker ──────────────────────────────────────────────────
 docker-compose.override.yml
 docker-compose.local.yml
+docker-compose.test.yml
+# ✅ Do NOT ignore Dockerfile or docker-compose.yml in docker/
+# Docker folder is part of build
 
 # ─── Logs ────────────────────────────────────────────────────
 *.log
 
-# ─── Node Modules (if you add frontend later) ───────────────
+# ─── Node Modules (future-proof) ────────────────────────────
 node_modules/
 
 # ─── Miscellaneous ──────────────────────────────────────────
@@ -43,3 +46,8 @@ node_modules/
 *.sh
 build/
 dist/
+
+# ─── Cache ───────────────────────────────────────────────────
+*.cache
+*.pid
+*.lock

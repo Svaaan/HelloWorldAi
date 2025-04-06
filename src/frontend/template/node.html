@@ -62,7 +62,7 @@
                             </div>
                         </span>
                     </label>
-                    <span id="availabilityStatus">Loading...</span>
+                    <span id="availabilityStatus"></span>
                     <div id="toggleProcessing" class="toggle-processing">
                         <div class="loading-dots">
                             <span></span>
@@ -84,9 +84,9 @@
     <script src="/static/js/nodejs/testNode.js"></script>
 
     <script>
-        let currentNodeId = null;
-
         async function fetchNodeInfo() {
+            currentNodeId = localStorage.getItem("currentNodeId"); // ✅ Get from localStorage
+
             try {
                 const res = await fetch("/nodes");
                 const data = await res.json();
@@ -98,14 +98,21 @@
                     return;
                 }
 
-                let nodeDetailsHTML = '';
+                // ✅ Filter to only show the node that belongs to currentNodeId
+                const node = data.find(n => n.node_id === currentNodeId);
 
-                data.forEach((node, index) => {
-                    const connectionStatus = node.isConnected
-                        ? '<span class="status-connected">✅ Connected</span>'
-                        : '<span class="status-disconnected">❌ Disconnected</span>';
+                if (!node) {
+                    document.getElementById("nodeDetails").innerHTML =
+                        "<p class='status-disconnected'>❌ No matching node found for this device.</p>";
+                    document.getElementById("availabilityToggle").disabled = true;
+                    return;
+                }
 
-                    nodeDetailsHTML += `
+                const connectionStatus = node.isConnected
+                    ? '<span class="status-connected">✅ Connected</span>'
+                    : '<span class="status-disconnected">❌ Disconnected</span>';
+
+                const nodeDetailsHTML = `
             <div class="node-detail-group">
                 <div class="node-detail">
                     <span class="node-detail-label">Node ID:</span> <span>${node.node_id}</span>
@@ -124,7 +131,7 @@
                     <span class="node-detail-label">GPUs:</span>
                 </div>
                 ${(Array.isArray(node.capabilities?.gpu) ? node.capabilities.gpu : [node.capabilities.gpu || {}])
-                            .map(gpu => `
+                        .map(gpu => `
                         <div class="node-detail">
                             <span class="node-detail-label">→ ${gpu.name || 'Unknown'}</span>
                             <span>
@@ -138,8 +145,7 @@
                     `).join('')}
                 <hr />
             </div>
-            `;
-                });
+        `;
 
                 document.getElementById("nodeDetails").innerHTML = nodeDetailsHTML;
 
@@ -254,7 +260,11 @@
         }
 
         window.addEventListener('load', () => {
-            // Set up the availability toggle
+            currentNodeId = localStorage.getItem("currentNodeId");
+            if (!currentNodeId) {
+                console.warn("No node ID found in localStorage.");
+            }
+
             const availabilityToggle = document.getElementById("availabilityToggle");
             if (availabilityToggle) {
                 availabilityToggle.addEventListener("change", (e) => {
@@ -262,9 +272,10 @@
                 });
             }
 
-            manualRefresh(); // Initial
+            manualRefresh();
             startPeriodicRefresh();
         });
+
     </script>
 
 </body>
