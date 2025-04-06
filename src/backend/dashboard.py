@@ -1,7 +1,7 @@
 import os
 from fastapi import APIRouter
 import httpx
-from backend.config import COORDINATOR_URL  # ✅ Use shared config
+from backend.utils.config import COORDINATOR_URL  # ✅ Use shared config
 
 router = APIRouter()
 
