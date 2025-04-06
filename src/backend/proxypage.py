@@ -3,7 +3,7 @@ import httpx
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
-from backend.config import NODE_URL, COORDINATOR_URL  # ✅ Clean import from config
+from backend.utils.config import NODE_URL, COORDINATOR_URL  # ✅ Clean import from config
 
 TEMPLATE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "frontend", "template")
 templates = Jinja2Templates(directory=TEMPLATE_DIR)

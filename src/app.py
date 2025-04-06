@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from backend.config import USE_DOCKER, NODE_PORT, COORDINATOR_PORT, DASHBOARD_PORT  # ✅ import from config
+from backend.utils.config import USE_DOCKER, NODE_PORT, COORDINATOR_PORT, DASHBOARD_PORT  # ✅ import from config
 
 # Paths
 SRC_DIR = os.path.dirname(os.path.abspath(__file__))
