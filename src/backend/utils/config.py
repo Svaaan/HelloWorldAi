@@ -1,5 +1,14 @@
 import os
+import logging
 from dotenv import load_dotenv
+
+# === Global logging configuration ===
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+
+logger = logging.getLogger(__name__)
 
 # === Load the correct .env file based on ENV variable ===
 ENVIRONMENT = os.getenv("ENV", "local")
@@ -25,9 +34,11 @@ DASHBOARD_PORT = int(os.getenv("DASHBOARD_PORT", 3000))
 COORDINATOR_PORT = int(os.getenv("COORDINATOR_PORT", 8100))
 NODE_PORT = int(os.getenv("NODE_PORT", 9100))
 
-# Optional logs to check loading
-print(f"✅ Loaded config: ENVIRONMENT={ENVIRONMENT}")
-print(f"✅ USE_DOCKER={USE_DOCKER}")
-print(f"✅ COORDINATOR_URL={COORDINATOR_URL}")
-print(f"✅ NODE_URL={NODE_URL}")
-print(f"✅ Ports: Dashboard={DASHBOARD_PORT}, Coordinator={COORDINATOR_PORT}, Node={NODE_PORT}")
+# === Print once, safely ===
+if not globals().get("CONFIG_LOGGED"):
+    logger.info(f"✅ Loaded config: ENVIRONMENT={ENVIRONMENT}")
+    logger.info(f"✅ USE_DOCKER={USE_DOCKER}")
+    logger.info(f"✅ COORDINATOR_URL={COORDINATOR_URL}")
+    logger.info(f"✅ NODE_URL={NODE_URL}")
+    logger.info(f"✅ Ports: Dashboard={DASHBOARD_PORT}, Coordinator={COORDINATOR_PORT}, Node={NODE_PORT}")
+    globals()["CONFIG_LOGGED"] = True
