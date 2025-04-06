@@ -1,12 +1,13 @@
+
 services:
   dashboard:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: docker/Dockerfile 
     ports:
       - "3000:3000"
     env_file:
-      - .env.test
+      - env/.env.test  
     environment:
       - USE_DOCKER=true
       - ENV=test
@@ -14,33 +15,32 @@ services:
       - coordinator
       - node
     command: uvicorn src.app:app --host 0.0.0.0 --port 3000
-    restart: always
+    restart: always 
 
   coordinator:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: docker/Dockerfile  
     ports:
       - "8100:8100"
     env_file:
-      - .env.test
+      - env/.env.test 
     environment:
       - USE_DOCKER=true
       - ENV=test
     command: uvicorn src.backend.coordinator:app --host 0.0.0.0 --port 8100
-    restart: always
+    restart: always  
 
   node:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: docker/Dockerfile  
     ports:
       - "9100:9100"
     env_file:
-      - .env.test
-    environment:
+      - env/.env.test  
       - NODE_PORT=9100
       - USE_DOCKER=true
       - ENV=test
     command: uvicorn src.backend.node:app --host 0.0.0.0 --port 9100
-    restart: always
+    restart: always  

@@ -1,13 +1,12 @@
-
 services:
   dashboard:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: docker/Dockerfile  # ✅ updated path only
     ports:
       - "3000:3000"
     env_file:
-      - .env.production  # ✅ Oracle production env
+      - env/.env.production  # ✅ updated path only
     environment:
       - USE_DOCKER=true
     depends_on:
@@ -18,11 +17,11 @@ services:
   coordinator:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: docker/Dockerfile  # ✅ updated path only
     ports:
       - "8100:8100"
     env_file:
-      - .env.production
+      - env/.env.production  # ✅ updated path only
     environment:
       - USE_DOCKER=true
     command: uvicorn src.backend.coordinator:app --host 0.0.0.0 --port 8100
