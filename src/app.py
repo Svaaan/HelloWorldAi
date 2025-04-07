@@ -91,6 +91,14 @@ def render_distribution_page():
     path = os.path.join(TEMPLATE_DIR, "distribution.html")
     return FileResponse(path) if os.path.exists(path) else HTMLResponse("<h1>404 - distribution.html not found</h1>", status_code=404)
 
+@dashboard_app.get("/task-session", include_in_schema=False)
+def redirect_to_task_session_html():
+    return RedirectResponse(url="/task-session.html")
+
+@dashboard_app.get("/task-session.html", response_class=HTMLResponse)
+def render_task_session_page():
+    path = os.path.join(TEMPLATE_DIR, "task-session.html")
+    return FileResponse(path) if os.path.exists(path) else HTMLResponse("<h1>404 - task-session.html not found</h1>", status_code=404)
 # === Run services ===
 
 def run_node():
