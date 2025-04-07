@@ -70,6 +70,34 @@ async def proxy_reject_task(task_id: str):
     except httpx.RequestError as e:
         return {"error": f"Failed to reject task: {e}"}
     
+@router.get("/get-task-results")
+async def proxy_get_task_results():
+    try:
+        async with httpx.AsyncClient() as client:
+            res = await client.get(f"{COORDINATOR_URL}/get-task-results")
+            res.raise_for_status()
+            return res.json()
+    except httpx.RequestError as e:
+        return {"error": f"Failed to fetch task results: {e}"}
+    
+@router.post("/receive-task-result")
+async def proxy_receive_task_result(result: dict):
+    try:
+        # Ensure logs are included in the task result
+        print(f"📥 Task result received: {result}")
+
+        # Forward the task result to the coordinator or process as needed
+        async with httpx.AsyncClient() as client:
+            res = await client.post(f"{COORDINATOR_URL}/receive-task-result", json=result)
+            res.raise_for_status()
+            return res.json()
+
+    except httpx.RequestError as e:
+        return {"error": f"Failed to forward task result to coordinator: {e}"}
+    except Exception as e:
+        return {"error": f"Unexpected error: {str(e)}"}
+
+    
 @router.post("/execute-task/{node_id}")
 async def proxy_execute_task(node_id: str, request: Request):
     try:
