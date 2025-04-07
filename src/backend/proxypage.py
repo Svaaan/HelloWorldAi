@@ -50,6 +50,26 @@ async def proxy_nodes(request: Request):
     except httpx.RequestError as e:
         return {"error": f"Failed to fetch nodes: {e}"}
     
+@router.post("/process-task/{task_id}")
+async def proxy_process_task(task_id: str):
+    try:
+        async with httpx.AsyncClient() as client:
+            res = await client.post(f"{NODE_URL}/process-task/{task_id}")
+            res.raise_for_status()
+            return res.json()
+    except httpx.RequestError as e:
+        return {"error": f"Failed to process task: {e}"}
+    
+@router.post("/reject-task/{task_id}")
+async def proxy_reject_task(task_id: str):
+    try:
+        async with httpx.AsyncClient() as client:
+            res = await client.post(f"{NODE_URL}/reject-task/{task_id}")
+            res.raise_for_status()
+            return res.json()
+    except httpx.RequestError as e:
+        return {"error": f"Failed to reject task: {e}"}
+    
 @router.post("/execute-task/{node_id}")
 async def proxy_execute_task(node_id: str, request: Request):
     try:
@@ -87,6 +107,29 @@ async def proxy_connect_node():
         return {"error": f"Failed to reach node at {NODE_URL}: {str(e)}"}
     except Exception as e:
         return {"error": f"Unexpected error: {str(e)}"}
+    
+@router.post("/queue-task/{node_id}")
+async def proxy_queue_task(node_id: str, request: Request):
+    try:
+        task_data = await request.json()
+
+        async with httpx.AsyncClient() as client:
+            res = await client.post(f"{NODE_URL}/queue-task/{node_id}", json=task_data)
+            res.raise_for_status()
+            return res.json()
+
+    except httpx.RequestError as e:
+        return {"status": "error", "message": f"Failed to queue task: {e}"}
+    
+@router.get("/get-pending-tasks")
+async def proxy_get_pending_tasks():
+    try:
+        async with httpx.AsyncClient() as client:
+            res = await client.get(f"{NODE_URL}/get-pending-tasks")
+            res.raise_for_status()
+            return res.json()
+    except httpx.RequestError as e:
+        return {"error": f"Failed to fetch pending tasks: {e}"}
 
 @router.post("/verify-node/{node_id}/cpu")
 async def proxy_verify_cpu(node_id: str):

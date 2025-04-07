@@ -13,6 +13,7 @@ from backend.service.connectionService import background_connection_handler
 from psutil import cpu_percent, virtual_memory
 from backend.executeTask import handle_task
 from fastapi import Body, Path
+from typing import List
 import pynvml
 from fastapi import Body
 
@@ -33,6 +34,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+task_queue: List[dict] = []
 
 def get_node_ip() -> str:
     try:
@@ -214,27 +217,49 @@ def get_detailed_capabilities():
         }
     }
 
-@app.post("/execute-task/{node_id}")
-async def execute_task(node_id: str = Path(...), task: dict = Body(...)):
-    global node_info  # ✅ Add here
+@app.post("/queue-task/{node_id}")
+async def queue_task(node_id: str, task_data: dict = Body(...)):
+    print(f"📥 Received task for node {node_id}: {task_data}")
 
-    print(f"📥 Received task for node {node_id}: {task}")
+    task_id = f"task_{len(task_queue) + 1}"  # ✅ Generate task ID
 
-    if node_id != node_info["node_id"]:
-        return {"status": "error", "message": f"Invalid node ID: {node_id}"}
+    task_queue.append({
+        "task_id": task_id,
+        "node_id": node_id,
+        "task_data": task_data,
+        "status": "pending"
+    })
 
-    result = handle_task(node_info, task)
+    print(f"📝 Task queued: {task_id}")
+    return {"status": "success", "task_id": task_id, "message": "Task queued for approval"}
 
-    print(f"✅ Task processed. Result: {result}")
+@app.get("/get-pending-tasks")
+def get_pending_tasks():
+    return [task for task in task_queue if task["status"] == "pending"]
 
-    return {
-        "status": result["status"],
-        "message": result["message"],
-        "original_task": task
-    }
+@app.post("/process-task/{task_id}")
+def process_task(task_id: str, background_tasks: BackgroundTasks):
+    task = next((t for t in task_queue if t["task_id"] == task_id), None)
+    if not task:
+        return {"status": "error", "message": "Task not found"}
 
+    task_queue.remove(task)
 
+    from backend.executeTask import handle_task
+    background_tasks.add_task(handle_task, node_info, task["task_data"])
 
+    print(f"✅ Task {task_id} accepted and processing started.")
+    return {"status": "processing", "message": f"Task {task_id} is being processed."}
+
+@app.post("/reject-task/{task_id}")
+def reject_task(task_id: str):
+    task = next((t for t in task_queue if t["task_id"] == task_id), None)
+    if not task:
+        return {"status": "error", "message": "Task not found"}
+
+    task_queue.remove(task)
+    print(f"❌ Task {task_id} was rejected and removed from queue.")
+    return {"status": "rejected", "message": f"Task {task_id} has been rejected."}
 
 @app.post("/compute")
 def compute(task: Dict[str, Any], request: Request):

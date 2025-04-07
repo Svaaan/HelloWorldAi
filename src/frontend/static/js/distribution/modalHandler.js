@@ -19,7 +19,8 @@ export function showNodeModal(node) {
         <p><strong>Price per hour:</strong> ${node.price_per_hour != null ? node.price_per_hour + " SEK/h" : "N/A"}</p>
         <p><strong>Price per day:</strong> ${node.price_per_hour != null ? (node.price_per_hour * 24).toFixed(2) + " SEK/day" : "N/A"}</p>
 
-        <button id="sendTaskButton">🚀 Send Test Task to Node</button>
+        <textarea id="taskDataInput" placeholder='Paste your task JSON here' style="width: 100%; height: 150px; margin-top: 10px;"></textarea>
+        <button id="sendTaskButton" style="margin-top: 10px;">🚀 Send Task Request</button>
         <div id="taskResponseMessage" style="margin-top: 10px;"></div>
     `;
 
@@ -29,43 +30,43 @@ export function showNodeModal(node) {
     const taskResponseMessage = document.getElementById("taskResponseMessage");
 
     sendTaskButton.addEventListener("click", async () => {
+        const taskDataInput = document.getElementById("taskDataInput").value;
+
+        let taskPayload;
+        try {
+            taskPayload = JSON.parse(taskDataInput);
+        } catch (error) {
+            taskResponseMessage.style.color = "red";
+            taskResponseMessage.textContent = "❌ Invalid JSON format.";
+            return;
+        }
+
         sendTaskButton.disabled = true;
         taskResponseMessage.textContent = "Sending task... ⏳";
 
         try {
-            const response = await fetch(`/execute-task/${node.node_id}`, {
+            const response = await fetch(`/queue-task/${node.node_id}`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json"
                 },
-                body: JSON.stringify({
-                    task_type: "llm_training",
-                    model_name: "gpt2",
-                    data: {
-                        texts: ["Hello world", "Distributed computing is here!"]
-                    },
-                    hyperparameters: {
-                        learning_rate: 0.001,
-                        epochs: 2
-                    },
-                    response_required: true
-                })
+                body: JSON.stringify(taskPayload)
             });
 
             const result = await response.json();
 
             if (result.status === "success") {
                 taskResponseMessage.style.color = "green";
-                taskResponseMessage.textContent = `✅ Task processed: ${result.message}`;
+                taskResponseMessage.textContent = `✅ Task request sent: ${result.message}`;
             } else {
                 taskResponseMessage.style.color = "red";
-                taskResponseMessage.textContent = `⚠️ ${result.message || "Error processing task."}`;
+                taskResponseMessage.textContent = `⚠️ ${result.message || "Error sending task."}`;
             }
 
         } catch (error) {
             console.error("Error sending task:", error);
             taskResponseMessage.style.color = "red";
-            taskResponseMessage.textContent = "❌ Failed to send task to node.";
+            taskResponseMessage.textContent = "❌ Failed to send task.";
         }
 
         sendTaskButton.disabled = false;

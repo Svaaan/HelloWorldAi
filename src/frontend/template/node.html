@@ -71,6 +71,10 @@
                         </div>
                     </div>
                     <span id="toggleStatusMessage" class="toggle-status-message"></span>
+                    <div class="task-panel">
+                        <h2>Pending Tasks</h2>
+                        <div id="taskList"></div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -78,7 +82,10 @@
 
     <script type="module">
         import { loadHeader } from "/static/js/component/header.js";
+        import { loadPendingTasks } from "/static/js/nodejs/taskList.js";
+    
         loadHeader();
+        loadPendingTasks(); // ✅ Run task list loader immediately
     </script>
 
     <script src="/static/js/nodejs/testNode.js"></script>

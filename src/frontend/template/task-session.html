@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Task Session</title>
+    <link rel="stylesheet" href="/static/css/node.css">
+</head>
+<body>
+    <div class="dashboard-container">
+        <a href="/node.html" class="back-link">← Back to Node Overview</a>
+
+        <h2>Task Session</h2>
+        <div id="taskDetails">Loading task details...</div>
+
+        <div class="task-actions">
+            <button id="startTaskButton">▶️ Start Task</button>
+            <button id="pauseTaskButton" disabled>⏸️ Pause (coming soon)</button>
+            <button id="stopTaskButton" disabled>⏹️ Stop (coming soon)</button>
+        </div>
+
+        <div id="taskStatus" style="margin-top: 20px;"></div>
+    </div>
+    <script type="module" src="/static/js/tasksession/taskSession.js"></script>
+</body>
+</html>
