@@ -32,13 +32,13 @@
         import { loadHeader } from "/static/js/component/header.js";
         import { fetchAvailableNodes } from "/static/js/distribution/fetchNode.js";
         import { initModalCloseHandler } from "/static/js/distribution/modalHandler.js";
-
-
+        import { showNodeModal } from "/static/js/distribution/modalHandler.js"; // ✅ Add this import
+    
         loadHeader();
         fetchAvailableNodes();
-        setInterval(fetchAvailableNodes, 60000); 
-
-        // Attach modal close handler
+        setInterval(fetchAvailableNodes, 60000);
+    
+        // Modal close handler
         document.addEventListener("DOMContentLoaded", () => {
             const closeBtn = document.getElementById("modalClose");
             if (closeBtn) {
@@ -46,7 +46,11 @@
                     document.getElementById("nodeModal").classList.add("hidden");
                 });
             }
+    
+            // ✅ Optional safety: initialize modal close handling properly
+            initModalCloseHandler();
         });
     </script>
+    
 </body>
 </html>
