@@ -135,8 +135,9 @@ def connect_node(node: NodeConnection, request: Request):
 
 
 @app.get("/nodes")
-def get_connected_nodes():
-    return [
+def get_connected_nodes(request: Request, node_id: Optional[str] = None):
+    # Remove IP filtering, show all nodes
+    filtered_nodes = [
         {
             "node_id": node.node_id,
             "ip": node.ip,
@@ -151,6 +152,15 @@ def get_connected_nodes():
         }
         for node in connected_nodes.values()
     ]
+
+    # ✅ If node_id query param is provided, filter further
+    if node_id:
+        filtered_nodes = [node for node in filtered_nodes if node["node_id"] == node_id]
+
+    return filtered_nodes
+
+
+
 
 @app.get("/available-nodes")
 def get_available_nodes():
