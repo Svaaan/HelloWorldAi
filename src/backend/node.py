@@ -3,6 +3,7 @@ import socket
 import uuid
 import logging
 import requests
+global node_info
 from fastapi import FastAPI, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Dict, Any
@@ -10,7 +11,10 @@ from backend.service.runningNodeService import process_task
 from backend.service.systemInfoService import get_system_capabilities
 from backend.service.connectionService import background_connection_handler
 from psutil import cpu_percent, virtual_memory
-import pynvml  
+from backend.executeTask import handle_task
+from fastapi import Body, Path
+import pynvml
+from fastapi import Body
 
 # Logging setup
 logging.basicConfig(
@@ -209,6 +213,28 @@ def get_detailed_capabilities():
             "total_tasks_processed": node_info["total_tasks_processed"]
         }
     }
+
+@app.post("/execute-task/{node_id}")
+async def execute_task(node_id: str = Path(...), task: dict = Body(...)):
+    global node_info  # ✅ Add here
+
+    print(f"📥 Received task for node {node_id}: {task}")
+
+    if node_id != node_info["node_id"]:
+        return {"status": "error", "message": f"Invalid node ID: {node_id}"}
+
+    result = handle_task(node_info, task)
+
+    print(f"✅ Task processed. Result: {result}")
+
+    return {
+        "status": result["status"],
+        "message": result["message"],
+        "original_task": task
+    }
+
+
+
 
 @app.post("/compute")
 def compute(task: Dict[str, Any], request: Request):

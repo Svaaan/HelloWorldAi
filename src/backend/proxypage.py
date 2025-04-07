@@ -49,6 +49,22 @@ async def proxy_nodes(request: Request):
             return res.json()
     except httpx.RequestError as e:
         return {"error": f"Failed to fetch nodes: {e}"}
+    
+@router.post("/execute-task/{node_id}")
+async def proxy_execute_task(node_id: str, request: Request):
+    try:
+        # Read the incoming JSON payload from the request
+        task_data = await request.json()
+
+        async with httpx.AsyncClient() as client:
+            # Forward the task to the actual node
+            res = await client.post(f"{NODE_URL}/execute-task/{node_id}", json=task_data)
+            res.raise_for_status()
+            return res.json()
+    except httpx.RequestError as e:
+        return {"error": f"Failed to send task to node: {e}"}
+    except Exception as e:
+        return {"error": f"Unexpected error: {str(e)}"}
 
 @router.get("/usage")
 async def proxy_usage():
