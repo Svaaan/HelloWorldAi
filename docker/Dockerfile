@@ -15,22 +15,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && ln -sf /usr/bin/pip3 /usr/bin/pip \
  && rm -rf /var/lib/apt/lists/*
 
-# Copy only requirements for layer caching
-COPY requirements.txt .
+# ✅ Copy only requirements file first (for caching)
+COPY ./requirements.txt ./requirements.txt
 
-# Install Python dependencies (will be cached unless requirements.txt changes)
+# ✅ Install dependencies (this layer will cache if requirements.txt is unchanged)
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-# ✅ Copy source code after installing deps
+# ✅ Copy the rest of the source code (your app files)
 COPY ./src ./src
 COPY ./src/frontend/static ./static
 COPY ./src/frontend/template ./templates
-COPY ./src/app.py .
+COPY ./src/app.py ./app.py
 
 # Set environment variables
 ENV USE_DOCKER=true
 ENV PYTHONPATH=/app/src
 
-# ✅ No hardcoded app
+# ✅ No hardcoded app entrypoint — Docker Compose controls this
 CMD ["sleep", "infinity"]

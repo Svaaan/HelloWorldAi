@@ -37,14 +37,34 @@ async def proxy_nodes_count():
         return {"error": f"Failed to reach coordinator: {e}"}
 
 @router.get("/nodes")
-async def proxy_nodes():
+async def proxy_nodes(request: Request):
+    node_id = request.query_params.get("node_id")
     try:
         async with httpx.AsyncClient() as client:
-            res = await client.get(f"{COORDINATOR_URL}/nodes")
+            url = f"{COORDINATOR_URL}/nodes"
+            if node_id:
+                url += f"?node_id={node_id}"
+            res = await client.get(url)
             res.raise_for_status()
             return res.json()
     except httpx.RequestError as e:
         return {"error": f"Failed to fetch nodes: {e}"}
+    
+@router.post("/execute-task/{node_id}")
+async def proxy_execute_task(node_id: str, request: Request):
+    try:
+        # Read the incoming JSON payload from the request
+        task_data = await request.json()
+
+        async with httpx.AsyncClient() as client:
+            # Forward the task to the actual node
+            res = await client.post(f"{NODE_URL}/execute-task/{node_id}", json=task_data)
+            res.raise_for_status()
+            return res.json()
+    except httpx.RequestError as e:
+        return {"error": f"Failed to send task to node: {e}"}
+    except Exception as e:
+        return {"error": f"Unexpected error: {str(e)}"}
 
 @router.get("/usage")
 async def proxy_usage():
@@ -119,3 +139,23 @@ async def proxy_distribution_page(request: Request):
         "request": request,
         "available_nodes": available_nodes
     })
+
+@router.get("/available-nodes")
+async def proxy_available_nodes():
+    try:
+        async with httpx.AsyncClient() as client:
+            res = await client.get(f"{COORDINATOR_URL}/nodes")
+            res.raise_for_status()
+            all_nodes = res.json()
+
+            # Filter for only available and connected nodes
+            available_nodes = [
+                node for node in all_nodes
+                if node.get("isConnected") and node.get("isAvailable")
+            ]
+
+            return available_nodes
+
+    except httpx.RequestError as e:
+        return {"error": f"Failed to fetch available nodes: {e}"}
+
