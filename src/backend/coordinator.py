@@ -2,7 +2,7 @@ import uuid
 import time
 import threading
 import numpy as np
-from fastapi import FastAPI, Request
+from fastapi import Body, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 import psutil
 from pydantic import BaseModel, Field
@@ -11,6 +11,7 @@ from backend.mocked_task import verify_cpu_connected, verify_gpu_connected
 import pynvml
 
 app = FastAPI()
+task_results = []
 
 # CORS Middleware
 app.add_middleware(
@@ -106,7 +107,6 @@ def toggle_availability(node_id: str):
 
 @app.post("/connect-node")
 def connect_node(node: NodeConnection, request: Request):
-    # 🛡️ Extra Safety: Validate incoming node GPU capabilities
     gpu_capabilities = node.capabilities.get("gpu", [])
     if not gpu_capabilities or gpu_capabilities[0].get("name") in ["No GPU Detected", None, ""]:
         return {
@@ -133,6 +133,20 @@ def connect_node(node: NodeConnection, request: Request):
         "ip": node.ip,
     }
 
+@app.get("/get-task-results")
+def get_task_results():
+    return task_results
+
+@app.post("/receive-task-result")
+async def receive_task_result(result: dict):
+    print(f"📥 Task result received: {result}")
+    # Ensure logs are part of the result
+    if 'logs' not in result:
+        print("⚠️ No logs found in task result!")
+    else:
+        print(f"📝 Logs: {result['logs']}")
+    task_results.append(result)  # Store the result including logs
+    return {"status": "success", "message": "Result received"}
 
 @app.get("/nodes")
 def get_connected_nodes(request: Request, node_id: Optional[str] = None):
@@ -265,3 +279,10 @@ def get_node_performance(node_id: str):
         "cpu_benchmark": node.cpu_benchmark,
         "gpu_benchmark": node.gpu_benchmark
     }
+
+@app.post("/receive-task-result")
+async def receive_task_result(result: dict):
+    print(f"📥 Task result received: {result}")
+    # Optionally store it, or notify frontend via WebSocket, etc.
+    return {"status": "success", "message": "Result received"}
+

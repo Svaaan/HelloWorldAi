@@ -1,75 +1,254 @@
-async function loadTaskDetails(taskId) {
-    const response = await fetch('/get-pending-tasks');
-    const tasks = await response.json();
-    const task = tasks.find(t => t.task_id === taskId);
+/**
+ * Task Management Dashboard JS
+ * Handles loading, displaying, and processing of task data
+ */
 
-    const taskDetails = document.getElementById('taskDetails');
-    const statusElement = document.getElementById('taskStatus');
-
-    if (!task) {
-        taskDetails.innerHTML = `<p>⚠️ Task not found or already processed.</p>`;
-        statusElement.innerHTML = `<span style="color: blue;">Processing or Completed ✅</span>`;
-        document.getElementById("startTaskButton").disabled = true;
-        return;
-    }
-
-    taskDetails.innerHTML = `
-        <p><strong>Task ID:</strong> ${task.task_id}</p>
-        <p><strong>Task Type:</strong> ${task.task_data.task_type}</p>
-        <p><strong>Model:</strong> ${task.task_data.model_name}</p>
-        <p><strong>Hyperparameters:</strong> ${JSON.stringify(task.task_data.hyperparameters)}</p>
-    `;
-
-    statusElement.innerHTML = `<span style="color: orange;">Pending</span>`;
-}
-
-async function startTask(taskId) {
+// Cache DOM elements to reduce lookups
+const elements = {
+    taskDetails: document.getElementById('taskDetails'),
+    statusElement: document.getElementById('taskStatus'),
+    resultElement: document.getElementById('taskResult'),
+    startTaskButton: document.getElementById('startTaskButton')
+  };
+  
+  // Store any active intervals for cleanup
+  let statusPollingInterval = null;
+  
+  /**
+   * Loads and displays task details for a given task ID
+   * @param {string} taskId - The ID of the task to load
+   */
+  async function loadTaskDetails(taskId) {
     try {
-        const response = await fetch(`/process-task/${taskId}`, { method: "POST" });
-        const result = await response.json();
-
-        const statusElement = document.getElementById("taskStatus");
-
-        if (result.status === "processing") {
-            statusElement.innerHTML = `<span style="color: green;">✅ Task started: ${result.message}</span>`;
-            document.getElementById("startTaskButton").disabled = true;
-
-            // Start polling for status updates
-            startStatusPolling(taskId);
-        } else {
-            statusElement.innerHTML = `<span style="color: red;">❌ Failed to start: ${result.message}</span>`;
-        }
+      const response = await fetch('/get-pending-tasks');
+      if (!response.ok) throw new Error(`Failed to fetch tasks: ${response.status}`);
+      
+      const tasks = await response.json();
+      const task = tasks.find(t => t.task_id === taskId);
+  
+      if (!task) {
+        handleTaskNotFound(taskId);
+        return;
+      }
+  
+      displayTaskDetails(task);
+  
+      // Also check for existing result
+      loadTaskResult(taskId);
     } catch (error) {
-        console.error("Error starting task:", error);
+      console.error("Error loading task details:", error);
+      elements.taskDetails.innerHTML = `<p>Error loading task details: ${error.message}</p>`;
+    }
+  }
+  
+  /**
+   * Handles the case when a task is not found in pending tasks
+   * @param {string} taskId - The ID of the task that wasn't found
+   */
+  function handleTaskNotFound(taskId) {
+    elements.taskDetails.innerHTML = `<p>Task not found or already processed.</p>`;
+    elements.statusElement.innerHTML = `<span style="color: blue;">Completed</span>`;
+    elements.startTaskButton.disabled = true;
+  
+    // Try to load results if task not found in pending
+    loadTaskResult(taskId);
+  }
+  
+  /**
+   * Displays the details of a task in the UI
+   * @param {Object} task - The task object to display
+   */
+  function displayTaskDetails(task) {
+    // Format hyperparameters with proper indentation for readability
+    const formattedParams = JSON.stringify(task.task_data.hyperparameters, null, 2);
+    
+    elements.taskDetails.innerHTML = `
+      <p><strong>Task ID:</strong> ${task.task_id}</p>
+      <p><strong>Task Type:</strong> ${task.task_data.task_type}</p>
+      <p><strong>Model:</strong> ${task.task_data.model_name}</p>
+      <p><strong>Hyperparameters:</strong> <pre style="background-color: #f5f5f5; padding: 8px; border-radius: 4px;">${formattedParams}</pre></p>
+    `;
+  
+    elements.statusElement.innerHTML = `<span style="color: orange;">Pending</span>`;
+  }
+  
+  /**
+   * Loads and displays the result of a task
+   * @param {string} taskId - The ID of the task to load results for
+   */
+  async function loadTaskResult(taskId) {
+    elements.resultElement.innerHTML = "<p>🔍 Checking for result...</p>";
+
+    try {
+        const res = await fetch('/get-task-results');
+        if (!res.ok) throw new Error(`Failed to fetch results: ${res.status}`);
+        
+        const results = await res.json();
+        console.log("Received task results:", results);  // Debug log to check data format
+
+        const result = results.find(r => r.task_id === taskId);
+
+        if (!result) {
+            elements.resultElement.innerHTML = `<p>⏳ No result available yet.</p>`;
+            return;
+        }
+
+        displayTaskResult(result);
+    } catch (error) {
+        console.error("Error loading task result:", error);
+        elements.resultElement.innerHTML = `<p>❌ Failed to load task result: ${error.message}</p>`;
     }
 }
 
-function startStatusPolling(taskId) {
-    const statusElement = document.getElementById("taskStatus");
+  
+  /**
+ * Displays the result of a task in the UI
+ * @param {Object} result - The result object to display
+ */
+  function displayTaskResult(result) {
+    // Get status color based on result status
+    const statusColor = result.status === 'completed' ? 'green' : 'red';
+    
+    // Ensure result.log is an array before using map
+    const logLines = Array.isArray(result.log) && result.log.length > 0
+      ? result.log.map(line => `<li>${line}</li>`).join("")
+      : "<li>No logs available</li>";  // Default message if no logs available
 
-    setInterval(async () => {
+    elements.resultElement.innerHTML = `
+        <p><strong>Status:</strong> <span style="color: ${statusColor};">${result.status}</span></p>
+        <p><strong>Log Output:</strong></p>
+        <ul style="background-color: #f8f9fa; padding: 12px; border-radius: 4px; max-height: 300px; overflow-y: auto;">
+          ${logLines}
+        </ul>
+    `;
+}
+
+  
+  /**
+   * Starts processing a task
+   * @param {string} taskId - The ID of the task to start
+   */
+  async function startTask(taskId) {
+    try {
+      // Update button state to show processing
+      elements.startTaskButton.disabled = true;
+      elements.startTaskButton.innerHTML = 'Starting task...';
+      
+      const response = await fetch(`/process-task/${taskId}`, { 
+        method: "POST",
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (!response.ok) throw new Error(`Failed to start task: ${response.status}`);
+      const result = await response.json();
+  
+      handleTaskStartResult(result, taskId);
+    } catch (error) {
+      console.error("Error starting task:", error);
+      elements.statusElement.innerHTML = `<span style="color: red;">Error: ${error.message}</span>`;
+      
+      // Reset button state
+      elements.startTaskButton.disabled = false;
+      elements.startTaskButton.innerHTML = 'Start Task';
+    }
+  }
+  
+  /**
+   * Handles the result of starting a task
+   * @param {Object} result - The result of the start task operation
+   * @param {string} taskId - The ID of the task that was started
+   */
+  function handleTaskStartResult(result, taskId) {
+    if (result.status === "processing") {
+      elements.statusElement.innerHTML = `<span style="color: green;">Task started: ${result.message}</span>`;
+      elements.startTaskButton.disabled = true;
+      elements.startTaskButton.innerHTML = 'Task Running';
+  
+      // Start polling for status updates
+      startStatusPolling(taskId);
+    } else {
+      elements.statusElement.innerHTML = `<span style="color: red;">Failed to start: ${result.message}</span>`;
+      
+      // Reset button state
+      elements.startTaskButton.disabled = false;
+      elements.startTaskButton.innerHTML = 'Retry';
+    }
+  }
+  
+  /**
+   * Starts polling for status updates for a task
+   * @param {string} taskId - The ID of the task to poll for
+   */
+  function startStatusPolling(taskId) {
+    // Clear any existing polling interval
+    if (statusPollingInterval) {
+      clearInterval(statusPollingInterval);
+    }
+  
+    statusPollingInterval = setInterval(async () => {
+      try {
         const response = await fetch('/get-pending-tasks');
+        if (!response.ok) throw new Error(`Failed to fetch tasks: ${response.status}`);
+        
         const tasks = await response.json();
         const task = tasks.find(t => t.task_id === taskId);
-
-        if (!task) {
-            statusElement.innerHTML = `<span style="color: blue;">🚀 Task is now Processing or Completed!</span>`;
-        } else {
-            statusElement.innerHTML = `<span style="color: orange;">Pending</span>`;
-        }
+  
+        updateTaskStatus(task, taskId);
+      } catch (error) {
+        console.error("Error during polling:", error);
+        // Don't stop polling on error - it will try again
+      }
     }, 3000);
-}
-
-// Read taskId from URL (✅ correct param!)
-const urlParams = new URLSearchParams(window.location.search);
-const taskId = urlParams.get("taskId");
-
-if (taskId) {
-    loadTaskDetails(taskId);
-
-    document.getElementById("startTaskButton").addEventListener("click", () => {
-        startTask(taskId);
-    });
-} else {
-    document.getElementById("taskDetails").innerHTML = `<p>⚠️ No task ID found in URL.</p>`;
-}
+  }
+  
+  /**
+   * Updates the task status in the UI based on polling results
+   * @param {Object|null} task - The task object if found, null otherwise
+   * @param {string} taskId - The ID of the task
+   */
+  function updateTaskStatus(task, taskId) {
+    if (!task) {
+      elements.statusElement.innerHTML = `<span style="color: blue;"> Completed!</span>`;
+      loadTaskResult(taskId); // Also refresh result view!
+    } else {
+      elements.statusElement.innerHTML = `<span style="color: orange;">Pending</span>`;
+    }
+  }
+  
+  // Initialize the page
+  function initPage() {
+    // Read taskId from URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const taskId = urlParams.get("taskId");
+  
+    if (taskId) {
+      loadTaskDetails(taskId);
+  
+      // Add event listener for start button if it exists
+      if (elements.startTaskButton) {
+        elements.startTaskButton.addEventListener("click", () => {
+          startTask(taskId);
+        });
+      }
+    } else {
+      elements.taskDetails.innerHTML = `<p> No task ID found in URL.</p>`;
+      if (elements.statusElement) elements.statusElement.innerHTML = '';
+      if (elements.resultElement) elements.resultElement.innerHTML = '';
+    }
+  }
+  
+  // Cleanup function to prevent memory leaks
+  function cleanup() {
+    if (statusPollingInterval) {
+      clearInterval(statusPollingInterval);
+    }
+  }
+  
+  // Initialize when the DOM is loaded
+  document.addEventListener('DOMContentLoaded', initPage);
+  
+  // Clean up when navigating away
+  window.addEventListener('beforeunload', cleanup);
+  
