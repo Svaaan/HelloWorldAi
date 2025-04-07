@@ -1,11 +1,10 @@
-import { showNodeModal } from "./modalhandler.js";
+import { showNodeModal } from "./modalHandler.js";
 
 export async function fetchAvailableNodes() {
     try {
-        const res = await fetch("/nodes");
-        const nodes = await res.json();
+        const res = await fetch("/available-nodes"); // ✅ Changed from /nodes to /available-nodes
+        const availableNodes = await res.json();
 
-        const availableNodes = nodes.filter(node => node.isConnected && node.isAvailable);
         const nodesList = document.getElementById("nodesList");
         nodesList.innerHTML = "";
 

@@ -47,7 +47,6 @@ class NodeConnection(BaseModel):
     }
     isConnected: bool = False
     isAvailable: bool = False
-    total_compute_score: float = 0
     cpu_verified: bool = False
     gpu_verified: bool = False
     cpu_usage: float = 0.0
@@ -107,6 +106,14 @@ def toggle_availability(node_id: str):
 
 @app.post("/connect-node")
 def connect_node(node: NodeConnection, request: Request):
+    # 🛡️ Extra Safety: Validate incoming node GPU capabilities
+    gpu_capabilities = node.capabilities.get("gpu", [])
+    if not gpu_capabilities or gpu_capabilities[0].get("name") in ["No GPU Detected", None, ""]:
+        return {
+            "status": "rejected",
+            "reason": "No valid GPU detected. Node connection refused."
+        }
+
     node.ip = request.client.host
     node.isConnected = True
     node.cpu_verified = False
@@ -114,10 +121,7 @@ def connect_node(node: NodeConnection, request: Request):
     node.cpu_usage = 0.0
     node.gpu_usage = 0.0
 
-    # ✅ Important:
-    # Coordinator does not detect GPU, node sends its own GPU info!
-    # Trust the node container
-    node.capabilities["gpu"] = node.capabilities.get("gpu", [{"name": "No GPU Detected"}])
+    node.capabilities["gpu"] = gpu_capabilities
 
     connected_nodes[node.node_id] = node
 
@@ -127,12 +131,13 @@ def connect_node(node: NodeConnection, request: Request):
         "status": "Node connected",
         "node_id": node.node_id,
         "ip": node.ip,
-        "compute_score": node.total_compute_score
     }
 
+
 @app.get("/nodes")
-def get_connected_nodes():
-    return [
+def get_connected_nodes(request: Request, node_id: Optional[str] = None):
+    # Remove IP filtering, show all nodes
+    filtered_nodes = [
         {
             "node_id": node.node_id,
             "ip": node.ip,
@@ -148,6 +153,35 @@ def get_connected_nodes():
         for node in connected_nodes.values()
     ]
 
+    # ✅ If node_id query param is provided, filter further
+    if node_id:
+        filtered_nodes = [node for node in filtered_nodes if node["node_id"] == node_id]
+
+    return filtered_nodes
+
+
+
+
+@app.get("/available-nodes")
+def get_available_nodes():
+    return [
+        {
+            "node_id": node.node_id,
+            "ip": node.ip,
+            "country": node.country,
+            "capabilities": node.capabilities,
+            "cpu_verified": node.cpu_verified,
+            "gpu_verified": node.gpu_verified,
+            "cpu_usage": node.cpu_usage,
+            "gpu_usage": node.gpu_usage,
+            "isConnected": node.isConnected,
+            "isAvailable": node.isAvailable
+        }
+        for node in connected_nodes.values()
+        if node.isConnected and node.isAvailable
+    ]
+
+
 def toggle_node_availability(node_id: str, connected_nodes: dict):
     if node_id in connected_nodes:
         node = connected_nodes[node_id]
@@ -155,6 +189,7 @@ def toggle_node_availability(node_id: str, connected_nodes: dict):
         print(f"🔁 Toggled availability for {node_id} to {node.isAvailable}")
         return node.isAvailable
     return None
+
 
 @app.get("/get-connected-nodes-count")
 def get_connected_nodes_count():
