@@ -17,11 +17,15 @@
 
     <div class="connect-info">
         <p class="info-text">Connect to the node network to access distributed AI computing resources.</p>
+        <div id="gpuInfo" style="margin-top: 10px; font-weight: bold;"></div>
 
         <div class="button-group">
             <a href="/setup.html" class="setup-button">⚙️ Get Started</a>
             <button id="connectNodeButton">🔗 Connect Node</button>
         </div>
+
+        <!-- ✅ GPU Status Info -->
+        <div id="gpuStatusMessage" style="margin-top: 8px; font-size: 14px;"></div>
 
         <div id="processingMessage" style="display: none;">
             <div class="loading-spinner"></div>
@@ -32,6 +36,50 @@
     </div>
 
     <script>
+        async function detectGPU() {
+            let gpuInfo = "Unknown";
+            let isGpuDetected = false;
+
+            try {
+                const gl = document.createElement('canvas').getContext('webgl');
+                const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+
+                if (debugInfo) {
+                    const rawGpuInfo = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL);
+
+                    // Clean up the GPU name:
+                    gpuInfo = rawGpuInfo
+                    gpuInfo = rawGpuInfo
+                        .replace(/ANGLE/gi, '') // remove "ANGLE"
+                        .replace(/Direct3D11/gi, '') // remove "Direct3D11"
+                        .replace(/D3D11/gi, '') // remove "D3D11"
+                        .replace(/vs_5_0|ps_5_0/gi, '') // remove shader versions
+                        .replace(/\(0x[a-fA-F0-9]+\)/g, '') // remove (0x00002484)
+                        .replace(/[()]/g, '') // remove any stray parentheses
+                        .replace(/\s{2,}/g, ' ') // clean up extra spaces
+                        .trim();
+
+
+                    if (gpuInfo.toLowerCase().includes("nvidia")) {
+                        isGpuDetected = true;
+                    }
+                }
+            } catch (e) {
+                console.warn("GPU detection failed:", e);
+            }
+
+            const gpuInfoElement = document.getElementById("gpuInfo");
+            if (isGpuDetected) {
+                gpuInfoElement.textContent = `✅ GPU Detected: ${gpuInfo}`;
+                gpuInfoElement.style.color = "#00c853"; // green
+                document.getElementById("connectNodeButton").disabled = false;
+            } else {
+                gpuInfoElement.textContent = "❌ No supported GPU detected. Please check your hardware.";
+                gpuInfoElement.style.color = "#ff5252"; // red
+                document.getElementById("connectNodeButton").disabled = true;
+            }
+        }
+
 
         async function connectNode() {
             const connectButton = document.getElementById("connectNodeButton");
@@ -51,7 +99,6 @@
                     throw new Error(result.error || `Connection failed with status: ${res.status}`);
                 }
 
-                // ✅ Save the node ID to localStorage!
                 localStorage.setItem("currentNodeId", result.node_id);
 
                 showMessage("✅ Connection successful. Redirecting to node dashboard...", "success");
@@ -59,7 +106,7 @@
 
             } catch (err) {
                 console.error("Error connecting node:", err);
-                let errorMessage = err.message.includes("Failed to fetch")
+                const errorMessage = err.message.includes("Failed to fetch")
                     ? "Cannot reach server. Please check your connection."
                     : err.message || "An error occurred during connection.";
 
@@ -70,9 +117,6 @@
             }
         }
 
-
-
-
         function showMessage(message, type) {
             const resultMessageElement = document.getElementById("resultMessage");
             resultMessageElement.innerHTML = message;
@@ -80,6 +124,7 @@
         }
 
         document.addEventListener("DOMContentLoaded", () => {
+            detectGPU(); // ✅ Run GPU detection on load
             const connectButton = document.getElementById("connectNodeButton");
             connectButton?.addEventListener("click", connectNode);
         });

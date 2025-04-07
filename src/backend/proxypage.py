@@ -37,10 +37,14 @@ async def proxy_nodes_count():
         return {"error": f"Failed to reach coordinator: {e}"}
 
 @router.get("/nodes")
-async def proxy_nodes():
+async def proxy_nodes(request: Request):
+    node_id = request.query_params.get("node_id")
     try:
         async with httpx.AsyncClient() as client:
-            res = await client.get(f"{COORDINATOR_URL}/nodes")
+            url = f"{COORDINATOR_URL}/nodes"
+            if node_id:
+                url += f"?node_id={node_id}"
+            res = await client.get(url)
             res.raise_for_status()
             return res.json()
     except httpx.RequestError as e:

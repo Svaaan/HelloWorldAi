@@ -88,7 +88,7 @@
             currentNodeId = localStorage.getItem("currentNodeId"); // ✅ Get from localStorage
 
             try {
-                const res = await fetch("/nodes");
+                const res = await fetch(`/nodes?node_id=${currentNodeId}`);
                 const data = await res.json();
 
                 if (!data || data.length === 0) {

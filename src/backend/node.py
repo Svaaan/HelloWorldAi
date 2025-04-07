@@ -131,29 +131,43 @@ async def connect_node(background_tasks: BackgroundTasks):
             "node_id": node_info["node_id"]
         }
 
-    node_info["capabilities"]["gpu"] = get_gpu_info_list()
+    # ✅ Collect GPU info first
+    detected_gpus = get_gpu_info_list()
 
+    # ✅ Check if GPU is present
+    if not detected_gpus or detected_gpus[0].get("name") in ["No GPU Detected", None, ""]:
+        return {
+            "status": "rejected",
+            "reason": "No valid GPU detected. Node connection refused."
+        }
+
+    # ✅ If GPU is valid, update node info
+    node_info["capabilities"]["gpu"] = detected_gpus
+    node_info["connected"] = True  # ✅ Important: mark node as connected
+
+    # Prepare payload
     payload = {
-    "node_id": node_info["node_id"],
-    "ip": public_ip,
-    "country": node_info["country"],
-    "capabilities": node_info["capabilities"],
-    "isConnected": node_info.get("connected", False),
-    "isAvailable": node_info.get("isAvailable", False),
-    "total_compute_score": node_info.get("total_compute_score", 0),
-    "cpu_verified": node_info.get("cpu_verified", False),
-    "gpu_verified": node_info.get("gpu_verified", False),
-    "cpu_usage": node_info.get("cpu_usage", 0.0),
-    "gpu_usage": node_info.get("gpu_usage", 0.0),
-    "cpu_benchmark": node_info.get("cpu_benchmark"),
-    "gpu_benchmark": node_info.get("gpu_benchmark")
-}
+        "node_id": node_info["node_id"],
+        "ip": public_ip,
+        "country": node_info["country"],
+        "capabilities": node_info["capabilities"],
+        "isConnected": node_info["connected"],  # ✅ Now this is True!
+        "isAvailable": node_info.get("isAvailable", False),
+        "total_compute_score": node_info.get("total_compute_score", 0),
+        "cpu_verified": node_info.get("cpu_verified", False),
+        "gpu_verified": node_info.get("gpu_verified", False),
+        "cpu_usage": node_info.get("cpu_usage", 0.0),
+        "gpu_usage": node_info.get("gpu_usage", 0.0),
+        "cpu_benchmark": node_info.get("cpu_benchmark"),
+        "gpu_benchmark": node_info.get("gpu_benchmark")
+    }
 
+    # ✅ Safe to connect
     background_tasks.add_task(background_connection_handler, payload, node_info)
 
     return {
         "status": "Connection in progress",
-        "connected": False,
+        "connected": True,  # ✅ Reflect actual status
         "node_id": node_info["node_id"]
     }
 
