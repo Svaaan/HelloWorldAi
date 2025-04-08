@@ -60,11 +60,7 @@ def render_connect():
     path = os.path.join(TEMPLATE_DIR, "connect.html")
     return FileResponse(path) if os.path.exists(path) else HTMLResponse("<h1>404 - connect.html not found</h1>", status_code=404)
 
-@dashboard_app.get("/setup", include_in_schema=False)
-def redirect_to_setup_html():
-    return RedirectResponse(url="/setup.html")
-
-@dashboard_app.get("/setup.html", response_class=HTMLResponse)
+@dashboard_app.get("/setup", response_class=HTMLResponse)
 def render_setup_page():
     path = os.path.join(TEMPLATE_DIR, "setup.html")
     return FileResponse(path) if os.path.exists(path) else HTMLResponse("<h1>404 - setup.html not found</h1>", status_code=404)
@@ -73,32 +69,21 @@ def render_setup_page():
 def serve_setup_script():
     return FileResponse(SCRIPT_FILE_PATH, media_type="application/x-sh") if os.path.exists(SCRIPT_FILE_PATH) else HTMLResponse("<h1>404 - setup script not found</h1>", status_code=404)
 
-@dashboard_app.get("/node", include_in_schema=False)
-def redirect_to_node_html():
-    return RedirectResponse(url="/node.html")
-
-@dashboard_app.get("/node.html", response_class=HTMLResponse)
+@dashboard_app.get("/node", response_class=HTMLResponse)
 def render_node_page():
     path = os.path.join(TEMPLATE_DIR, "node.html")
     return FileResponse(path) if os.path.exists(path) else HTMLResponse("<h1>404 - node.html not found</h1>", status_code=404)
 
-@dashboard_app.get("/distribution", include_in_schema=False)
-def redirect_to_distribution_html():
-    return RedirectResponse(url="/distribution.html")
-
-@dashboard_app.get("/distribution.html", response_class=HTMLResponse)
+@dashboard_app.get("/distribution", response_class=HTMLResponse)
 def render_distribution_page():
     path = os.path.join(TEMPLATE_DIR, "distribution.html")
     return FileResponse(path) if os.path.exists(path) else HTMLResponse("<h1>404 - distribution.html not found</h1>", status_code=404)
 
-@dashboard_app.get("/task-session", include_in_schema=False)
-def redirect_to_task_session_html():
-    return RedirectResponse(url="/task-session.html")
-
-@dashboard_app.get("/task-session.html", response_class=HTMLResponse)
+@dashboard_app.get("/task-session", response_class=HTMLResponse)
 def render_task_session_page():
     path = os.path.join(TEMPLATE_DIR, "task-session.html")
     return FileResponse(path) if os.path.exists(path) else HTMLResponse("<h1>404 - task-session.html not found</h1>", status_code=404)
+
 # === Run services ===
 
 def run_node():
