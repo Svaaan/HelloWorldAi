@@ -86,27 +86,41 @@
         let currentNodeId = localStorage.getItem("currentNodeId")
 
         async function fetchNodeInfo() {
+            // ✅ Step 1: Check if currentNodeId exists at all
+            if (!currentNodeId) {
+                document.getElementById("nodeDetails").innerHTML =
+                    "<p class='status-disconnected'>🚫 Access denied: No node ID in localStorage.</p>";
+                document.getElementById("availabilityToggle").disabled = true;
+                return;
+            }
+
             try {
                 const res = await fetch(`/nodes?node_id=${currentNodeId}`);
                 const data = await res.json();
 
+                // ✅ Step 2: Check if data exists
                 if (!data || data.length === 0) {
                     document.getElementById("nodeDetails").innerHTML =
-                        "<p class='status-disconnected'>❌ No nodes connected yet.</p>";
+                        "<p class='status-disconnected'>🚫 Access denied: No nodes connected yet.</p>";
                     document.getElementById("availabilityToggle").disabled = true;
                     return;
                 }
 
-                // ✅ Filter to only show the node that belongs to currentNodeId
+                // ✅ Step 3: Filter for the correct node
                 const node = data.find(n => n.node_id === currentNodeId);
 
                 if (!node) {
                     document.getElementById("nodeDetails").innerHTML =
-                        "<p class='status-disconnected'>❌ No matching node found for this device.</p>";
+                        "<p class='status-disconnected'>🚫 Access denied: Node not found or not owned by you.</p>";
                     document.getElementById("availabilityToggle").disabled = true;
+
+                    // ✅ Optional: Clean up invalid localStorage to prevent confusion
+                    localStorage.removeItem("currentNodeId");
+
                     return;
                 }
 
+                // ✅ Step 4: Build node details
                 const connectionStatus = node.isConnected
                     ? '<span class="status-connected">✅ Connected</span>'
                     : '<span class="status-disconnected">❌ Disconnected</span>';
@@ -148,7 +162,7 @@
 
                 document.getElementById("nodeDetails").innerHTML = nodeDetailsHTML;
 
-                // ✅ ✅ ✅ Add these lines after updating the node details
+                // ✅ Step 5: Update availability visuals
                 updateAvailabilityStatus(node.isAvailable);
 
                 const availabilityToggle = document.getElementById("availabilityToggle");
