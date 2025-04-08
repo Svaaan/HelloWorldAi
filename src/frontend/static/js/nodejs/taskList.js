@@ -62,7 +62,7 @@ function attachTaskActionHandlers() {
 async function handleTaskAction(taskId, action) {
     if (action === "accept") {
         // ✅ Navigate to task session page, no need to process yet
-        window.location.href = `/task-session.html?taskId=${taskId}`;
+        window.location.href = `/task-session?taskId=${taskId}`;
         return;
     }
 
