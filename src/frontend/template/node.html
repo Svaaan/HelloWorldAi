@@ -43,13 +43,6 @@
                     <div id="gpuUsageBar" class="usage-bar-fill" style="width: 0%"></div>
                 </div>
             </div>
-            <div class="test-buttons">
-                <button id="run-cpu-test-btn" class="test-button" disabled> Test CPU</button>
-                <div id="cpu-test-result" class="test-result"></div>
-
-                <button id="run-gpu-test-btn" class="test-button" disabled> Test GPU</button>
-                <div id="gpu-test-result" class="test-result"></div>
-            </div>
 
             <div class="node-detail availability-container">
                 <div class="switch-container">
@@ -83,17 +76,16 @@
     <script type="module">
         import { loadHeader } from "/static/js/component/header.js";
         import { loadPendingTasks } from "/static/js/nodejs/taskList.js";
-    
+
         loadHeader();
         loadPendingTasks(); // ✅ Run task list loader immediately
     </script>
 
-    <script src="/static/js/nodejs/testNode.js"></script>
-
     <script>
-        async function fetchNodeInfo() {
-            currentNodeId = localStorage.getItem("currentNodeId"); // ✅ Get from localStorage
 
+        let currentNodeId = localStorage.getItem("currentNodeId")
+
+        async function fetchNodeInfo() {
             try {
                 const res = await fetch(`/nodes?node_id=${currentNodeId}`);
                 const data = await res.json();
@@ -120,41 +112,49 @@
                     : '<span class="status-disconnected">❌ Disconnected</span>';
 
                 const nodeDetailsHTML = `
-            <div class="node-detail-group">
-                <div class="node-detail">
-                    <span class="node-detail-label">Node ID:</span> <span>${node.node_id}</span>
-                </div>
-                <div class="node-detail">
-                    <span class="node-detail-label">Country:</span> <span>${node.country || 'Unknown'}</span>
-                </div>
-                <div class="node-detail">
-                    <span class="node-detail-label">Status:</span> ${connectionStatus}
-                </div>
-                <div class="node-detail">
-                    <span class="node-detail-label">CPU:</span>
-                    <span>${node.capabilities?.cpu?.brand || 'Unknown'}, ${node.capabilities?.cpu?.cores || 'N/A'} cores</span>
-                </div>
-                <div class="node-detail">
-                    <span class="node-detail-label">GPUs:</span>
-                </div>
-                ${(Array.isArray(node.capabilities?.gpu) ? node.capabilities.gpu : [node.capabilities.gpu || {}])
-                        .map(gpu => `
-                        <div class="node-detail">
-                            <span class="node-detail-label">→ ${gpu.name || 'Unknown'}</span>
-                            <span>
-                                ${gpu.total_memory ?? '?'} MB total,
-                                ${gpu.free_memory ?? '?'} MB free,
-                                ${gpu.used_memory ?? '?'} MB used,
-                                ${gpu.load_percentage ?? '?'}% load,
-                                ${gpu.temperature ?? '?'}°C
-                            </span>
-                        </div>
-                    `).join('')}
-                <hr />
+        <div class="node-detail-group">
+            <div class="node-detail">
+                <span class="node-detail-label">Node ID:</span> <span>${node.node_id}</span>
             </div>
+            <div class="node-detail">
+                <span class="node-detail-label">Country:</span> <span>${node.country || 'Unknown'}</span>
+            </div>
+            <div class="node-detail">
+                <span class="node-detail-label">Status:</span> ${connectionStatus}
+            </div>
+            <div class="node-detail">
+                <span class="node-detail-label">CPU:</span>
+                <span>${node.capabilities?.cpu?.brand || 'Unknown'}, ${node.capabilities?.cpu?.cores || 'N/A'} cores</span>
+            </div>
+            <div class="node-detail">
+                <span class="node-detail-label">GPUs:</span>
+            </div>
+            ${(Array.isArray(node.capabilities?.gpu) ? node.capabilities.gpu : [node.capabilities.gpu || {}])
+                        .map(gpu => `
+                    <div class="node-detail">
+                        <span class="node-detail-label">→ ${gpu.name || 'Unknown'}</span>
+                        <span>
+                            ${gpu.total_memory ?? '?'} MB total,
+                            ${gpu.free_memory ?? '?'} MB free,
+                            ${gpu.used_memory ?? '?'} MB used,
+                            ${gpu.load_percentage ?? '?'}% load,
+                            ${gpu.temperature ?? '?'}°C
+                        </span>
+                    </div>
+                `).join('')}
+            <hr />
+        </div>
         `;
 
                 document.getElementById("nodeDetails").innerHTML = nodeDetailsHTML;
+
+                // ✅ ✅ ✅ Add these lines after updating the node details
+                updateAvailabilityStatus(node.isAvailable);
+
+                const availabilityToggle = document.getElementById("availabilityToggle");
+                if (availabilityToggle) {
+                    availabilityToggle.checked = node.isAvailable;
+                }
 
             } catch (err) {
                 document.getElementById("nodeDetails").innerHTML =
@@ -162,6 +162,7 @@
                 console.error("Error fetching node details:", err);
             }
         }
+
 
 
         function updateAvailabilityStatus(isAvailable) {
@@ -266,10 +267,25 @@
             }, 60000);
         }
 
-        window.addEventListener('load', () => {
-            currentNodeId = localStorage.getItem("currentNodeId");
+        // ✅ Handle tab close or page refresh: set availability to false
+        window.addEventListener("beforeunload", (event) => {
+            if (!currentNodeId) return;
+            try {
+                // Important: use navigator.sendBeacon or fetch with keepalive to ensure request is sent
+                navigator.sendBeacon(`/set-availability/${currentNodeId}?available=false`);
+            } catch (err) {
+                console.warn("Error setting availability to false on unload:", err);
+            }
+        });
+
+        // ✅ Handle page load: initialize availability toggle and start refresh
+        window.addEventListener("load", () => {
+            // Double-check localStorage in case it was updated after script load
             if (!currentNodeId) {
-                console.warn("No node ID found in localStorage.");
+                currentNodeId = localStorage.getItem("currentNodeId");
+                if (!currentNodeId) {
+                    console.warn("No node ID found in localStorage.");
+                }
             }
 
             const availabilityToggle = document.getElementById("availabilityToggle");
@@ -282,7 +298,6 @@
             manualRefresh();
             startPeriodicRefresh();
         });
-
     </script>
 
 </body>
