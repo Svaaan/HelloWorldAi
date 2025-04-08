@@ -20,7 +20,7 @@
         <div id="gpuInfo" style="margin-top: 10px; font-weight: bold;"></div>
 
         <div class="button-group">
-            <a href="/setup.html" class="setup-button">⚙️ Get Started</a>
+            <a href="/setup" class="setup-button">⚙️ Get Started</a>
             <button id="connectNodeButton">🔗 Connect Node</button>
         </div>
 
@@ -102,7 +102,7 @@
                 localStorage.setItem("currentNodeId", result.node_id);
 
                 showMessage("✅ Connection successful. Redirecting to node dashboard...", "success");
-                setTimeout(() => window.location.href = "/node.html", 2000);
+                setTimeout(() => window.location.href = "/node", 2000);
 
             } catch (err) {
                 console.error("Error connecting node:", err);
