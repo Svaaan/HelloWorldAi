@@ -14,7 +14,6 @@
     <div class="dashboard-container">
         <div class="node-info">
             <h2>Node Details</h2>
-
             <div id="nodeDetails">
                 <p>Loading node information...</p>
             </div>
@@ -24,7 +23,7 @@
         </div>
 
         <div class="usage-info">
-            <button class="refresh-button" onclick="manualRefresh()">🔄 Refresh</button>
+            <button class="refresh-button" onclick="manualRefresh()">Refresh</button>
             <h2>System Usage</h2>
             <div>
                 <div class="node-detail">
@@ -32,7 +31,7 @@
                     <span id="cpuUsagePercent">0%</span>
                 </div>
                 <div class="usage-bar">
-                    <div id="cpuUsageBar" class="usage-bar-fill" style="width: 0%"></div>
+                    <div id="cpuUsageBar" class="usage-bar-fill"></div>
                 </div>
 
                 <div class="node-detail">
@@ -40,7 +39,7 @@
                     <span id="gpuUsagePercent">0%</span>
                 </div>
                 <div class="usage-bar">
-                    <div id="gpuUsageBar" class="usage-bar-fill" style="width: 0%"></div>
+                    <div id="gpuUsageBar" class="usage-bar-fill"></div>
                 </div>
             </div>
 
@@ -50,8 +49,8 @@
                         <input type="checkbox" id="availabilityToggle">
                         <span class="slider">
                             <div class="switch-icons">
-                                <i>⭘</i>
-                                <i>⏻</i>
+                                <i>O</i>
+                                <i>Power</i>
                             </div>
                         </span>
                     </label>
@@ -64,10 +63,10 @@
                         </div>
                     </div>
                     <span id="toggleStatusMessage" class="toggle-status-message"></span>
-                    <div class="task-panel">
-                        <h2>Pending Tasks</h2>
-                        <div id="taskList"></div>
-                    </div>
+                </div>
+                <div class="task-panel">
+                    <h2>Pending Tasks</h2>
+                    <div id="taskList"></div>
                 </div>
             </div>
         </div>
@@ -78,18 +77,16 @@
         import { loadPendingTasks } from "/static/js/nodejs/taskList.js";
 
         loadHeader();
-        loadPendingTasks(); // ✅ Run task list loader immediately
+        loadPendingTasks();
     </script>
 
     <script>
-
-        let currentNodeId = localStorage.getItem("currentNodeId")
+        let currentNodeId = localStorage.getItem("currentNodeId");
 
         async function fetchNodeInfo() {
-            // ✅ Step 1: Check if currentNodeId exists at all
             if (!currentNodeId) {
                 document.getElementById("nodeDetails").innerHTML =
-                    "<p class='status-disconnected'>🚫 Access denied: No node ID in localStorage.</p>";
+                    "<p class='status-disconnected'>Access denied: No node ID in localStorage.</p>";
                 document.getElementById("availabilityToggle").disabled = true;
                 return;
             }
@@ -98,71 +95,64 @@
                 const res = await fetch(`/nodes?node_id=${currentNodeId}`);
                 const data = await res.json();
 
-                // ✅ Step 2: Check if data exists
                 if (!data || data.length === 0) {
                     document.getElementById("nodeDetails").innerHTML =
-                        "<p class='status-disconnected'>🚫 Access denied: No nodes connected yet.</p>";
+                        "<p class='status-disconnected'>Access denied: No nodes connected yet.</p>";
                     document.getElementById("availabilityToggle").disabled = true;
                     return;
                 }
 
-                // ✅ Step 3: Filter for the correct node
                 const node = data.find(n => n.node_id === currentNodeId);
 
                 if (!node) {
                     document.getElementById("nodeDetails").innerHTML =
-                        "<p class='status-disconnected'>🚫 Access denied: Node not found or not owned by you.</p>";
+                        "<p class='status-disconnected'>Access denied: Node not found or not owned by you.</p>";
                     document.getElementById("availabilityToggle").disabled = true;
-
-                    // ✅ Optional: Clean up invalid localStorage to prevent confusion
                     localStorage.removeItem("currentNodeId");
-
                     return;
                 }
 
-                // ✅ Step 4: Build node details
                 const connectionStatus = node.isConnected
-                    ? '<span class="status-connected">✅ Connected</span>'
-                    : '<span class="status-disconnected">❌ Disconnected</span>';
+                    ? '<span class="status-connected">Connected</span>'
+                    : '<span class="status-disconnected">Disconnected</span>';
 
                 const nodeDetailsHTML = `
-        <div class="node-detail-group">
-            <div class="node-detail">
-                <span class="node-detail-label">Node ID:</span> <span>${node.node_id}</span>
-            </div>
-            <div class="node-detail">
-                <span class="node-detail-label">Country:</span> <span>${node.country || 'Unknown'}</span>
-            </div>
-            <div class="node-detail">
-                <span class="node-detail-label">Status:</span> ${connectionStatus}
-            </div>
-            <div class="node-detail">
-                <span class="node-detail-label">CPU:</span>
-                <span>${node.capabilities?.cpu?.brand || 'Unknown'}, ${node.capabilities?.cpu?.cores || 'N/A'} cores</span>
-            </div>
-            <div class="node-detail">
-                <span class="node-detail-label">GPUs:</span>
-            </div>
-            ${(Array.isArray(node.capabilities?.gpu) ? node.capabilities.gpu : [node.capabilities.gpu || {}])
-                        .map(gpu => `
+                <div class="node-detail-group">
                     <div class="node-detail">
-                        <span class="node-detail-label">→ ${gpu.name || 'Unknown'}</span>
-                        <span>
-                            ${gpu.total_memory ?? '?'} MB total,
-                            ${gpu.free_memory ?? '?'} MB free,
-                            ${gpu.used_memory ?? '?'} MB used,
-                            ${gpu.load_percentage ?? '?'}% load,
-                            ${gpu.temperature ?? '?'}°C
-                        </span>
+                        <span class="node-detail-label">Node ID:</span> <span>${node.node_id}</span>
                     </div>
-                `).join('')}
-            <hr />
-        </div>
-        `;
+                    <div class="node-detail">
+                        <span class="node-detail-label">Country:</span> <span>${node.country || 'Unknown'}</span>
+                    </div>
+                    <div class="node-detail">
+                        <span class="node-detail-label">Status:</span> ${connectionStatus}
+                    </div>
+                    <div class="node-detail">
+                        <span class="node-detail-label">CPU:</span>
+                        <span>${node.capabilities?.cpu?.brand || 'Unknown'}, ${node.capabilities?.cpu?.cores || 'N/A'} cores</span>
+                    </div>
+                    <div class="node-detail">
+                        <span class="node-detail-label">GPUs:</span>
+                    </div>
+                    ${(Array.isArray(node.capabilities?.gpu) ? node.capabilities.gpu : [node.capabilities.gpu || {}])
+                        .map(gpu => `
+                        <div class="node-detail">
+                            <span class="node-detail-label">→ ${gpu.name || 'Unknown'}</span>
+                            <span>
+                                ${gpu.total_memory ?? '?'} MB total,
+                                ${gpu.free_memory ?? '?'} MB free,
+                                ${gpu.used_memory ?? '?'} MB used,
+                                ${gpu.load_percentage ?? '?'}% load,
+                                ${gpu.temperature ?? '?'}°C
+                            </span>
+                        </div>
+                    `).join('')}
+                    <hr />
+                </div>
+                `;
 
                 document.getElementById("nodeDetails").innerHTML = nodeDetailsHTML;
 
-                // ✅ Step 5: Update availability visuals
                 updateAvailabilityStatus(node.isAvailable);
 
                 const availabilityToggle = document.getElementById("availabilityToggle");
@@ -172,20 +162,16 @@
 
             } catch (err) {
                 document.getElementById("nodeDetails").innerHTML =
-                    "<p class='status-disconnected'>⚠️ Error loading node details.</p>";
+                    "<p class='status-disconnected'>Error loading node details.</p>";
                 console.error("Error fetching node details:", err);
             }
         }
 
-
-
         function updateAvailabilityStatus(isAvailable) {
             const availabilityStatus = document.getElementById("availabilityStatus");
-            if (isAvailable) {
-                availabilityStatus.innerHTML = '<span style="color:#00ff9d;">🟢 Available</span>';
-            } else {
-                availabilityStatus.innerHTML = '<span style="color:#ff4d4d;">🔴 Not Available</span>';
-            }
+            availabilityStatus.innerHTML = isAvailable
+                ? '<span class="status-available">Available</span>'
+                : '<span class="status-unavailable">Not Available</span>';
         }
 
         async function toggleAvailability(isAvailable) {
@@ -197,35 +183,26 @@
             const toggleProcessing = document.getElementById("toggleProcessing");
             const availabilityToggle = document.getElementById("availabilityToggle");
 
-            // Show processing indicator
             toggleProcessing.style.display = "block";
             availabilityToggle.disabled = true;
 
             try {
-                // Use PATCH request to the correct endpoint with node_id in the URL
-                const res = await fetch(`/toggle-availability/${currentNodeId}`, {
-                    method: "PATCH"
-                });
-
+                const res = await fetch(`/toggle-availability/${currentNodeId}`, { method: "PATCH" });
                 const result = await res.json();
 
                 if (!res.ok || result.error) {
                     throw new Error(result.error || `Failed with status: ${res.status}`);
                 }
 
-                // Update the UI to reflect the new state
                 updateAvailabilityStatus(isAvailable);
                 showToggleMessage(isAvailable ? "Node is now available" : "Node is now unavailable", "success");
 
             } catch (err) {
                 console.error(`Error toggling availability:`, err);
-
-                // Reset the toggle to its previous state
                 availabilityToggle.checked = !isAvailable;
                 showToggleMessage("Failed to update availability", "error");
             }
 
-            // Hide processing indicator and re-enable toggle
             toggleProcessing.style.display = "none";
             availabilityToggle.disabled = false;
         }
@@ -234,8 +211,6 @@
             const messageElement = document.getElementById("toggleStatusMessage");
             messageElement.textContent = message;
             messageElement.className = `toggle-status-message ${type === "success" ? "success-message" : "error-message"}`;
-
-            // Clear the message after a few seconds
             setTimeout(() => {
                 messageElement.textContent = "";
                 messageElement.className = "toggle-status-message";
@@ -246,10 +221,8 @@
             try {
                 const res = await fetch("/usage");
                 const data = await res.json();
-
                 document.getElementById("cpuUsagePercent").textContent = `${data.cpu_usage || 0}%`;
                 document.getElementById("gpuUsagePercent").textContent = `${data.gpu_usage || 0}%`;
-
                 document.getElementById("cpuUsageBar").style.width = `${data.cpu_usage || 0}%`;
                 document.getElementById("gpuUsageBar").style.width = `${data.gpu_usage || 0}%`;
             } catch (err) {
@@ -267,39 +240,28 @@
             setInterval(async () => {
                 if (isRefreshing) return;
                 isRefreshing = true;
-
                 try {
-                    await Promise.all([
-                        fetchNodeInfo(),
-                        fetchUsageInfo()
-                    ]);
+                    await Promise.all([fetchNodeInfo(), fetchUsageInfo()]);
                 } catch (err) {
                     console.error("Periodic refresh error:", err);
                 }
-
                 isRefreshing = false;
             }, 60000);
         }
 
-        // ✅ Handle tab close or page refresh: set availability to false
         window.addEventListener("beforeunload", (event) => {
             if (!currentNodeId) return;
             try {
-                // Important: use navigator.sendBeacon or fetch with keepalive to ensure request is sent
                 navigator.sendBeacon(`/set-availability/${currentNodeId}?available=false`);
             } catch (err) {
                 console.warn("Error setting availability to false on unload:", err);
             }
         });
 
-        // ✅ Handle page load: initialize availability toggle and start refresh
         window.addEventListener("load", () => {
-            // Double-check localStorage in case it was updated after script load
             if (!currentNodeId) {
                 currentNodeId = localStorage.getItem("currentNodeId");
-                if (!currentNodeId) {
-                    console.warn("No node ID found in localStorage.");
-                }
+                if (!currentNodeId) console.warn("No node ID found in localStorage.");
             }
 
             const availabilityToggle = document.getElementById("availabilityToggle");
