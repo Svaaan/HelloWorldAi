@@ -16,9 +16,11 @@ export async function fetchAvailableNodes() {
         }
 
         availableNodes.forEach(node => {
-            const gpuInfo = Array.isArray(node.capabilities?.gpu)
-                ? node.capabilities.gpu.map(g => g.name).join(", ")
-                : (node.capabilities?.gpu?.name || "None");
+            const gpuList = Array.isArray(node.capabilities?.gpu) ? node.capabilities.gpu : [];
+const gpuInfo = gpuList.length > 0
+    ? gpuList.map(g => g.name || "Unknown GPU").join(", ")
+    : "None";
+
 
             const nodeHTML = `
                 <div class="node-item" data-node-id="${node.node_id}">

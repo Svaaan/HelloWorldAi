@@ -79,13 +79,8 @@ def connect_to_coordinator():
             "node_id": node_info["node_id"],
             "ip": public_ip,
             "country": node_info["country"],
-            "capabilities": node_info["capabilities"],
             "isConnected": True,
             "isAvailable": True,
-            "cpu_verified": node_info.get("cpu_verified", False),
-            "gpu_verified": node_info.get("gpu_verified", False),
-            "cpu_usage": node_info.get("cpu_usage", 0.0),
-            "gpu_usage": node_info.get("gpu_usage", 0.0),
             "cpu_benchmark": node_info.get("cpu_benchmark"),
             "gpu_benchmark": node_info.get("gpu_benchmark")
         }
