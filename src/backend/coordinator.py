@@ -288,50 +288,70 @@ async def toggle_availability(node_id: str, db: Database = Depends(get_db)):
 @app.post("/connect-node")
 async def connect_node(node: NodeConnection, request: Request, db: Database = Depends(get_db)):
     try:
+        import httpx
+        from backend.utils.config import COORDINATOR_URL
+
         gpu_capabilities = node.capabilities.get("gpu", [])
-        if not gpu_capabilities or (isinstance(gpu_capabilities, list) and 
-                                  (len(gpu_capabilities) == 0 or 
-                                   gpu_capabilities[0].get("name") in ["No GPU Detected", None, ""])):
+        if not gpu_capabilities or (
+            isinstance(gpu_capabilities, list) and
+            (len(gpu_capabilities) == 0 or gpu_capabilities[0].get("name") in ["No GPU Detected", None, ""])
+        ):
             return {
                 "status": "rejected",
                 "reason": "No valid GPU detected. Node connection refused."
             }
 
-        # Set node properties
+        # ✅ Set node runtime properties
         node.ip = request.client.host
         node.isConnected = True
         node.last_heartbeat = datetime.utcnow()
 
-        # Prepare document for MongoDB
+        # ✅ Prepare document for MongoDB
         node_document = node.dict()
         node_document["ip"] = node.ip
         node_document["last_connected"] = datetime.utcnow()
-        node_document["_id"] = node.node_id
         node_document["last_heartbeat"] = node.last_heartbeat
 
-        # Remove duplicate field
+        # ✅ Capture node_id **before** popping!
+        live_node_id = node.node_id
+
+        # ✅ Store in MongoDB under _id field
+        node_document["_id"] = live_node_id
         node_document.pop("node_id", None)
 
-        # Upsert node in MongoDB using _id
+        # ✅ Upsert in database
         await db.nodes_collection.update_one(
-            {"_id": node.node_id},
+            {"_id": live_node_id},
             {"$set": node_document},
             upsert=True
         )
 
-        # Update in-memory state
-        connected_nodes[node.node_id] = node
+        # ✅ Update in-memory connected nodes with correct key
+        connected_nodes[live_node_id] = node
 
-        logger.info(f"🔌 Node connected: {node.node_id}, Available: {node.isAvailable}")
+        # ✅ Log the connected node IDs (optional, good for debugging)
+        logger.info(f"✅ Current connected nodes: {list(connected_nodes.keys())}")
+
+        # ✅ Forward node to coordinator
+        try:
+            async with httpx.AsyncClient() as client:
+                res = await client.post(f"{COORDINATOR_URL}/register-node", json=node_document)
+                res.raise_for_status()
+                logger.info(f"✅ Node {live_node_id} registered with coordinator successfully.")
+        except Exception as e:
+            logger.error(f"⚠️ Failed to register node with coordinator: {e}")
+
+        logger.info(f"🔌 Node connected: {live_node_id}, Available: {node.isAvailable}")
 
         return {
             "status": "success",
             "message": "Node connected",
-            "node_id": node.node_id,
+            "node_id": live_node_id,
             "ip": node.ip,
         }
+
     except Exception as e:
-        logger.error(f"Error connecting node: {e}")
+        logger.error(f"❌ Error connecting node: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to connect node: {str(e)}")
 
 
@@ -390,44 +410,39 @@ async def node_heartbeat(
 @app.get("/get-task-results")
 async def get_task_results(db: Database = Depends(get_db)):
     try:
-        # Get most recent tasks from the database
         cursor = db.tasks_collection.find().sort("received_at", -1).limit(50)
         results = await cursor.to_list(length=50)
-        
-        # Format for response
-        for result in results:
-            result.pop("_id", None)  # Remove MongoDB ObjectID
-        
+
         return results
     except Exception as e:
         logger.error(f"Error retrieving task results: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to retrieve task results: {str(e)}")
 
 
+
 @app.post("/receive-task-result")
 async def receive_task_result(result: dict, db: Database = Depends(get_db)):
     try:
-        logger.info(f"📥 Task result received: {result.get('task_id', 'unknown')}")
+        logger.info(f"Task result received with status: {result.get('status', 'unknown')}")
 
-        # Ensure logs are part of the result
-        if 'logs' not in result:
-            logger.warning("No logs found in task result!")
-        
-        # Add timestamp
+        # Clean payload before DB insert
+        result.pop('logs', None)
+        result.pop('task_id', None)  # Safety, even if node removed it
+
+        # Generate unique _id
+        result["_id"] = str(uuid.uuid4())
         result["received_at"] = datetime.utcnow()
-        
-        # Store in MongoDB
+
+        # Save to MongoDB
         await db.tasks_collection.insert_one(result)
-        
-        # Also keep in memory (limited recent results)
-        task_results.append(result)
-        if len(task_results) > 100:
-            task_results.pop(0)  # Keep only recent 100 results in memory
-        
+
         return {"status": "success", "message": "Result received"}
     except Exception as e:
         logger.error(f"Error storing task result: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to store task result: {str(e)}")
+
+
+
 
 
 @app.get("/nodes")
