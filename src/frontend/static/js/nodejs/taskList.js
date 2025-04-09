@@ -11,9 +11,15 @@ export async function loadPendingTasks() {
 
     try {
         const res = await fetch("/get-pending-tasks");
+
+        if (!res.ok) {
+            const errorText = await res.text();
+            throw new Error(`Server error: ${errorText}`);
+        }
+
         const tasks = await res.json();
 
-        if (!tasks.length) {
+        if (!Array.isArray(tasks) || tasks.length === 0) {
             taskListContainer.innerHTML = "<p>No pending tasks at the moment ✅</p>";
             return;
         }
@@ -39,9 +45,10 @@ export async function loadPendingTasks() {
 
     } catch (error) {
         console.error("❌ Error loading tasks:", error);
-        taskListContainer.innerHTML = "<p>⚠️ Failed to load pending tasks.</p>";
+        taskListContainer.innerHTML = `<p>⚠️ Failed to load pending tasks.<br>${error.message}</p>`;
     }
 }
+
 
 function attachTaskActionHandlers() {
     document.querySelectorAll(".accept-task-btn").forEach(button => {

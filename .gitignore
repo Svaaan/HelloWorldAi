@@ -18,6 +18,8 @@ venv/
 # ─── OS / System Files ──────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
+docker/data/**
+
 
 # ─── Environment Variables ──────────────────────────────────────────────
 env/.env
