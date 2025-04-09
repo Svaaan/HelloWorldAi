@@ -513,40 +513,6 @@ async def get_connected_nodes_count(db: Database = Depends(get_db)):
         logger.error(f"Error counting connected nodes: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to count connected nodes: {str(e)}")
 
-
-@app.get("/usage")
-async def get_usage_info():
-    try:
-        for node_id, node in connected_nodes.items():
-            if node.isConnected:
-                try:
-                    node.cpu_usage = psutil.cpu_percent(interval=0.1)
-                except Exception as e:
-                    logger.warning(f"Failed to get CPU usage for node {node_id}: {e}")
-                    node.cpu_usage = 0.0
-
-        connected = [n for n in connected_nodes.values() if n.isConnected]
-        if connected:
-            avg_cpu_usage = sum(n.cpu_usage for n in connected) / len(connected)
-            avg_gpu_usage = sum(n.gpu_usage for n in connected) / len(connected)
-        else:
-            avg_cpu_usage = 0
-            avg_gpu_usage = 0
-
-        system_usage["cpu_usage"] = avg_cpu_usage
-        system_usage["gpu_usage"] = avg_gpu_usage
-        system_usage["last_updated"] = time.time()
-
-        return {
-            "cpu_usage": round(avg_cpu_usage, 1),
-            "gpu_usage": round(avg_gpu_usage, 1),
-            "last_updated": system_usage["last_updated"]
-        }
-    except Exception as e:
-        logger.error(f"Error getting usage info: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get usage info: {str(e)}")
-
-
 @app.get("/node-performance/{node_id}")
 async def get_node_performance(node_id: str, db: Database = Depends(get_db)):
     try:
