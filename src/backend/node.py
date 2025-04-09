@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.service.runningNodeService import process_task
 from backend.service.systemInfoService import get_system_capabilities
 from backend.service.connectionService import background_connection_handler
+from backend.service.usageService import get_usage
 from backend.executeTask import handle_task, validate_task_data
 from psutil import cpu_percent, virtual_memory
 
@@ -137,24 +138,16 @@ async def connect_node():
 
 
 @app.get("/usage")
-def get_usage():
+async def get_usage_info():
     try:
-        cpu_usage = cpu_percent(interval=1)
-        gpu_usage = 0
-        try:
-            pynvml.nvmlInit()
-            gpu_usage = pynvml.nvmlDeviceGetUtilizationRates(pynvml.nvmlDeviceGetHandleByIndex(0)).gpu
-            pynvml.nvmlShutdown()
-        except Exception as e:
-            logger.warning(f"GPU usage retrieval failed: {e}")
-            gpu_usage = "N/A"
+        
+        usage = await get_usage()
 
-        return {"cpu_usage": cpu_usage, "gpu_usage": gpu_usage, "memory_usage": virtual_memory().percent}
-
+        return usage
+    
     except Exception as e:
-        logger.error(f"Usage retrieval error: {e}")
-        return {"error": "Failed to retrieve usage information"}
-
+        logger.error(f"Error getting usage info: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get usage info: {str(e)}")
 
 @app.get("/node-capabilities")
 def get_detailed_capabilities():
