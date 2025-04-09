@@ -92,11 +92,21 @@
             const CONNECT_ENDPOINT = "/connect-node";
 
             try {
-                const res = await fetch(CONNECT_ENDPOINT, { method: "POST" });
-                const result = await res.json();
+                const response = await fetch(CONNECT_ENDPOINT, { method: "POST" });
 
-                if (!res.ok || result.error) {
-                    throw new Error(result.error || `Connection failed with status: ${res.status}`);
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || `Connection failed with status: ${response.status}`);
+                }
+
+                const result = await response.json();
+
+                if (result.error) {
+                    throw new Error(result.error);
+                }
+
+                if (!result.node_id) {
+                    throw new Error("Node ID missing in response.");
                 }
 
                 localStorage.setItem("currentNodeId", result.node_id);
@@ -116,6 +126,7 @@
                 processingMessage.style.display = "none";
             }
         }
+
 
         function showMessage(message, type) {
             const resultMessageElement = document.getElementById("resultMessage");
