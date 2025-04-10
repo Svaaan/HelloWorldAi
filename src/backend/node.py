@@ -156,7 +156,7 @@ async def queue_task(node_id: str, task_data: dict = Body(...), request: Request
 
     task_queue.append({
         "task_id": task_id,
-        "node_id": node_id,
+        "node_id": node_id,  # node_id is included here
         "task_data": task_data,
         "status": "pending",
         "origin_ip": request.client.host if request else None
@@ -164,6 +164,7 @@ async def queue_task(node_id: str, task_data: dict = Body(...), request: Request
 
     logger.info(f"📝 Task queued: {task_id} from {request.client.host if request else 'unknown'}")
     return {"status": "success", "task_id": task_id, "message": "Task queued for approval"}
+
 
 @app.get("/get-pending-tasks")
 def get_pending_tasks():
@@ -210,6 +211,8 @@ def task_with_logging(task):
     task_id = task["task_id"]
     task_data = task["task_data"]
     task_type = task_data.get("task_type")
+    node_id = task["node_id"]  # Ensure node_id is included in task
+
     origin_ip = task.get("origin_ip")
 
     task_logs[task_id] = ["Task started"]
@@ -224,7 +227,8 @@ def task_with_logging(task):
         "_id": str(uuid.uuid4()),
         "status": "completed",
         "result": None,
-        "original_task_type": task_type
+        "original_task_type": task_type,
+        "node_id": node_id  # Ensure node_id is included in the result
     }
 
     try:
@@ -265,3 +269,4 @@ def task_with_logging(task):
             log(f"❌ Failed to send result to {origin_ip}: {e}")
     else:
         log("⚠️ No origin IP found, result not sent back.")
+
