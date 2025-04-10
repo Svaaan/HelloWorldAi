@@ -7,6 +7,8 @@ import psutil
 from pydantic import BaseModel, Field
 from typing import Dict, Optional, List
 from datetime import datetime, timedelta
+import httpx
+from backend.utils.config import COORDINATOR_URL
 import asyncio
 import logging
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase, AsyncIOMotorCollection
@@ -288,9 +290,7 @@ async def toggle_availability(node_id: str, db: Database = Depends(get_db)):
 @app.post("/connect-node")
 async def connect_node(node: NodeConnection, request: Request, db: Database = Depends(get_db)):
     try:
-        import httpx
-        from backend.utils.config import COORDINATOR_URL
-
+        # Validate GPU - required for connection but we won't store details
         gpu_capabilities = node.capabilities.get("gpu", [])
         if not gpu_capabilities or (
             isinstance(gpu_capabilities, list) and
@@ -301,41 +301,54 @@ async def connect_node(node: NodeConnection, request: Request, db: Database = De
                 "reason": "No valid GPU detected. Node connection refused."
             }
 
-        # ✅ Set node runtime properties
+        # Set node runtime properties
         node.ip = request.client.host
         node.isConnected = True
         node.last_heartbeat = datetime.utcnow()
 
-        # ✅ Prepare document for MongoDB
-        node_document = node.dict()
-        node_document["ip"] = node.ip
-        node_document["last_connected"] = datetime.utcnow()
-        node_document["last_heartbeat"] = node.last_heartbeat
+        # Store only essential data in the database (not dynamic hardware info)
+        node_document = {
+            "_id": node.node_id,
+            "ip": node.ip,
+            "country": node.country,
+            "isConnected": True,
+            "isAvailable": node.isAvailable,
+            "last_connected": datetime.utcnow(),
+            "last_heartbeat": node.last_heartbeat,
+            # Store only whether GPU exists, not detailed capabilities
+            "has_gpu": bool(gpu_capabilities and len(gpu_capabilities) > 0 and 
+                           gpu_capabilities[0].get("name") not in ["No GPU Detected", None, ""])
+        }
 
-        # ✅ Capture node_id **before** popping!
+        # Capture node_id for in-memory storage
         live_node_id = node.node_id
 
-        # ✅ Store in MongoDB under _id field
-        node_document["_id"] = live_node_id
-        node_document.pop("node_id", None)
-
-        # ✅ Upsert in database
+        # Upsert essential info in database
         await db.nodes_collection.update_one(
             {"_id": live_node_id},
             {"$set": node_document},
             upsert=True
         )
 
-        # ✅ Update in-memory connected nodes with correct key
+        # Keep full details in memory
         connected_nodes[live_node_id] = node
 
-        # ✅ Log the connected node IDs (optional, good for debugging)
+        # Log the connected node
         logger.info(f"✅ Current connected nodes: {list(connected_nodes.keys())}")
 
-        # ✅ Forward node to coordinator
+        # Forward node to coordinator (if needed)
         try:
             async with httpx.AsyncClient() as client:
-                res = await client.post(f"{COORDINATOR_URL}/register-node", json=node_document)
+                # Only send essential info to coordinator, not dynamic hardware details
+                coordinator_payload = {
+                    "node_id": live_node_id,
+                    "ip": node.ip,
+                    "country": node.country,
+                    "isConnected": True,
+                    "isAvailable": node.isAvailable,
+                    "has_gpu": bool(gpu_capabilities and len(gpu_capabilities) > 0)
+                }
+                res = await client.post(f"{COORDINATOR_URL}/register-node", json=coordinator_payload)
                 res.raise_for_status()
                 logger.info(f"✅ Node {live_node_id} registered with coordinator successfully.")
         except Exception as e:
@@ -369,28 +382,33 @@ async def node_heartbeat(
             if not node_doc:
                 raise HTTPException(status_code=404, detail=f"Node {node_id} not registered")
             
-            # Load node from database
+            # Load basic node info from database
             connected_nodes[node_id] = NodeConnection(
                 node_id=node_id,
                 ip=node_doc.get("ip", "unknown"),
                 country=node_doc.get("country", "Unknown"),
-                capabilities=node_doc.get("capabilities", {"cpu": {}, "gpu": []}),
                 isConnected=True,
                 isAvailable=node_doc.get("isAvailable", False)
             )
         
-        # Update node status from heartbeat
+        # Update node status in memory
         node = connected_nodes[node_id]
         node.last_heartbeat = datetime.utcnow()
         node.isConnected = True
         
-        # Update usage metrics if provided
+        # Update dynamic metrics in memory only
         if "cpu_usage" in status:
             node.cpu_usage = status["cpu_usage"]
         if "gpu_usage" in status:
             node.gpu_usage = status["gpu_usage"]
+        if "capabilities" in status:
+            node.capabilities = status["capabilities"]
+        if "cpu_benchmark" in status:
+            node.cpu_benchmark = status["cpu_benchmark"]
+        if "gpu_benchmark" in status:
+            node.gpu_benchmark = status["gpu_benchmark"]
         
-        # Update database with heartbeat
+        # Update only essential info in database
         await db.nodes_collection.update_one(
             {"_id": node_id},
             {"$set": {
@@ -457,27 +475,33 @@ async def get_connected_nodes(node_id: Optional[str] = None, db: Database = Depe
 
         async for node in nodes_cursor:
             node_id_from_db = node["_id"]
+            
+            # Create base node info from database
+            node_info = {
+                "node_id": node_id_from_db,
+                "ip": node.get("ip", "unknown"),
+                "country": node.get("country", "Unknown"),
+                "isConnected": node.get("isConnected", False),
+                "isAvailable": node.get("isAvailable", False),
+                "last_connected": node.get("last_connected"),
+                "last_heartbeat": node.get("last_heartbeat"),
+                "has_gpu": node.get("has_gpu", False)
+            }
+            
+            # Add dynamic data from memory if available
             live_node = connected_nodes.get(node_id_from_db)
-
             if live_node:
-                # Update with latest live data
-                node["cpu_usage"] = live_node.cpu_usage
-                node["gpu_usage"] = live_node.gpu_usage
-                node["isConnected"] = live_node.isConnected
-                node["capabilities"] = live_node.capabilities
+                # Add dynamic hardware info from in-memory data
+                node_info["cpu_usage"] = live_node.cpu_usage
+                node_info["gpu_usage"] = live_node.gpu_usage
+                node_info["cpu_benchmark"] = live_node.cpu_benchmark
+                node_info["gpu_benchmark"] = live_node.gpu_benchmark
+                node_info["capabilities"] = live_node.capabilities
+                node_info["isConnected"] = live_node.isConnected  # Use most recent connection status
 
-            # Clean MongoDB internal _id for JSON response
-            node["node_id"] = node.pop("_id", None)
-            nodes.append(node)
+            nodes.append(node_info)
 
-        # ✅ Ensure consistent array response
-        if node_id:
-            if not nodes:
-                logger.warning(f"No node found with id: {node_id}")
-                return []  # Return empty list if not found
-            return nodes  # Still return as array
-
-        return nodes  # If no node_id provided, return full list
+        return nodes
 
     except Exception as e:
         logger.error(f"Error retrieving nodes: {e}")
@@ -516,7 +540,7 @@ async def get_connected_nodes_count(db: Database = Depends(get_db)):
 @app.get("/node-performance/{node_id}")
 async def get_node_performance(node_id: str, db: Database = Depends(get_db)):
     try:
-        # First check in-memory state for most up-to-date information
+        # Check in-memory state for dynamic performance data
         if node_id in connected_nodes:
             node = connected_nodes[node_id]
             return {
@@ -527,30 +551,32 @@ async def get_node_performance(node_id: str, db: Database = Depends(get_db)):
                 "cpu_benchmark": node.cpu_benchmark,
                 "gpu_benchmark": node.gpu_benchmark,
                 "is_connected": node.isConnected,
-                "is_available": node.isAvailable
+                "is_available": node.isAvailable,
+                "capabilities": node.capabilities
             }
         
-        # Fallback to database if not in memory
+        # Fallback to database for static data
         node_doc = await db.nodes_collection.find_one({"_id": node_id})
         if not node_doc:
             raise HTTPException(status_code=404, detail=f"Node {node_id} not found")
         
+        # Return static info with default values for missing dynamic data
         return {
             "status": "success",
             "node_id": node_id,
-            "cpu_usage": node_doc.get("cpu_usage", 0),
-            "gpu_usage": node_doc.get("gpu_usage", 0),
-            "cpu_benchmark": node_doc.get("cpu_benchmark"),
-            "gpu_benchmark": node_doc.get("gpu_benchmark"),
+            "cpu_usage": 0,
+            "gpu_usage": 0,
+            "cpu_benchmark": None,
+            "gpu_benchmark": None,
             "is_connected": node_doc.get("isConnected", False),
-            "is_available": node_doc.get("isAvailable", False)
+            "is_available": node_doc.get("isAvailable", False),
+            "capabilities": {"cpu": {}, "gpu": []}
         }
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error getting node performance for {node_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to get node performance: {str(e)}")
-
 
 @app.delete("/node/{node_id}")
 async def delete_node(node_id: str, db: Database = Depends(get_db)):

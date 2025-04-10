@@ -1,5 +1,3 @@
-# node.py
-
 import os
 import socket
 import uuid
@@ -12,7 +10,7 @@ from datetime import datetime
 from fastapi import FastAPI, Request, BackgroundTasks, Body, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from backend.service.runningNodeService import process_task
-from backend.service.systemInfoService import get_system_capabilities
+from backend.service.systemInfoService import get_system_capabilities  # Dynamically fetch system capabilities
 from backend.service.connectionService import background_connection_handler
 from backend.service.usageService import get_usage
 from backend.executeTask import handle_task, validate_task_data
@@ -38,11 +36,8 @@ app.add_middleware(
 public_ip = socket.gethostbyname(socket.gethostname())
 node_info = {
     "country": "Unknown",
-    "capabilities": get_system_capabilities(),
     "connected": False,
     "accept_tasks": True,
-    "allowed_clients": ["trusted-client-1", "trusted-client-2"],
-    "total_tasks_processed": 0
 }
 
 # Task queues
@@ -88,21 +83,16 @@ def get_gpu_info_list():
         except:
             pass
 
-# === Startup ===
-
 # === Payload Builder ===
 
 def build_node_payload() -> Dict[str, Any]:
+    capabilities = get_system_capabilities()  # Fetch capabilities dynamically
     return {
         "ip": public_ip,
         "country": node_info["country"],
-        "capabilities": node_info["capabilities"],
+        "capabilities": capabilities,  # Use dynamically fetched capabilities
         "isConnected": node_info["connected"],
         "isAvailable": node_info.get("isAvailable", False),
-        "cpu_verified": node_info.get("cpu_verified", False),
-        "gpu_verified": node_info.get("gpu_verified", False),
-        "cpu_benchmark": node_info.get("cpu_benchmark"),
-        "gpu_benchmark": node_info.get("gpu_benchmark"),
     }
 
 # === Routes ===
@@ -117,7 +107,6 @@ async def connect_node():
     if not detected_gpus or detected_gpus[0].get("name") in ["No GPU Detected", None, ""]:
         return {"status": "rejected", "reason": "No valid GPU detected. Node connection refused."}
 
-    node_info["capabilities"]["gpu"] = detected_gpus
     node_info["connected"] = True
 
     payload = build_node_payload()
@@ -135,14 +124,10 @@ async def connect_node():
 
     return {"status": "Node registered", "connected": True, "node_id": node_info["node_id"]}
 
-
-
 @app.get("/usage")
 async def get_usage_info():
     try:
-        
         usage = await get_usage()
-
         return usage
     
     except Exception as e:
@@ -151,11 +136,12 @@ async def get_usage_info():
 
 @app.get("/node-capabilities")
 def get_detailed_capabilities():
+    capabilities = get_system_capabilities()  # Fetch capabilities dynamically each time
     return {
-        "node_id": node_info["node_id"],
-        "system_info": node_info["capabilities"],
+        "node_id": node_info.get("node_id", "unknown-node-id"),
+        "system_info": capabilities,  # Use dynamically fetched capabilities
         "country": node_info["country"],
-        "status": {"connected": node_info["connected"], "total_tasks_processed": node_info["total_tasks_processed"]}
+        "status": {"connected": node_info["connected"]}
     }
 
 @app.post("/queue-task/{node_id}")
