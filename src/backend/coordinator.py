@@ -545,16 +545,22 @@ async def get_available_nodes(db: Database = Depends(get_db)):
 
 
 @app.get("/get-connected-nodes-count")
-async def get_connected_nodes_count(db: Database = Depends(get_db)):
+async def get_connected_nodes_count():
     try:
-        count = await db.nodes_collection.count_documents({"isConnected": True})
-        return {"connected_nodes_count": count}
+        # Count the connected nodes in-memory
+        in_memory_count = sum(1 for node in connected_nodes.values() if node.isConnected)
+        
+        logger.info(f"Connected nodes (in-memory): {in_memory_count}")
+
+        return {"connected_nodes_count": in_memory_count}
+    
     except Exception as e:
         logger.error(f"Error counting connected nodes: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to count connected nodes: {str(e)}")
 
+
 @app.get("/node-performance/{node_id}")
-async def get_node_performance(node_id: str, db: Database = Depends(get_db)):
+async def get_node_performance(node_id: str):
     try:
         # Check in-memory state for dynamic performance data
         if node_id in connected_nodes:
@@ -570,53 +576,15 @@ async def get_node_performance(node_id: str, db: Database = Depends(get_db)):
                 "is_available": node.isAvailable,
                 "capabilities": node.capabilities
             }
-        
-        # Fallback to database for static data
-        node_doc = await db.nodes_collection.find_one({"_id": node_id})
-        if not node_doc:
-            raise HTTPException(status_code=404, detail=f"Node {node_id} not found")
-        
-        # Return static info with default values for missing dynamic data
-        return {
-            "status": "success",
-            "node_id": node_id,
-            "cpu_usage": 0,
-            "gpu_usage": 0,
-            "cpu_benchmark": None,
-            "gpu_benchmark": None,
-            "is_connected": node_doc.get("isConnected", False),
-            "is_available": node_doc.get("isAvailable", False),
-            "capabilities": {"cpu": {}, "gpu": []}
-        }
+
+        # If the node is not in memory, return an error
+        raise HTTPException(status_code=404, detail=f"Node {node_id} not found in memory")
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error getting node performance for {node_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to get node performance: {str(e)}")
 
-@app.delete("/node/{node_id}")
-async def delete_node(node_id: str, db: Database = Depends(get_db)):
-    try:
-        # Check if node exists
-        node_doc = await db.nodes_collection.find_one({"_id": node_id})
-        if not node_doc:
-            raise HTTPException(status_code=404, detail=f"Node {node_id} not found")
         
-        # Delete from database
-        result = await db.nodes_collection.delete_one({"_id": node_id})
-        
-        # Remove from in-memory storage
-        if node_id in connected_nodes:
-            del connected_nodes[node_id]
-        
-        if result.deleted_count > 0:
-            logger.info(f"Node {node_id} deleted successfully")
-            return {"status": "success", "message": f"Node {node_id} deleted successfully"}
-        else:
-            logger.warning(f"Node {node_id} deletion returned success but no documents were deleted")
-            return {"status": "warning", "message": "Node found but deletion may not have completed"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error deleting node {node_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to delete node: {str(e)}")
+            
+
