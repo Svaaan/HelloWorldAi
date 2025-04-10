@@ -426,10 +426,23 @@ async def node_heartbeat(
 
 
 @app.get("/get-task-results")
-async def get_task_results(db: Database = Depends(get_db)):
+async def get_task_results(node_id: Optional[str] = None, db: Database = Depends(get_db)):
     try:
-        cursor = db.tasks_collection.find().sort("received_at", -1).limit(50)
+        # Build query based on optional node_id filter
+        query = {}
+        if node_id:
+            query["node_id"] = node_id
+            
+        cursor = db.tasks_collection.find(query).sort("received_at", -1).limit(50)
         results = await cursor.to_list(length=50)
+        
+        for result in results:
+    
+            if '_id' in result:
+                result['task_id'] = str(result['_id'])
+                
+            if 'nodeId' in result and 'node_id' not in result:
+                result['node_id'] = result['nodeId']
 
         return results
     except Exception as e:
@@ -438,17 +451,24 @@ async def get_task_results(db: Database = Depends(get_db)):
 
 
 
+
 @app.post("/receive-task-result")
 async def receive_task_result(result: dict, db: Database = Depends(get_db)):
     try:
         logger.info(f"Task result received with status: {result.get('status', 'unknown')}")
 
-        # Clean payload before DB insert
         result.pop('logs', None)
-        result.pop('task_id', None)  # Safety, even if node removed it
-
-        # Generate unique _id
-        result["_id"] = str(uuid.uuid4())
+        
+        # Correct node ID handling
+        if 'nodeId' in result and 'node_id' not in result:
+            result['node_id'] = result.pop('nodeId')  # Rename 'nodeId' to 'node_id'
+        
+        # Use the preserved node_id as _id if it exists, otherwise generate a new one
+        if 'node_id' in result:
+            result["_id"] = result["node_id"]
+        else:
+            result["_id"] = str(uuid.uuid4())
+            
         result["received_at"] = datetime.utcnow()
 
         # Save to MongoDB
@@ -458,10 +478,6 @@ async def receive_task_result(result: dict, db: Database = Depends(get_db)):
     except Exception as e:
         logger.error(f"Error storing task result: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to store task result: {str(e)}")
-
-
-
-
 
 @app.get("/nodes")
 async def get_connected_nodes(node_id: Optional[str] = None, db: Database = Depends(get_db)):
