@@ -44,9 +44,9 @@ export function initNodeInfoManager() {
                 return;
             }
     
-            // Fetch live usage info (CPU & GPU usage)
-            const usageRes = await fetch("/usage");
-            const usageData = await usageRes.json();
+ 
+            const performanceRes = await fetch(`/node-performance/${currentNodeId}`);
+            const performanceData = await performanceRes.json();
     
             clearInterval(retryInterval); // ✅ Clear retry if successful
     
@@ -54,10 +54,12 @@ export function initNodeInfoManager() {
                 ? '<span class="status-connected">Connected</span>'
                 : '<span class="status-disconnected">Disconnected</span>';
     
-            const cpuUsage = usageData.cpu_usage ?? '?';
-            const gpuUsage = usageData.gpu_usage ?? '?';
-            const memoryUsage = usageData.memory_usage ?? '?';
+            const cpuUsage = performanceData.cpu_usage ?? '?';
+            const gpuUsage = performanceData.gpu_usage ?? '?';
+            const memoryUsage = performanceData.memory_usage ?? '?';
     
+            const capabilities = performanceData.capabilities || { cpu: {}, gpu: [] };
+            
             const nodeDetailsHTML = `
                 <div class="node-detail-group">
                     <div class="node-detail">
@@ -71,7 +73,7 @@ export function initNodeInfoManager() {
                     </div>
                     <div class="node-detail">
                         <span class="node-detail-label">CPU:</span>
-                        <span>${node.capabilities?.cpu?.brand || 'Unknown'}, ${node.capabilities?.cpu?.cores ?? '?'} cores</span>
+                        <span>${capabilities?.cpu?.brand || 'Unknown'}, ${capabilities?.cpu?.cores ?? '?'} cores</span>
                     </div>
                     <div class="node-detail">
                         <span class="node-detail-label">CPU Usage:</span> <span>${cpuUsage}%</span>
@@ -85,7 +87,7 @@ export function initNodeInfoManager() {
                     <div class="node-detail">
                         <span class="node-detail-label">GPUs:</span>
                     </div>
-                    ${(Array.isArray(node.capabilities?.gpu) ? node.capabilities.gpu : [node.capabilities.gpu || {}])
+                    ${(Array.isArray(capabilities?.gpu) ? capabilities.gpu : [capabilities.gpu || {}])
                         .map(gpu => `
                             <div class="node-detail">
                                 <span class="node-detail-label">→ ${gpu.name || 'Unknown'}</span>
@@ -189,8 +191,10 @@ export function initNodeInfoManager() {
     }
 
     async function fetchUsageInfo() {
+        if (!currentNodeId) return;
+        
         try {
-            const res = await fetch("/usage");
+            const res = await fetch(`/node-performance/${currentNodeId}`);
             const data = await res.json();
             
             const cpuUsagePercent = document.getElementById("cpuUsagePercent");
