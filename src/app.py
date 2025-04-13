@@ -24,7 +24,6 @@ if not USE_DOCKER:
     kill_process_on_port(NODE_PORT)
     kill_process_on_port(DASHBOARD_PORT)
 
-# Import apps and routers
 from backend.node import app as node_app
 from backend.coordinator import app as coordinator_app
 from backend.dashboard import router as dashboard_router
