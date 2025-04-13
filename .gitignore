@@ -27,7 +27,7 @@ env/.env.local
 env/.env.test
 env/.env.production
 
-# ✅ Keep example file
+
 !env/.env.example
 
 # ─── Docker stuff (optional, but good practice) ─────────────────────────
