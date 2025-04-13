@@ -3,12 +3,9 @@ import time
 import numpy as np
 from fastapi import Body, FastAPI, HTTPException, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
-import psutil
 from pydantic import BaseModel, Field
-from typing import Dict, Optional, List
+from typing import Dict, Optional
 from datetime import datetime, timedelta
-import httpx
-from backend.utils.config import COORDINATOR_URL
 import asyncio
 import logging
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase, AsyncIOMotorCollection
@@ -290,7 +287,7 @@ async def toggle_availability(node_id: str, db: Database = Depends(get_db)):
 @app.post("/connect-node")
 async def connect_node(node: NodeConnection, request: Request, db: Database = Depends(get_db)):
     try:
-        # Validate GPU - required for connection but we won't store details
+        # Validate GPU - required for connection
         gpu_capabilities = node.capabilities.get("gpu", [])
         if not gpu_capabilities or (
             isinstance(gpu_capabilities, list) and
@@ -306,7 +303,7 @@ async def connect_node(node: NodeConnection, request: Request, db: Database = De
         node.isConnected = True
         node.last_heartbeat = datetime.utcnow()
 
-        # Store only essential data in the database (not dynamic hardware info)
+        # Prepare node document for DB
         node_document = {
             "_id": node.node_id,
             "ip": node.ip,
@@ -315,46 +312,25 @@ async def connect_node(node: NodeConnection, request: Request, db: Database = De
             "isAvailable": node.isAvailable,
             "last_connected": datetime.utcnow(),
             "last_heartbeat": node.last_heartbeat,
-            # Store only whether GPU exists, not detailed capabilities
-            "has_gpu": bool(gpu_capabilities and len(gpu_capabilities) > 0 and 
-                           gpu_capabilities[0].get("name") not in ["No GPU Detected", None, ""])
+            "has_gpu": bool(gpu_capabilities and gpu_capabilities[0].get("name") not in ["No GPU Detected", None, ""]),
         }
 
         # Capture node_id for in-memory storage
-        live_node_id = node.node_id
+        live_node_id = node.node_id or f"node_{uuid.uuid4()}"  # Fallback safety!
 
-        # Upsert essential info in database
+        # Upsert node in database
         await db.nodes_collection.update_one(
             {"_id": live_node_id},
             {"$set": node_document},
             upsert=True
         )
 
-        # Keep full details in memory
+        # Keep full node details in memory
         connected_nodes[live_node_id] = node
 
         # Log the connected node
+        logger.info(f"✅ Node connected and stored: {live_node_id}")
         logger.info(f"✅ Current connected nodes: {list(connected_nodes.keys())}")
-
-        # Forward node to coordinator (if needed)
-        try:
-            async with httpx.AsyncClient() as client:
-                # Only send essential info to coordinator, not dynamic hardware details
-                coordinator_payload = {
-                    "node_id": live_node_id,
-                    "ip": node.ip,
-                    "country": node.country,
-                    "isConnected": True,
-                    "isAvailable": node.isAvailable,
-                    "has_gpu": bool(gpu_capabilities and len(gpu_capabilities) > 0)
-                }
-                res = await client.post(f"{COORDINATOR_URL}/register-node", json=coordinator_payload)
-                res.raise_for_status()
-                logger.info(f"✅ Node {live_node_id} registered with coordinator successfully.")
-        except Exception as e:
-            logger.error(f"⚠️ Failed to register node with coordinator: {e}")
-
-        logger.info(f"🔌 Node connected: {live_node_id}, Available: {node.isAvailable}")
 
         return {
             "status": "success",
@@ -366,6 +342,7 @@ async def connect_node(node: NodeConnection, request: Request, db: Database = De
     except Exception as e:
         logger.error(f"❌ Error connecting node: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to connect node: {str(e)}")
+
 
 
 @app.post("/node-heartbeat/{node_id}")
@@ -514,6 +491,7 @@ async def get_connected_nodes(node_id: Optional[str] = None, db: Database = Depe
                 node_info["gpu_benchmark"] = live_node.gpu_benchmark
                 node_info["capabilities"] = live_node.capabilities
                 node_info["isConnected"] = live_node.isConnected  # Use most recent connection status
+                node_info["total_gpu_tflops"] = live_node.capabilities.get("total_gpu_tflops", 0)  # ✅ Add TFLOPS
 
             nodes.append(node_info)
 
@@ -522,6 +500,7 @@ async def get_connected_nodes(node_id: Optional[str] = None, db: Database = Depe
     except Exception as e:
         logger.error(f"Error retrieving nodes: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to retrieve nodes: {str(e)}")
+
 
 
 
@@ -536,12 +515,18 @@ async def get_available_nodes(db: Database = Depends(get_db)):
         async for node in cursor:
             node_id = node.pop("_id", None)
             node["node_id"] = node_id
+
+            live_node = connected_nodes.get(node_id)
+            if live_node:
+                node["total_gpu_tflops"] = live_node.capabilities.get("total_gpu_tflops", 0)
+
             nodes.append(node)
 
         return nodes
     except Exception as e:
         logger.error(f"Error retrieving available nodes: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to retrieve available nodes: {str(e)}")
+
 
 
 @app.get("/get-connected-nodes-count")
@@ -558,32 +543,6 @@ async def get_connected_nodes_count():
         logger.error(f"Error counting connected nodes: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to count connected nodes: {str(e)}")
 
-
-@app.get("/node-performance/{node_id}")
-async def get_node_performance(node_id: str):
-    try:
-        # Check in-memory state for dynamic performance data
-        if node_id in connected_nodes:
-            node = connected_nodes[node_id]
-            return {
-                "status": "success",
-                "node_id": node_id,
-                "cpu_usage": node.cpu_usage,
-                "gpu_usage": node.gpu_usage,
-                "cpu_benchmark": node.cpu_benchmark,
-                "gpu_benchmark": node.gpu_benchmark,
-                "is_connected": node.isConnected,
-                "is_available": node.isAvailable,
-                "capabilities": node.capabilities
-            }
-
-        # If the node is not in memory, return an error
-        raise HTTPException(status_code=404, detail=f"Node {node_id} not found in memory")
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error getting node performance for {node_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get node performance: {str(e)}")
 
         
             

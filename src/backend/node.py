@@ -9,12 +9,10 @@ from typing import Dict, Any, List
 from datetime import datetime
 from fastapi import FastAPI, Request, BackgroundTasks, Body, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from backend.service.runningNodeService import process_task
 from backend.service.systemInfoService import get_system_capabilities  # Dynamically fetch system capabilities
-from backend.service.connectionService import background_connection_handler
 from backend.service.usageService import get_usage
-from backend.executeTask import handle_task, validate_task_data
-from psutil import cpu_percent, virtual_memory
+from backend.executeTask import validate_task_data
+
 
 # Initialize logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -86,19 +84,31 @@ def get_gpu_info_list():
 # === Payload Builder ===
 
 def build_node_payload() -> Dict[str, Any]:
-    capabilities = get_system_capabilities()  # Fetch capabilities dynamically
+    capabilities = get_system_capabilities()
+    total_flops = capabilities.get("total_gpu_tflops", 0)
+
+    # Also update node_info in memory
+    node_info["total_gpu_tflops"] = total_flops
+
     return {
         "ip": public_ip,
         "country": node_info["country"],
-        "capabilities": capabilities,  # Use dynamically fetched capabilities
+        "capabilities": capabilities,
         "isConnected": node_info["connected"],
         "isAvailable": node_info.get("isAvailable", False),
+        "total_gpu_tflops": total_flops  # ✅ Add total flops here
     }
+
 
 # === Routes ===
 
 @app.post("/connect-node")
 async def connect_node():
+    # ✅ Ensure node_id is always generated at the very start
+    if "node_id" not in node_info or node_info.get("node_id") == "unknown-node-id":
+        import uuid
+        node_info["node_id"] = f"node_{uuid.uuid4()}"
+
     if node_info.get("connected"):
         return {"status": "Node already connected", "connected": True, "node_id": node_info.get("node_id")}
 
@@ -110,19 +120,18 @@ async def connect_node():
     node_info["connected"] = True
 
     payload = build_node_payload()
+    payload["node_id"] = node_info["node_id"]  # ✅ Explicitly include node_id in payload
 
     # ✅ Await coordinator connection handler
     from backend.service.connectionService import background_connection_handler
     response = await background_connection_handler(payload, node_info)
 
-    # ✅ Extract node_id from coordinator response and save locally
+    # ✅ If coordinator responds with a node_id, use it (optional override)
     if response and response.get("node_id"):
         node_info["node_id"] = response["node_id"]
-    else:
-        # Optional safety fallback
-        node_info["node_id"] = "unknown-node-id"
 
-    return {"status": "Node registered", "connected": True, "node_id": node_info["node_id"]}
+    return {"status": "success", "connected": True, "node_id": node_info["node_id"]}
+
 
 @app.get("/usage")
 async def get_usage_info():

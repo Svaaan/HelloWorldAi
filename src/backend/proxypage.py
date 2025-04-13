@@ -196,16 +196,6 @@ async def proxy_verify_gpu(node_id: str):
     except httpx.RequestError as e:
         return {"error": f"Failed to start GPU test: {e}"}
 
-@router.get("/node-performance/{node_id}")
-async def proxy_node_performance(node_id: str):
-    try:
-        async with httpx.AsyncClient() as client:
-            res = await client.get(f"{COORDINATOR_URL}/node-performance/{node_id}")
-            res.raise_for_status()
-            return safe_json(res)
-    except httpx.RequestError as e:
-        return {"error": f"Failed to fetch node performance: {e}"}
-
 @router.get("/distribution", response_class=HTMLResponse)
 async def proxy_distribution_page(request: Request):
     try:
