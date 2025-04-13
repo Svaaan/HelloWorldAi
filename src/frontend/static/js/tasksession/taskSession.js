@@ -180,6 +180,7 @@ function startStatusPolling(taskId) {
 
   statusPollingInterval = setInterval(async () => {
       try {
+          // ✅ 1. First check task status
           const response = await fetch('/get-pending-tasks');
           if (!response.ok) throw new Error(`Failed to fetch tasks: ${response.status}`);
 
@@ -187,11 +188,40 @@ function startStatusPolling(taskId) {
           const task = tasks.find(t => t.task_id === taskId);
 
           updateTaskStatus(task, taskId);
+
+          // ✅ 2. Also check usage info for protection!
+          const usageResponse = await fetch('/usage');
+          if (!usageResponse.ok) throw new Error(`Failed to fetch usage info: ${usageResponse.status}`);
+
+          const usageData = await usageResponse.json();
+
+          const gpuList = Array.isArray(usageData.gpu_data) ? usageData.gpu_data : [];
+
+          const warnings = gpuList.map(gpu => {
+              const warningsForGpu = [];
+
+              if (gpu.gpu_usage > 95) {
+                  warningsForGpu.push(`⚠️ GPU ${gpu.index} usage is very high: ${gpu.gpu_usage}%`);
+              }
+
+              if (gpu.gpu_temperature > gpu.critical_temperature - 5) {
+                  warningsForGpu.push(`🔥 GPU ${gpu.index} temperature critical: ${gpu.gpu_temperature}°C`);
+              }
+
+              return warningsForGpu.join('<br>');
+          }).filter(w => w.length > 0);
+
+          const warningElement = document.getElementById('taskWarning');
+          if (warningElement) {
+              warningElement.innerHTML = warnings.length > 0 ? warnings.join('<br>') : '';
+          }
+
       } catch (error) {
           console.error("Error during polling:", error);
       }
   }, 3000);
 }
+
 
 /**
 * Updates the task status in the UI based on polling results
@@ -220,12 +250,61 @@ function initPage() {
               startTask(taskId);
           });
       }
+
+      setInterval(monitorHardware, 2000);
+
   } else {
       elements.taskDetails.innerHTML = `<p>No task ID found in URL.</p>`;
       if (elements.statusElement) elements.statusElement.innerHTML = '';
       if (elements.resultElement) elements.resultElement.innerHTML = '';
   }
 }
+
+
+async function monitorHardware() {
+  try {
+      const res = await fetch('/usage');
+      if (!res.ok) throw new Error(`Failed to fetch usage info: ${res.status}`);
+
+      const data = await res.json();
+
+      const cpuUsage = data.cpu_usage ?? 0;
+      const gpuData = Array.isArray(data.gpu_data) ? data.gpu_data : [];
+
+      const cpuUsagePercent = document.getElementById("cpuUsagePercent");
+      if (cpuUsagePercent) cpuUsagePercent.textContent = `${cpuUsage}%`;
+
+      const gpuUsagePercent = document.getElementById("gpuUsagePercent");
+      const gpuTemperature = document.getElementById("gpuTemperature");
+
+      if (gpuData.length > 0) {
+          const avgGpuUsage = Math.round(gpuData.reduce((sum, gpu) => sum + (gpu.gpu_usage ?? 0), 0) / gpuData.length);
+          const avgTemperature = Math.round(gpuData.reduce((sum, gpu) => sum + (gpu.gpu_temperature ?? 0), 0) / gpuData.length);
+
+          if (gpuUsagePercent) gpuUsagePercent.textContent = `${avgGpuUsage}%`;
+          if (gpuTemperature) gpuTemperature.textContent = `${avgTemperature}`;
+
+          const warningElement = document.getElementById("taskWarning");
+          const highTempGpu = gpuData.find(gpu => gpu.gpu_temperature >= (gpu.critical_temperature ?? 85));
+          const highLoadGpu = gpuData.find(gpu => gpu.gpu_usage >= 95);
+
+          if (warningElement) {
+              if (highTempGpu || highLoadGpu) {
+                  let warningMsg = '';
+                  if (highLoadGpu) warningMsg += `⚠️ GPU ${highLoadGpu.index} usage is very high: ${highLoadGpu.gpu_usage}% `;
+                  if (highTempGpu) warningMsg += `🔥 GPU ${highTempGpu.index} temperature critical: ${highTempGpu.gpu_temperature}°C `;
+                  warningElement.textContent = warningMsg.trim();
+              } else {
+                  warningElement.textContent = '';
+              }
+          }
+      }
+
+  } catch (err) {
+      console.error("Hardware monitor error:", err);
+  }
+}
+
 
 // Cleanup function to prevent memory leaks
 function cleanup() {
