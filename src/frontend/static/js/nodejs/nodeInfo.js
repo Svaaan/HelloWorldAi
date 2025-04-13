@@ -6,60 +6,88 @@ export function initNodeInfoManager() {
     async function fetchNodeInfo(retryCount = 0) {
         const nodeDetailsElement = document.getElementById("nodeDetails");
         const availabilityToggle = document.getElementById("availabilityToggle");
-
+    
         if (!currentNodeId) {
             nodeDetailsElement.innerHTML = "<p class='status-disconnected'>Access denied: No node ID in localStorage.</p>";
             if (availabilityToggle) availabilityToggle.disabled = true;
             return;
         }
-
+    
         try {
             // ✅ Fetch static node info (capabilities etc.)
             const nodeRes = await fetch(`/nodes?node_id=${currentNodeId}`);
             const nodeData = await nodeRes.json();
-
+    
             if (!Array.isArray(nodeData) || nodeData.length === 0) {
                 handleRetry(retryCount, fetchNodeInfo);
                 return;
             }
-
+    
             const node = nodeData.find(n => n.node_id === currentNodeId);
             if (!node) {
                 handleRetry(retryCount, fetchNodeInfo);
                 return;
             }
-
+    
             clearInterval(retryInterval);
-
+    
             // ✅ Fetch dynamic usage info
             const usageRes = await fetch(`/usage`);
             const usageData = await usageRes.json();
-
+    
             const connectionStatus = node.isConnected
                 ? '<span class="status-connected">Connected</span>'
                 : '<span class="status-disconnected">Disconnected</span>';
-
+    
             const cpuUsage = usageData.cpu_usage ?? '?';
-            const gpuUsage = usageData.gpu_usage ?? '?';
             const memoryUsage = usageData.memory_usage ?? '?';
-
+    
             const capabilities = node.capabilities || { cpu: {}, gpu: [] };
             const gpuTflops = node.total_gpu_tflops ?? '?';
-
-            // Tooltip calculation string for the first GPU
-            const firstGpu = Array.isArray(capabilities.gpu) && capabilities.gpu.length > 0 ? capabilities.gpu[0] : null;
+    
+            // 🧩 Merge dynamic GPU data
+            const nodeGpuList = Array.isArray(capabilities.gpu) ? capabilities.gpu : [];
+            const usageGpuList = Array.isArray(usageData.gpu_data) ? usageData.gpu_data : [];
+    
+            nodeGpuList.forEach((gpu, index) => {
+                const liveGpu = usageGpuList[index];
+                if (liveGpu) {
+                    gpu.load_percentage = liveGpu.gpu_usage;
+                    gpu.temperature = liveGpu.gpu_temperature;
+                    gpu.temperature_critical = liveGpu.critical_temperature;
+                }
+            });
+    
+            // 🧩 Calculate average GPU usage if multiple GPUs
+            const validGpuUsages = usageGpuList
+            .map(gpu => parseInt(gpu.gpu_usage))
+            .filter(val => !isNaN(val));
+        
+        const gpuUsage = validGpuUsages.length > 0
+            ? Math.round(validGpuUsages.reduce((sum, val) => sum + val, 0) / validGpuUsages.length)
+            : '?';
+        
+    
+            const firstGpu = nodeGpuList.length > 0 ? nodeGpuList[0] : null;
             const gpuTooltip = firstGpu && firstGpu.cuda_cores && firstGpu.core_clock_mhz
                 ? `Formula: (CUDA Cores: ${firstGpu.cuda_cores} × Clock: ${firstGpu.core_clock_mhz} MHz × 2) ÷ 1,000,000 = ${(firstGpu.cuda_cores * firstGpu.core_clock_mhz * 2 / 1_000_000).toFixed(2)} TFLOPS`
                 : 'No calculation available';
-
-            const nodeGpuList = Array.isArray(capabilities.gpu) ? capabilities.gpu : [];
+    
             const gpuDetailsHTML = nodeGpuList.map(gpu => {
+                const temp = gpu.temperature ?? '?';
+                const tempCritical = gpu.temperature_critical ?? 'N/A';
+                const temperatureColor = temp === '?' ? 'gray'
+                    : temp < 50 ? 'green'
+                    : temp < 70 ? 'orange'
+                    : 'red';
+    
                 const gpuDetails = `
                     ${gpu.total_memory ?? '?'} MB total,
                     ${gpu.free_memory ?? '?'} MB free,
                     ${gpu.used_memory ?? '?'} MB used,
                     ${gpu.load_percentage ?? '?'}% load,
-                    ${gpu.temperature ?? '?'}°C
+                    <span style="color:${temperatureColor}; font-weight:bold;">${temp}°C</span>
+                    <span style="color:gray;">(Critical: ${tempCritical}°C)</span>
                 `;
                 return `
                     <div class="node-detail">
@@ -68,16 +96,14 @@ export function initNodeInfoManager() {
                     </div>
                 `;
             }).join('');
-
+    
             const nodeDetailsHTML = `
                 <div class="node-detail-group">
                     <div class="node-detail"><span class="node-detail-label">Node ID:</span> <span>${node.node_id}</span></div>
                     <div class="node-detail"><span class="node-detail-label">Country:</span> <span>${node.country || 'Unknown'}</span></div>
                     <div class="node-detail"><span class="node-detail-label">Status:</span> ${connectionStatus}</div>
                     <div class="node-detail"><span class="node-detail-label">CPU:</span> <span>${capabilities?.cpu?.brand || 'Unknown'}, ${capabilities?.cpu?.cores ?? '?'} cores</span></div>
-                    <div class="node-detail"><span class="node-detail-label">CPU Usage:</span> <span>${cpuUsage}%</span></div>
-                    <div class="node-detail"><span class="node-detail-label">Memory Usage:</span> <span>${memoryUsage}%</span></div>
-                    <div class="node-detail"><span class="node-detail-label">GPU Usage:</span> <span>${gpuUsage}%</span></div>
+                  </span></div>
                     <div class="node-detail">
                         <span class="node-detail-label">GPU Compute:</span>
                         <span title="${gpuTooltip}">${gpuTflops !== '?' ? Number(gpuTflops).toFixed(2) : '?'} TFLOPS</span>
@@ -87,20 +113,23 @@ export function initNodeInfoManager() {
                     <hr />
                 </div>
             `;
-
+    
             nodeDetailsElement.innerHTML = nodeDetailsHTML;
-
+    
             updateAvailabilityStatus(node.isAvailable);
             if (availabilityToggle) {
                 availabilityToggle.checked = node.isAvailable;
                 availabilityToggle.disabled = false;
             }
-
+    
         } catch (err) {
             console.error("Error fetching node details:", err);
             showTemporaryUnavailable();
         }
     }
+    
+    
+    
 
     function handleRetry(retryCount, callback) {
         if (retryCount < 5) {
@@ -186,28 +215,43 @@ export function initNodeInfoManager() {
 
     async function fetchUsageInfo() {
         if (!currentNodeId) return;
-
+    
         try {
             const res = await fetch(`/usage`);
             if (!res.ok) throw new Error(`Failed to fetch usage info with status: ${res.status}`);
-
+    
             const data = await res.json();
-
+    
             const cpuUsagePercent = document.getElementById("cpuUsagePercent");
             const gpuUsagePercent = document.getElementById("gpuUsagePercent");
             const cpuUsageBar = document.getElementById("cpuUsageBar");
             const gpuUsageBar = document.getElementById("gpuUsageBar");
-
-            if (cpuUsagePercent) cpuUsagePercent.textContent = `${data.cpu_usage ?? 0}%`;
-            if (gpuUsagePercent) gpuUsagePercent.textContent = `${data.gpu_usage ?? 0}%`;
-            if (cpuUsageBar) cpuUsageBar.style.width = `${data.cpu_usage ?? 0}%`;
-            if (gpuUsageBar) gpuUsageBar.style.width = `${data.gpu_usage ?? 0}%`;
-
+    
+            // ✅ CPU usage stays as is
+            const cpuUsage = data.cpu_usage ?? 0;
+    
+            // ✅ Calculate average GPU usage from list
+            const usageGpuList = Array.isArray(data.gpu_data) ? data.gpu_data : [];
+            const validGpuUsages = usageGpuList
+                .map(gpu => parseInt(gpu.gpu_usage))
+                .filter(val => !isNaN(val));
+    
+            const averageGpuUsage = validGpuUsages.length > 0
+                ? Math.round(validGpuUsages.reduce((sum, val) => sum + val, 0) / validGpuUsages.length)
+                : 0;
+    
+            // ✅ Update DOM
+            if (cpuUsagePercent) cpuUsagePercent.textContent = `${cpuUsage}%`;
+            if (gpuUsagePercent) gpuUsagePercent.textContent = `${averageGpuUsage}%`;
+    
+            if (cpuUsageBar) cpuUsageBar.style.width = `${cpuUsage}%`;
+            if (gpuUsageBar) gpuUsageBar.style.width = `${averageGpuUsage}%`;
+    
         } catch (err) {
             console.error("Error fetching usage details:", err);
         }
     }
-
+    
     function manualRefresh() {
         fetchNodeInfo();
         fetchUsageInfo();
