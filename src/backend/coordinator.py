@@ -3,11 +3,12 @@ import time
 import numpy as np
 from fastapi import Body, FastAPI, HTTPException, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from typing import Dict, Optional
 from datetime import datetime, timedelta
 import secrets
 import asyncio
+from backend.database.nodedb import db 
 from backend.service.authNodeService import verify_signature 
 import logging
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase, AsyncIOMotorCollection
@@ -304,6 +305,13 @@ async def connect_node(node: NodeConnection, request: Request, db: Database = De
                 "reason": "No valid GPU detected. Node connection refused."
             }
 
+        # ✅ HARD FAIL: Public key must not exist already
+        if node.public_key:
+            existing_node = await db.nodes_collection.find_one({"public_key": node.public_key})
+            if existing_node:
+                logger.error(f"🚨 Duplicate public key detected for node: {existing_node['_id']}. Aborting registration.")
+                raise HTTPException(status_code=500, detail="Duplicate public key detected in database. Contact support.")
+
         # ✅ Assign node_id centrally
         node_id = f"node_{uuid.uuid4()}"
 
@@ -348,6 +356,7 @@ async def connect_node(node: NodeConnection, request: Request, db: Database = De
     except Exception as e:
         logger.error(f"❌ Error connecting node: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to connect node: {str(e)}")
+
 
 
 @app.post("/node-heartbeat/{node_id}")
@@ -571,20 +580,23 @@ async def generate_challenge(node_id: str, db: Database = Depends(get_db)):
 async def verify_node_challenge(node_id: str, signature_payload: dict, db: Database = Depends(get_db)):
     signature = signature_payload.get("signature")
     if not signature:
+        logger.warning(f"Node {node_id} failed to provide signature.")
         raise HTTPException(status_code=400, detail="Signature is required")
 
     challenge_entry = node_challenges.get(node_id)
     if not challenge_entry:
+        logger.warning(f"No challenge found for node {node_id}.")
         raise HTTPException(status_code=400, detail="No challenge found for node")
 
-    # ⏰ Check if challenge has expired
     if datetime.utcnow() > challenge_entry["expires_at"]:
+        logger.warning(f"Challenge for node {node_id} expired.")
         raise HTTPException(status_code=400, detail="Challenge expired")
 
     challenge = challenge_entry["challenge"]
 
     node = await db.nodes_collection.find_one({"_id": node_id})
     if not node or not node.get("public_key"):
+        logger.warning(f"Node {node_id} or its public key not found in database.")
         raise HTTPException(status_code=404, detail="Node or public key not found")
 
     public_key_pem = node["public_key"]
@@ -592,19 +604,38 @@ async def verify_node_challenge(node_id: str, signature_payload: dict, db: Datab
     if verify_signature(public_key_pem, challenge, signature):
         logger.info(f"✅ Node {node_id} verified successfully with challenge-response.")
 
-        # ✅ Mark node as authenticated + save last verification time
         await db.nodes_collection.update_one(
             {"_id": node_id},
             {"$set": {
                 "isAuthenticated": True,
-                "last_verified": datetime.utcnow()  # ✅ Add last verification timestamp
+                "last_verified": datetime.utcnow()
             }}
         )
+
+        node_challenges.pop(node_id, None)
 
         return {"status": "success", "message": "Node verified"}
 
     else:
+        logger.warning(f"Invalid signature for node {node_id}.")
         raise HTTPException(status_code=401, detail="Invalid signature")
+
+
+    
+@app.post("/find-node-id")
+async def find_node_id(request: Request):
+    data = await request.json()
+    public_key = data.get("public_key")
+    if not public_key:
+        raise HTTPException(status_code=400, detail="Public key is required.")
+
+    # Query your node database for matching public key
+    node = await db["nodes"].find_one({"public_key": public_key})
+    if not node:
+        raise HTTPException(status_code=404, detail="Node not found for provided public key.")
+
+    return {"node_id": node["_id"]}
+
 
 
 async def cleanup_expired_challenges():

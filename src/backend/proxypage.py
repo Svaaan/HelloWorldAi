@@ -56,6 +56,19 @@ async def proxy_nodes(request: Request):
     except httpx.RequestError as e:
         return {"error": f"Failed to fetch nodes: {e}"}
 
+@router.post("/finalize-connection")
+async def proxy_finalize_connection():
+    try:
+        print("[Proxy] Forwarding finalize-connection request to Node")
+        async with httpx.AsyncClient() as client:
+            res = await client.post(f"{NODE_URL}/finalize-connection")
+            res.raise_for_status()
+            return safe_json(res)
+    except httpx.RequestError as e:
+        return {"error": f"Failed to reach node at {NODE_URL}: {str(e)}"}
+    except Exception as e:
+        return {"error": f"Unexpected error: {str(e)}"}
+    
 @router.post("/process-task/{task_id}")
 async def proxy_process_task(task_id: str):
     try:
@@ -262,3 +275,20 @@ async def proxy_available_nodes():
             return available_nodes
     except httpx.RequestError as e:
         return {"error": f"Failed to fetch available nodes: {e}"}
+
+@router.post("/find-node-id")
+async def proxy_find_node_id(request: Request):
+    try:
+        payload = await request.json()
+        print(f"[Proxy] Forwarding find-node-id with payload: {payload}")  # Optional: log
+
+        async with httpx.AsyncClient() as client:
+            res = await client.post(f"{COORDINATOR_URL}/find-node-id", json=payload)
+            res.raise_for_status()
+            return safe_json(res)
+
+    except httpx.RequestError as e:
+        return {"error": f"Failed to reach coordinator for find-node-id: {str(e)}"}
+
+    except Exception as e:
+        return {"error": f"Unexpected error during find-node-id: {str(e)}"}
