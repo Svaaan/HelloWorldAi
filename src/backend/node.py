@@ -12,11 +12,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.service.systemInfoService import get_system_capabilities  # Dynamically fetch system capabilities
 from backend.service.usageService import get_usage
 from backend.shared.nodeState import node_info
-from backend.service.authNodeService import automatic_node_verification
 from backend.executeTask import validate_task_data
 from pydantic import BaseModel
+from backend.database.nodedb import db  # Import your database module
 # Import auth functions but NOT from authNodeService directly
-from backend.service.authNodeService import check_existing_node,validate_gpu, trigger_background_connection
+from backend.service.authNodeService import validate_gpu, trigger_background_connection
 
 # Initialize logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -61,34 +61,24 @@ async def connect_node(payload: NodeRegistrationRequest):
     node_name = payload.node_name
     public_key = payload.public_key
 
-    # ✅ Update local node_info but skip generating node_id here!
     node_info["connected"] = False
     node_info["node_name"] = node_name
     node_info["public_key"] = public_key
 
-    # ✅ Validate GPU
     gpu_valid, error_response = validate_gpu()
     if not gpu_valid:
         return error_response
 
-    # ✅ Call background connection and WAIT for response
-    coordinator_response = await trigger_background_connection()
-
-    if not coordinator_response or "node_id" not in coordinator_response:
-        return JSONResponse(content={"error": "Failed to connect to coordinator, no node_id received."}, status_code=500)
-
-    # ✅ Update local node_info with real node_id from coordinator
-    node_info["node_id"] = coordinator_response["node_id"]
-    node_info["connected"] = True
-
-    # ✅ Now perform automatic verification with correct node_id
-    await automatic_node_verification(node_info["node_id"])
+    # ✅ Skip calling trigger_background_connection() here!
 
     return {
-        "status": coordinator_response.get("status", "success"),
-        "connected": True,
-        "node_id": node_info["node_id"]
+        "status": "pending",
+        "message": "Node information saved. Please proceed with verification."
     }
+
+
+
+
 
 @app.get("/usage")
 async def get_usage_info():
@@ -230,8 +220,33 @@ def task_with_logging(task):
                 json={**result_payload, "logs": task_logs.get(task_id, [])},
                 timeout=5
             )
-            log(f"✅ Result sent to {origin_ip}, Response: {response.status_code}")
+            log(f" Result sent to {origin_ip}, Response: {response.status_code}")
         except Exception as e:
             log(f"❌ Failed to send result to {origin_ip}: {e}")
     else:
-        log("⚠️ No origin IP found, result not sent back.")
+        log(" No origin IP found, result not sent back.")
+
+@app.post("/finalize-connection")
+async def finalize_connection():
+    if not node_info.get("public_key"):
+        raise HTTPException(status_code=400, detail="Public key not set. Please connect node first.")
+
+    # ✅ Perform actual background connection to coordinator
+    coordinator_response = await trigger_background_connection()
+
+    if not coordinator_response or "node_id" not in coordinator_response:
+        return JSONResponse(
+            content={"error": "Failed to connect to coordinator, no node_id received."},
+            status_code=500
+        )
+
+    node_info["node_id"] = coordinator_response["node_id"]
+    node_info["connected"] = True
+
+    logger.info(f" Finalize connection completed for node {node_info['node_id']}. Awaiting manual verification.")
+
+    return {
+        "status": coordinator_response.get("status", "success"),
+        "connected": True,
+        "node_id": node_info["node_id"]
+    }

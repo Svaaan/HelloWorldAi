@@ -27,28 +27,41 @@ async function generateKeyPair() {
 // ✅ Manual download for private key
 function offerPrivateKeyDownload() {
     const savedPrivateKey = localStorage.getItem("nodePrivateKey");
-    if (!savedPrivateKey) {
-        showMessage("❌ Private key not found. Please try generating again.", "error");
+    const savedPublicKeyBase64 = localStorage.getItem("nodePublicKeyBase64");
+
+    if (!savedPrivateKey || !savedPublicKeyBase64) {
+        showMessage("❌ Key data not found. Please try generating again.", "error");
         return;
     }
 
-    const blob = new Blob([savedPrivateKey], { type: 'text/plain' });
+    const privateKeyJwk = JSON.parse(savedPrivateKey);
+
+    if (!privateKeyJwk.key_ops) {
+        privateKeyJwk.key_ops = ["sign"];
+    }
+
+    const exportData = {
+        privateKey: privateKeyJwk,
+        publicKeyBase64: savedPublicKeyBase64
+    };
+
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
 
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'node_private_key.txt';
+    a.download = 'node_key_pair.json';
     document.body.appendChild(a);
     a.click();
 
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
 
-    showMessage("✅ Private key downloaded successfully. Keep it safe!", "success");
+    showMessage("✅ Key pair downloaded successfully. Keep it safe!", "success");
 }
 
 // ✅ Utility to show messages
-function showMessage(message, type) {
+function showMessage(message, type = "success") {
     const resultMessageElement = document.getElementById("resultMessage");
     resultMessageElement.innerHTML = message;
     resultMessageElement.className = type === "success" ? "success-message" : "error-message";
@@ -63,6 +76,7 @@ function clearResultMessage() {
 
 // ✅ Show modal input field
 export function showNodeNameInput() {
+    clearResultMessage(); // ✅ Clear old messages
     document.getElementById("nodeNameModal").style.display = "flex";
 }
 
@@ -92,6 +106,7 @@ function showSuccessActions() {
 }
 
 // ✅ Register node flow
+// ✅ Register node flow
 async function registerNode() {
     const nodeNameInput = document.getElementById("nodeName");
     const nodeName = nodeNameInput.value.trim();
@@ -102,11 +117,18 @@ async function registerNode() {
         return;
     }
 
+    // ✅ Ensure fresh keypair per registration
+    privateKey = null;
+    localStorage.removeItem("nodePrivateKey");
+    localStorage.removeItem("nodePublicKeyBase64");
+
     processingMessage.style.display = "flex";
+    clearResultMessage();
 
     try {
         const publicKey = await generateKeyPair();
 
+        // ✅ Step 1: Call /connect-node (initial node info storage)
         const response = await fetch("/connect-node", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -116,15 +138,33 @@ async function registerNode() {
             })
         });
 
+        const result = await response.json();
+
         if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || `Registration failed: ${response.status}`);
+            throw new Error(result.error || `Registration failed: ${response.status}`);
         }
 
-        const result = await response.json();
-        if (!result.node_id) throw new Error("Missing node ID in response.");
+        console.log("✅ Node initial registration completed");
 
-        localStorage.setItem("currentNodeId", result.node_id);
+        // ✅ Step 2: Call /finalize-connection to get node_id
+        const finalizeResponse = await fetch("/finalize-connection", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+        });
+
+        const finalizeData = await finalizeResponse.json();
+
+        if (!finalizeResponse.ok) {
+            throw new Error(finalizeData.error || "Failed to finalize connection.");
+        }
+
+        if (!finalizeData.node_id) {
+            throw new Error("Missing node ID in finalize connection response.");
+        }
+
+        console.log("✅ Node finalized connection, received node ID:", finalizeData.node_id);
+
+        localStorage.setItem("currentNodeId", finalizeData.node_id);
 
         hideNodeNameInput();
         showSuccessActions();
@@ -136,6 +176,7 @@ async function registerNode() {
         processingMessage.style.display = "none";
     }
 }
+
 
 // ✅ Setup modal button listeners
 export function setupRegisterModal() {
