@@ -1,18 +1,22 @@
-import os
-import socket
+
 import uuid
 import logging
+from fastapi.responses import JSONResponse
 import requests
 import time
-import pynvml
+import json
 from typing import Dict, Any, List
 from datetime import datetime
 from fastapi import FastAPI, Request, BackgroundTasks, Body, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from backend.service.systemInfoService import get_system_capabilities  # Dynamically fetch system capabilities
 from backend.service.usageService import get_usage
+from backend.shared.nodeState import node_info
+from backend.service.authNodeService import automatic_node_verification
 from backend.executeTask import validate_task_data
-
+from pydantic import BaseModel
+# Import auth functions but NOT from authNodeService directly
+from backend.service.authNodeService import check_existing_node,validate_gpu, trigger_background_connection
 
 # Initialize logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -30,20 +34,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Node info state
-public_ip = socket.gethostbyname(socket.gethostname())
-node_info = {
-    "country": "Unknown",
-    "connected": False,
-    "accept_tasks": True,
-}
-
 # Task queues
 task_queue: List[dict] = []
 task_logs: Dict[str, list] = {}
 completed_tasks: List[dict] = []
 
 # === Utils ===
+
+class NodeRegistrationRequest(BaseModel):
+    node_name: str
+    public_key: str
 
 def get_country_from_ip(ip: str) -> str:
     try:
@@ -54,84 +54,41 @@ def get_country_from_ip(ip: str) -> str:
         logger.warning(f"Failed to get country for IP {ip}: {e}")
     return "Unknown"
 
-def get_gpu_info_list():
-    try:
-        pynvml.nvmlInit()
-        gpu_info = []
-
-        for i in range(pynvml.nvmlDeviceGetCount()):
-            handle = pynvml.nvmlDeviceGetHandleByIndex(i)
-            gpu_info.append({
-                "name": pynvml.nvmlDeviceGetName(handle),
-                "total_memory": round(pynvml.nvmlDeviceGetMemoryInfo(handle).total / 1024**2),
-                "free_memory": round(pynvml.nvmlDeviceGetMemoryInfo(handle).free / 1024**2),
-                "used_memory": round(pynvml.nvmlDeviceGetMemoryInfo(handle).used / 1024**2),
-                "load_percentage": pynvml.nvmlDeviceGetUtilizationRates(handle).gpu,
-                "temperature": pynvml.nvmlDeviceGetTemperature(handle, pynvml.NVML_TEMPERATURE_GPU)
-            })
-
-        return gpu_info
-
-    except pynvml.NVMLError as e:
-        logger.warning(f"⚠️ NVML error: {e}")
-        return []
-    finally:
-        try:
-            pynvml.nvmlShutdown()
-        except:
-            pass
-
-# === Payload Builder ===
-
-def build_node_payload() -> Dict[str, Any]:
-    capabilities = get_system_capabilities()
-    total_flops = capabilities.get("total_gpu_tflops", 0)
-
-    # Also update node_info in memory
-    node_info["total_gpu_tflops"] = total_flops
-
-    return {
-        "ip": public_ip,
-        "country": node_info["country"],
-        "capabilities": capabilities,
-        "isConnected": node_info["connected"],
-        "isAvailable": node_info.get("isAvailable", False),
-        "total_gpu_tflops": total_flops  # ✅ Add total flops here
-    }
-
-
 # === Routes ===
 
 @app.post("/connect-node")
-async def connect_node():
-    # ✅ Ensure node_id is always generated at the very start
-    if "node_id" not in node_info or node_info.get("node_id") == "unknown-node-id":
-        import uuid
-        node_info["node_id"] = f"node_{uuid.uuid4()}"
+async def connect_node(payload: NodeRegistrationRequest):
+    node_name = payload.node_name
+    public_key = payload.public_key
 
-    if node_info.get("connected"):
-        return {"status": "Node already connected", "connected": True, "node_id": node_info.get("node_id")}
+    # ✅ Update local node_info but skip generating node_id here!
+    node_info["connected"] = False
+    node_info["node_name"] = node_name
+    node_info["public_key"] = public_key
 
-    detected_gpus = get_gpu_info_list()
+    # ✅ Validate GPU
+    gpu_valid, error_response = validate_gpu()
+    if not gpu_valid:
+        return error_response
 
-    if not detected_gpus or detected_gpus[0].get("name") in ["No GPU Detected", None, ""]:
-        return {"status": "rejected", "reason": "No valid GPU detected. Node connection refused."}
+    # ✅ Call background connection and WAIT for response
+    coordinator_response = await trigger_background_connection()
 
+    if not coordinator_response or "node_id" not in coordinator_response:
+        return JSONResponse(content={"error": "Failed to connect to coordinator, no node_id received."}, status_code=500)
+
+    # ✅ Update local node_info with real node_id from coordinator
+    node_info["node_id"] = coordinator_response["node_id"]
     node_info["connected"] = True
 
-    payload = build_node_payload()
-    payload["node_id"] = node_info["node_id"]  # ✅ Explicitly include node_id in payload
+    # ✅ Now perform automatic verification with correct node_id
+    await automatic_node_verification(node_info["node_id"])
 
-    # ✅ Await coordinator connection handler
-    from backend.service.connectionService import background_connection_handler
-    response = await background_connection_handler(payload, node_info)
-
-    # ✅ If coordinator responds with a node_id, use it (optional override)
-    if response and response.get("node_id"):
-        node_info["node_id"] = response["node_id"]
-
-    return {"status": "success", "connected": True, "node_id": node_info["node_id"]}
-
+    return {
+        "status": coordinator_response.get("status", "success"),
+        "connected": True,
+        "node_id": node_info["node_id"]
+    }
 
 @app.get("/usage")
 async def get_usage_info():
@@ -278,4 +235,3 @@ def task_with_logging(task):
             log(f"❌ Failed to send result to {origin_ip}: {e}")
     else:
         log("⚠️ No origin IP found, result not sent back.")
-

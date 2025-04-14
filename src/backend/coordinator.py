@@ -6,7 +6,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import Dict, Optional
 from datetime import datetime, timedelta
+import secrets
 import asyncio
+from backend.service.authNodeService import verify_signature 
 import logging
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase, AsyncIOMotorCollection
 
@@ -25,6 +27,8 @@ MONGODB_URL = os.getenv("MONGO_URI", "mongodb://mongo_test:27017")
 DB_NAME = "NodeDbTest"
 MAX_RECONNECT_ATTEMPTS = 5
 RECONNECT_DELAY = 5  # seconds
+
+node_challenges = {}
 
 # Database connection class
 class Database:
@@ -96,6 +100,8 @@ app.add_middleware(
 async def startup_event():
     await Database.connect_db()
     asyncio.create_task(sync_nodes_with_db())
+    asyncio.create_task(cleanup_expired_challenges())  # ✅ Start cleanup task
+
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -121,9 +127,10 @@ class CPUCapabilities(BaseModel):
 
 
 class NodeConnection(BaseModel):
-    node_id: str = Field(default_factory=lambda: f"node_{uuid.uuid4()}")
+    node_id: Optional[str] = None  # ✅ Coordinator generates this!
     ip: str
     country: Optional[str] = "Unknown"
+    public_key: Optional[str] = None  # ✅ Provided by frontend (browser)
     capabilities: Dict = {
         "cpu": {},
         "gpu": []
@@ -135,7 +142,6 @@ class NodeConnection(BaseModel):
     cpu_benchmark: Optional[int] = None
     gpu_benchmark: Optional[int] = None
     last_heartbeat: Optional[datetime] = None
-
 
 connected_nodes: Dict[str, NodeConnection] = {}
 
@@ -287,7 +293,7 @@ async def toggle_availability(node_id: str, db: Database = Depends(get_db)):
 @app.post("/connect-node")
 async def connect_node(node: NodeConnection, request: Request, db: Database = Depends(get_db)):
     try:
-        # Validate GPU - required for connection
+        # ✅ Validate GPU presence
         gpu_capabilities = node.capabilities.get("gpu", [])
         if not gpu_capabilities or (
             isinstance(gpu_capabilities, list) and
@@ -298,51 +304,50 @@ async def connect_node(node: NodeConnection, request: Request, db: Database = De
                 "reason": "No valid GPU detected. Node connection refused."
             }
 
-        # Set node runtime properties
+        # ✅ Assign node_id centrally
+        node_id = f"node_{uuid.uuid4()}"
+
+        # ✅ Set node runtime properties
         node.ip = request.client.host
         node.isConnected = True
         node.last_heartbeat = datetime.utcnow()
 
-        # Prepare node document for DB
+        # ✅ Prepare node document for DB
         node_document = {
-            "_id": node.node_id,
+            "_id": node_id,
             "ip": node.ip,
             "country": node.country,
+            "public_key": node.public_key,
             "isConnected": True,
             "isAvailable": node.isAvailable,
             "last_connected": datetime.utcnow(),
             "last_heartbeat": node.last_heartbeat,
-            "has_gpu": bool(gpu_capabilities and gpu_capabilities[0].get("name") not in ["No GPU Detected", None, ""]),
+            "has_gpu": bool(gpu_capabilities and gpu_capabilities[0].get("name") not in ["No GPU Detected", None, ""])
         }
 
-        # Capture node_id for in-memory storage
-        live_node_id = node.node_id or f"node_{uuid.uuid4()}"  # Fallback safety!
-
-        # Upsert node in database
+        # ✅ Upsert node in database
         await db.nodes_collection.update_one(
-            {"_id": live_node_id},
+            {"_id": node_id},
             {"$set": node_document},
             upsert=True
         )
 
-        # Keep full node details in memory
-        connected_nodes[live_node_id] = node
+        # ✅ Update in-memory connected nodes
+        connected_nodes[node_id] = node
 
-        # Log the connected node
-        logger.info(f"✅ Node connected and stored: {live_node_id}")
+        logger.info(f"✅ Node connected and stored: {node_id}")
         logger.info(f"✅ Current connected nodes: {list(connected_nodes.keys())}")
 
         return {
             "status": "success",
             "message": "Node connected",
-            "node_id": live_node_id,
+            "node_id": node_id,
             "ip": node.ip,
         }
 
     except Exception as e:
         logger.error(f"❌ Error connecting node: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to connect node: {str(e)}")
-
 
 
 @app.post("/node-heartbeat/{node_id}")
@@ -476,11 +481,13 @@ async def get_connected_nodes(node_id: Optional[str] = None, db: Database = Depe
                 "country": node.get("country", "Unknown"),
                 "isConnected": node.get("isConnected", False),
                 "isAvailable": node.get("isAvailable", False),
+                "isAuthenticated": node.get("isAuthenticated", False),  # ✅ Already here!
+                "last_verified": node.get("last_verified"),  # ✅ Add this!
                 "last_connected": node.get("last_connected"),
                 "last_heartbeat": node.get("last_heartbeat"),
                 "has_gpu": node.get("has_gpu", False)
             }
-            
+
             # Add dynamic data from memory if available
             live_node = connected_nodes.get(node_id_from_db)
             if live_node:
@@ -500,6 +507,7 @@ async def get_connected_nodes(node_id: Optional[str] = None, db: Database = Depe
     except Exception as e:
         logger.error(f"Error retrieving nodes: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to retrieve nodes: {str(e)}")
+
 
 
 
@@ -543,7 +551,73 @@ async def get_connected_nodes_count():
         logger.error(f"Error counting connected nodes: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to count connected nodes: {str(e)}")
 
+@app.get("/generate-challenge/{node_id}")
+async def generate_challenge(node_id: str, db: Database = Depends(get_db)):
+    node = await db.nodes_collection.find_one({"_id": node_id})
+    if not node:
+        raise HTTPException(status_code=404, detail="Node not found")
 
+    challenge = secrets.token_hex(16)
+
+    node_challenges[node_id] = {
+        "challenge": challenge,
+        "expires_at": datetime.utcnow() + timedelta(minutes=2)  # ⏰ Challenge expires in 2 minutes
+    }
+
+    logger.info(f"🔐 Generated challenge for node {node_id}: {challenge}")
+    return {"challenge": challenge}
         
-            
+@app.post("/verify-challenge/{node_id}")
+async def verify_node_challenge(node_id: str, signature_payload: dict, db: Database = Depends(get_db)):
+    signature = signature_payload.get("signature")
+    if not signature:
+        raise HTTPException(status_code=400, detail="Signature is required")
 
+    challenge_entry = node_challenges.get(node_id)
+    if not challenge_entry:
+        raise HTTPException(status_code=400, detail="No challenge found for node")
+
+    # ⏰ Check if challenge has expired
+    if datetime.utcnow() > challenge_entry["expires_at"]:
+        raise HTTPException(status_code=400, detail="Challenge expired")
+
+    challenge = challenge_entry["challenge"]
+
+    node = await db.nodes_collection.find_one({"_id": node_id})
+    if not node or not node.get("public_key"):
+        raise HTTPException(status_code=404, detail="Node or public key not found")
+
+    public_key_pem = node["public_key"]
+
+    if verify_signature(public_key_pem, challenge, signature):
+        logger.info(f"✅ Node {node_id} verified successfully with challenge-response.")
+
+        # ✅ Mark node as authenticated + save last verification time
+        await db.nodes_collection.update_one(
+            {"_id": node_id},
+            {"$set": {
+                "isAuthenticated": True,
+                "last_verified": datetime.utcnow()  # ✅ Add last verification timestamp
+            }}
+        )
+
+        return {"status": "success", "message": "Node verified"}
+
+    else:
+        raise HTTPException(status_code=401, detail="Invalid signature")
+
+
+async def cleanup_expired_challenges():
+    while True:
+        try:
+            now = datetime.utcnow()
+            expired = [node_id for node_id, data in node_challenges.items() if data["expires_at"] < now]
+
+            for node_id in expired:
+                logger.info(f"🧹 Cleaning up expired challenge for node {node_id}")
+                del node_challenges[node_id]
+
+        except Exception as e:
+            logger.error(f"Error cleaning up expired challenges: {e}")
+
+        await asyncio.sleep(60)  # Check every 60 seconds
