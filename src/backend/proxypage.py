@@ -144,10 +144,12 @@ async def proxy_usage():
         return {"error": f"Failed to fetch usage info: {e}"}
 
 @router.post("/connect-node")
-async def proxy_connect_node():
+async def proxy_connect_node(request: Request):
     try:
+        payload = await request.json()
+        print(f"[Proxy] Forwarding connect-node with payload: {payload}")  # ✅ Add this line!
         async with httpx.AsyncClient() as client:
-            res = await client.post(f"{NODE_URL}/connect-node")
+            res = await client.post(f"{NODE_URL}/connect-node", json=payload)
             res.raise_for_status()
             return safe_json(res)
     except httpx.RequestError as e:
@@ -196,6 +198,33 @@ async def proxy_verify_gpu(node_id: str):
     except httpx.RequestError as e:
         return {"error": f"Failed to start GPU test: {e}"}
 
+@router.get("/generate-challenge/{node_id}")
+async def proxy_generate_challenge(node_id: str):
+    try:
+        async with httpx.AsyncClient() as client:
+            res = await client.get(f"{COORDINATOR_URL}/generate-challenge/{node_id}")
+            res.raise_for_status()
+            return safe_json(res)
+    except httpx.RequestError as e:
+        return {"error": f"Failed to generate challenge: {e}"}
+
+
+@router.post("/verify-challenge/{node_id}")
+async def proxy_verify_challenge(node_id: str, request: Request):
+    try:
+        signature_payload = await request.json()
+        async with httpx.AsyncClient() as client:
+            res = await client.post(
+                f"{COORDINATOR_URL}/verify-challenge/{node_id}",
+                json=signature_payload
+            )
+            res.raise_for_status()
+            return safe_json(res)
+    except httpx.RequestError as e:
+        return {"error": f"Failed to verify challenge: {e}"}
+    except Exception as e:
+        return {"error": f"Unexpected error: {str(e)}"}
+    
 @router.get("/distribution", response_class=HTMLResponse)
 async def proxy_distribution_page(request: Request):
     try:

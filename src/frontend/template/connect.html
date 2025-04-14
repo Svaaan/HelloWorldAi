@@ -2,146 +2,168 @@
 <html lang="en">
 
 <head>
-    <meta charset="UTF-8">
-    <title>Node Connection</title>
-    <link rel="stylesheet" href="/static/css/connect.css">
+  <meta charset="UTF-8" />
+  <title>Node Connection</title>
+  <link rel="stylesheet" href="/static/css/connect.css" />
+
+  <!-- ✅ Modal Styling -->
+  <style>
+    /* Modal backdrop */
+    .modal-backdrop {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: rgba(0, 0, 0, 0.6);
+      display: none;
+      justify-content: center;
+      align-items: center;
+      z-index: 1000;
+    }
+
+    /* Modal window */
+    .modal-container {
+      background: white;
+      padding: 20px;
+      border-radius: 10px;
+      width: 300px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+      text-align: center;
+      position: relative;
+    }
+
+    /* Close button */
+    .modal-close {
+      position: absolute;
+      top: 8px;
+      right: 12px;
+      background: transparent;
+      border: none;
+      font-size: 20px;
+      cursor: pointer;
+    }
+
+    /* Input and button styling */
+    input[type="text"],
+    input[type="file"] {
+      width: 100%;
+      padding: 8px;
+      margin-top: 10px;
+      border-radius: 5px;
+      border: 1px solid #ccc;
+    }
+
+    button {
+      margin-top: 12px;
+      padding: 8px 12px;
+      border: none;
+      background-color: #4caf50;
+      color: white;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background-color: #45a049;
+    }
+  </style>
 </head>
 
 <body>
-    <header>
-        <h1>
-            <div class="node-icon"></div>
-            Node Connections
-        </h1>
-    </header>
+  <header>
+    <h1>
+      <div class="node-icon"></div>
+      Node Connections
+    </h1>
+  </header>
 
-    <div class="connect-info">
-        <p class="info-text">Connect to the node network to access distributed AI computing resources.</p>
-        <div id="gpuInfo" style="margin-top: 10px; font-weight: bold;"></div>
+  <div class="connect-info">
+    <p class="info-text">Connect to the node network to access distributed AI computing resources.</p>
+    <div id="gpuInfo" style="margin-top: 10px; font-weight: bold;"></div>
 
-        <div class="button-group">
-            <a href="/setup" class="setup-button">⚙️ Get Started</a>
-            <button id="connectNodeButton">🔗 Connect Node</button>
-        </div>
-
-        <!-- ✅ GPU Status Info -->
-        <div id="gpuStatusMessage" style="margin-top: 8px; font-size: 14px;"></div>
-
-        <div id="processingMessage" style="display: none;">
-            <div class="loading-spinner"></div>
-            <span>Establishing connection...</span>
-        </div>
-
-        <div id="resultMessage"></div>
+    <!-- ✅ Modal: Register New Node -->
+    <div id="nodeNameModal" class="modal-backdrop">
+      <div class="modal-container">
+        <button class="modal-close" onclick="document.getElementById('nodeNameModal').style.display='none'">×</button>
+        <h3>Register New Node</h3>
+        <label for="nodeName">Node Name:</label>
+        <input type="text" id="nodeName" placeholder="Enter your node name" />
+        <button id="confirmRegisterNodeButton" type="button">✅ Confirm Registration</button>
+      </div>
     </div>
 
-    <script>
-        async function detectGPU() {
-            let gpuInfo = "Unknown";
-            let isGpuDetected = false;
+    <!-- ✅ Modal: Connect Existing Node -->
+    <div id="connectNodeModal" class="modal-backdrop">
+      <div class="modal-container">
+        <button class="modal-close" onclick="document.getElementById('connectNodeModal').style.display='none'">×</button>
+        <h3>Connect Existing Node</h3>
+        <label for="privateKeyFile">Upload Private Key (.json):</label>
+        <input type="file" id="privateKeyFile" accept=".txt,application/json" />
+        <button id="confirmConnectNodeButton" type="button">🔑 Connect Node</button>
+      </div>
+    </div>
 
-            try {
-                const gl = document.createElement('canvas').getContext('webgl');
-                const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+    <!-- Buttons -->
+    <div class="button-group">
+      <a href="/setup" class="setup-button">⚙️ Get Started</a>
+      <button id="registerNodeButton" type="button">📝 Register New Node</button>
+      <button id="connectNodeButton" type="button">🔗 Connect Existing Node</button>
+    </div>
 
-                if (debugInfo) {
-                    const rawGpuInfo = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL);
+    <div id="gpuStatusMessage" style="margin-top: 8px; font-size: 14px;"></div>
 
-                    // Clean up the GPU name:
-                    gpuInfo = rawGpuInfo
-                    gpuInfo = rawGpuInfo
-                        .replace(/ANGLE/gi, '') // remove "ANGLE"
-                        .replace(/Direct3D11/gi, '') // remove "Direct3D11"
-                        .replace(/D3D11/gi, '') // remove "D3D11"
-                        .replace(/vs_5_0|ps_5_0/gi, '') // remove shader versions
-                        .replace(/\(0x[a-fA-F0-9]+\)/g, '') // remove (0x00002484)
-                        .replace(/[()]/g, '') // remove any stray parentheses
-                        .replace(/\s{2,}/g, ' ') // clean up extra spaces
-                        .trim();
+    <div id="processingMessage" style="display: none;">
+      <div class="loading-spinner"></div>
+      <span>Processing...</span>
+    </div>
 
+    <div id="resultMessage"></div>
+  </div>
 
-                    if (gpuInfo.toLowerCase().includes("nvidia")) {
-                        isGpuDetected = true;
-                    }
-                }
-            } catch (e) {
-                console.warn("GPU detection failed:", e);
-            }
+  <!-- ✅ JS imports -->
+  <script type="module">
+    import { setupRegisterModal } from '/static/js/connect/registerNodeModal.js';
+    import { setupConnectExistingNodeModal } from '/static/js/connect/connectExistingNode.js';
 
-            const gpuInfoElement = document.getElementById("gpuInfo");
-            if (isGpuDetected) {
-                gpuInfoElement.textContent = `✅ GPU Detected: ${gpuInfo}`;
-                gpuInfoElement.style.color = "#00c853"; // green
-                document.getElementById("connectNodeButton").disabled = false;
-            } else {
-                gpuInfoElement.textContent = "❌ No supported GPU detected. Please check your hardware.";
-                gpuInfoElement.style.color = "#ff5252"; // red
-                document.getElementById("connectNodeButton").disabled = true;
-            }
+    async function detectGPU() {
+      let gpuInfo = "Unknown";
+      let isGpuDetected = false;
+
+      try {
+        const gl = document.createElement('canvas').getContext('webgl');
+        const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+
+        if (debugInfo) {
+          const rawGpuInfo = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL);
+          gpuInfo = rawGpuInfo
+            .replace(/ANGLE|Direct3D11|D3D11|vs_5_0|ps_5_0/gi, '')
+            .replace(/\(0x[a-fA-F0-9]+\)/g, '')
+            .replace(/[()]/g, '')
+            .replace(/\s{2,}/g, ' ')
+            .trim();
+
+          if (gpuInfo.toLowerCase().includes("nvidia")) {
+            isGpuDetected = true;
+          }
         }
+      } catch (e) {
+        console.warn("GPU detection failed:", e);
+      }
 
+      const gpuInfoElement = document.getElementById("gpuInfo");
+      gpuInfoElement.textContent = isGpuDetected
+        ? `✅ GPU Detected: ${gpuInfo}`
+        : "❌ No supported GPU detected. Please check your hardware.";
+      gpuInfoElement.style.color = isGpuDetected ? "#00c853" : "#ff5252";
+    }
 
-        async function connectNode() {
-            const connectButton = document.getElementById("connectNodeButton");
-            const processingMessage = document.getElementById("processingMessage");
-
-            connectButton.disabled = true;
-            connectButton.style.display = "none";
-            processingMessage.style.display = "flex";
-
-            const CONNECT_ENDPOINT = "/connect-node";
-
-            try {
-                const response = await fetch(CONNECT_ENDPOINT, { method: "POST" });
-
-                if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.error || `Connection failed with status: ${response.status}`);
-                }
-
-                const result = await response.json();
-
-                if (result.error) {
-                    throw new Error(result.error);
-                }
-
-                if (!result.node_id) {
-                    throw new Error("Node ID missing in response.");
-                }
-
-                localStorage.setItem("currentNodeId", result.node_id);
-
-                showMessage("✅ Connection successful. Redirecting to node dashboard...", "success");
-                setTimeout(() => window.location.href = "/node", 2000);
-
-            } catch (err) {
-                console.error("Error connecting node:", err);
-                const errorMessage = err.message.includes("Failed to fetch")
-                    ? "Cannot reach server. Please check your connection."
-                    : err.message || "An error occurred during connection.";
-
-                showMessage(errorMessage, "error");
-                connectButton.disabled = false;
-                connectButton.style.display = "block";
-                processingMessage.style.display = "none";
-            }
-        }
-
-
-        function showMessage(message, type) {
-            const resultMessageElement = document.getElementById("resultMessage");
-            resultMessageElement.innerHTML = message;
-            resultMessageElement.className = type === "success" ? "success-message" : "error-message";
-        }
-
-        document.addEventListener("DOMContentLoaded", () => {
-            detectGPU(); // ✅ Run GPU detection on load
-            const connectButton = document.getElementById("connectNodeButton");
-            connectButton?.addEventListener("click", connectNode);
-        });
-    </script>
-
-
+    document.addEventListener("DOMContentLoaded", async () => {
+      detectGPU();
+      setupRegisterModal();
+      setupConnectExistingNodeModal();
+    });
+  </script>
 </body>
 
 </html>
