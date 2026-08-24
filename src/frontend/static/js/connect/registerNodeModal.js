@@ -1,3 +1,5 @@
+import { establishNodeSession } from "./nodeSession.js";
+
 let privateKey = null;
 
 // ✅ Generate key pair and save both private & public keys
@@ -141,21 +143,30 @@ async function registerNode() {
         const result = await response.json();
 
         if (!response.ok) {
-            throw new Error(result.error || `Registration failed: ${response.status}`);
+            throw new Error(result.detail || result.error || `Registration failed: ${response.status}`);
+        }
+
+        // The node returns 200 with status "rejected" when it has no usable GPU.
+        // Bail out here rather than letting the coordinator retry loop time out.
+        if (result.status === "rejected") {
+            throw new Error(result.reason || "Node rejected the connection.");
         }
 
         console.log("✅ Node initial registration completed");
 
-        // ✅ Step 2: Call /finalize-connection to get node_id
         const finalizeResponse = await fetch("/finalize-connection", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-        });
+            body: JSON.stringify({
+              public_key: publicKey
+            })
+          });
+          
 
         const finalizeData = await finalizeResponse.json();
 
         if (!finalizeResponse.ok) {
-            throw new Error(finalizeData.error || "Failed to finalize connection.");
+            throw new Error(finalizeData.detail || finalizeData.error || "Failed to finalize connection.");
         }
 
         if (!finalizeData.node_id) {
@@ -164,7 +175,10 @@ async function registerNode() {
 
         console.log("✅ Node finalized connection, received node ID:", finalizeData.node_id);
 
-        localStorage.setItem("currentNodeId", finalizeData.node_id);
+        // ✅ Step 3: Prove ownership of the freshly generated key to obtain a
+        // session token. Without this the node cannot heartbeat or be toggled.
+        await establishNodeSession(finalizeData.node_id, privateKey);
+        console.log("✅ Node session established");
 
         hideNodeNameInput();
         showSuccessActions();
