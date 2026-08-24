@@ -26,7 +26,7 @@ async def get_usage():
                     "index": i,
                     "gpu_usage": utilization.gpu,
                     "gpu_temperature": temperature,
-                    "critical_temperature": 85  # ✅ frontend can use this!
+                    "critical_temperature": 85  
                 })
 
             pynvml.nvmlShutdown()

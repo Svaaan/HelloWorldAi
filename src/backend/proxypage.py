@@ -20,15 +20,24 @@ def safe_json(res):
     except Exception:
         return {"error": "Invalid JSON response"}
 
+
+# 🔑 Pass the caller's node session token through to the upstream service
+def auth_headers(request: Request) -> dict:
+    token = request.headers.get("authorization")
+    return {"Authorization": token} if token else {}
+
 @router.patch("/toggle-availability/{node_id}")
-async def proxy_toggle_availability(node_id: str):
+async def proxy_toggle_availability(node_id: str, request: Request):
     try:
         async with httpx.AsyncClient() as client:
-            res = await client.patch(f"{COORDINATOR_URL}/toggle-availability/{node_id}")
+            res = await client.patch(
+                f"{COORDINATOR_URL}/toggle-availability/{node_id}",
+                headers=auth_headers(request),
+            )
             res.raise_for_status()
             return safe_json(res)
     except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail=str(e))
+        raise HTTPException(status_code=e.response.status_code, detail=safe_json(e.response))
     except httpx.RequestError as e:
         return {"error": f"Failed to toggle availability: {e}"}
 
@@ -57,17 +66,21 @@ async def proxy_nodes(request: Request):
         return {"error": f"Failed to fetch nodes: {e}"}
 
 @router.post("/finalize-connection")
-async def proxy_finalize_connection():
+async def proxy_finalize_connection(request: Request):
     try:
         print("[Proxy] Forwarding finalize-connection request to Node")
+        body = await request.json()
+
         async with httpx.AsyncClient() as client:
-            res = await client.post(f"{NODE_URL}/finalize-connection")
+            res = await client.post(f"{NODE_URL}/finalize-connection", json=body)
             res.raise_for_status()
             return safe_json(res)
+
     except httpx.RequestError as e:
         return {"error": f"Failed to reach node at {NODE_URL}: {str(e)}"}
     except Exception as e:
         return {"error": f"Unexpected error: {str(e)}"}
+
     
 @router.post("/process-task/{task_id}")
 async def proxy_process_task(task_id: str):
@@ -117,7 +130,11 @@ async def proxy_node_heartbeat(node_id: str, request: Request):
     try:
         status_payload = await request.json()
         async with httpx.AsyncClient() as client:
-            res = await client.post(f"{COORDINATOR_URL}/node-heartbeat/{node_id}", json=status_payload)
+            res = await client.post(
+                f"{COORDINATOR_URL}/node-heartbeat/{node_id}",
+                json=status_payload,
+                headers=auth_headers(request),
+            )
             res.raise_for_status()
             return safe_json(res)
     except httpx.RequestError as e:
@@ -169,6 +186,21 @@ async def proxy_connect_node(request: Request):
         return {"error": f"Failed to reach node at {NODE_URL}: {str(e)}"}
     except Exception as e:
         return {"error": f"Unexpected error: {str(e)}"}
+
+@router.post("/node-session")
+async def proxy_node_session(request: Request):
+    """Forward the browser-obtained session token to the node process."""
+    try:
+        body = await request.json()
+        async with httpx.AsyncClient() as client:
+            res = await client.post(f"{NODE_URL}/node-session", json=body)
+            res.raise_for_status()
+            return safe_json(res)
+    except httpx.RequestError as e:
+        return {"error": f"Failed to reach node at {NODE_URL}: {str(e)}"}
+    except Exception as e:
+        return {"error": f"Unexpected error: {str(e)}"}
+
 
 @router.post("/queue-task/{node_id}")
 async def proxy_queue_task(node_id: str, request: Request):

@@ -59,5 +59,6 @@ def build_node_payload(system_capabilities) -> Dict[str, Any]:
         "capabilities": system_capabilities,
         "isConnected": node_info["connected"],
         "isAvailable": node_info.get("isAvailable", False),
-        "total_gpu_tflops": total_flops  # ✅ Add total flops here
+        "total_gpu_tflops": total_flops,  
+        "public_key": node_info.get("public_key")  
     }
