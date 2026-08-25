@@ -47,8 +47,31 @@ def normalize(name: str) -> List[str]:
     return n.split()
 
 
+# Tokens that mark a genuinely different SKU rather than a spelling variation.
+# A bare "RTX 3050" must not resolve to "RTX 3050 Ti Max-Q" or the OEM board,
+# which carry different core counts.
+_SKU_TOKENS = frozenset({
+    "ti", "super", "oem", "max", "q", "refresh", "mobile", "ada", "generation",
+})
+
+
+def _introduces_other_sku(candidate: List[str], probe: List[str]) -> bool:
+    return bool((set(candidate) - set(probe)) & _SKU_TOKENS)
+
+
 def _is_mobile(tokens: List[str]) -> bool:
     return "mobile" in tokens
+
+
+def parse_memory_gb(entry: Optional[Dict[str, Any]]) -> Optional[float]:
+    """Leading capacity from a database memory string like '8 GB, GDDR6, 256 bit'."""
+    if not entry:
+        return None
+    m = re.match(r"\s*([\d.]+)\s*(GB|MB)", str(entry.get('memory', '')), re.I)
+    if not m:
+        return None
+    value = float(m.group(1))
+    return value / 1024.0 if m.group(2).upper() == 'MB' else value
 
 
 def _is_token_prefix(shorter: List[str], longer: List[str]) -> bool:
@@ -65,8 +88,13 @@ _INDEX: List[Tuple[List[str], Dict[str, Any]]] = [
 ]
 
 
-def find_gpu_entry(gpu_name: str) -> Optional[Dict[str, Any]]:
-    """Return the database entry for a GPU, or None if there is no safe match."""
+def find_gpu_entry(gpu_name: str, total_memory_mb: Optional[float] = None) -> Optional[Dict[str, Any]]:
+    """Return the database entry for a GPU, or None if there is no safe match.
+
+    Many cards ship as memory variants with different core counts (the RTX 3050
+    exists as 4/6/8 GB with 2048/2304/2560 shaders) while NVML reports the same
+    name for all of them. Passing the VRAM NVML reports disambiguates them.
+    """
     target = normalize(gpu_name)
     if not target:
         return None
@@ -82,6 +110,7 @@ def find_gpu_entry(gpu_name: str) -> Optional[Dict[str, Any]]:
     candidates = [
         (tokens, entry) for tokens, entry in _INDEX
         if _is_mobile(tokens) == target_mobile
+        and not _introduces_other_sku(tokens, target)
         and (_is_token_prefix(tokens, target) or _is_token_prefix(target, tokens))
     ]
 
@@ -90,6 +119,24 @@ def find_gpu_entry(gpu_name: str) -> Optional[Dict[str, Any]]:
         return None
 
     shader_counts = {entry.get('shaders') for _, entry in candidates}
+
+    if len(shader_counts) > 1 and total_memory_mb:
+        # Memory variants: keep only entries whose capacity matches the installed
+        # VRAM. NVML reports slightly less than nominal, so allow ~15% slack.
+        actual_gb = float(total_memory_mb) / 1024.0
+        by_memory = [
+            (tokens, entry) for tokens, entry in candidates
+            if (lambda gb: gb is not None and abs(gb - actual_gb) <= max(0.15 * gb, 0.6))(
+                parse_memory_gb(entry))
+        ]
+        if by_memory and len({e.get('shaders') for _, e in by_memory}) == 1:
+            logger.info(
+                f"Disambiguated '{gpu_name}' to a {parse_memory_gb(by_memory[0][1])} GB "
+                f"variant using reported VRAM ({actual_gb:.1f} GB)."
+            )
+            candidates = by_memory
+            shader_counts = {e.get('shaders') for _, e in candidates}
+
     if len(shader_counts) > 1:
         logger.warning(
             f"'{gpu_name}' matched {len(candidates)} entries with differing shader "
@@ -103,9 +150,9 @@ def find_gpu_entry(gpu_name: str) -> Optional[Dict[str, Any]]:
     return candidates[0][1]
 
 
-def get_cuda_cores(gpu_name: str) -> Optional[int]:
+def get_cuda_cores(gpu_name: str, total_memory_mb: Optional[float] = None) -> Optional[int]:
     """Shader/CUDA core count for a GPU, or None when it cannot be resolved."""
-    entry = find_gpu_entry(gpu_name)
+    entry = find_gpu_entry(gpu_name, total_memory_mb)
     return entry.get('shaders') if entry else None
 
 
