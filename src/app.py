@@ -12,7 +12,6 @@ from backend.utils.config import USE_DOCKER, NODE_PORT, COORDINATOR_PORT, DASHBO
 SRC_DIR = os.path.dirname(os.path.abspath(__file__))
 TEMPLATE_DIR = os.path.join(SRC_DIR, "frontend", "template")
 STATIC_DIR = os.path.join(SRC_DIR, "frontend", "static")
-SCRIPT_FILE_PATH = "/mnt/data/setup-node.sh"
 
 # Add src dir to path
 sys.path.insert(0, SRC_DIR)
@@ -64,10 +63,6 @@ def render_setup_page():
     path = os.path.join(TEMPLATE_DIR, "setup.html")
     return FileResponse(path) if os.path.exists(path) else HTMLResponse("<h1>404 - setup.html not found</h1>", status_code=404)
 
-@dashboard_app.get("/static/scripts/setup-node.sh")
-def serve_setup_script():
-    return FileResponse(SCRIPT_FILE_PATH, media_type="application/x-sh") if os.path.exists(SCRIPT_FILE_PATH) else HTMLResponse("<h1>404 - setup script not found</h1>", status_code=404)
-
 @dashboard_app.get("/node", response_class=HTMLResponse)
 def render_node_page():
     path = os.path.join(TEMPLATE_DIR, "node.html")
@@ -77,11 +72,6 @@ def render_node_page():
 def render_distribution_page():
     path = os.path.join(TEMPLATE_DIR, "distribution.html")
     return FileResponse(path) if os.path.exists(path) else HTMLResponse("<h1>404 - distribution.html not found</h1>", status_code=404)
-
-@dashboard_app.get("/task-session", response_class=HTMLResponse)
-def render_task_session_page():
-    path = os.path.join(TEMPLATE_DIR, "task-session.html")
-    return FileResponse(path) if os.path.exists(path) else HTMLResponse("<h1>404 - task-session.html not found</h1>", status_code=404)
 
 # === Run services ===
 

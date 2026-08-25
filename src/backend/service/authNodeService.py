@@ -10,11 +10,42 @@ from backend.service.connectionService import background_connection_handler
 from backend.shared.nodeState import build_node_payload
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives import hashes, serialization
-from backend.database.nodedb import db
 from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
 from cryptography.exceptions import InvalidSignature
 
 logger = logging.getLogger(__name__)
+
+COORDINATOR_URL = os.getenv("COORDINATOR_URL", "http://coordinator:8100")
+
+
+async def find_node_id_by_public_key(public_key: str):
+    """Ask the coordinator which node_id a public key belongs to, or None.
+
+    The node deliberately has no database access: a contributor runs it on their
+    own machine, and reaching the coordinator's MongoDB from there would mean
+    exposing the database to the internet.
+    """
+    if not public_key:
+        return None
+
+    try:
+        async with httpx.AsyncClient() as client:
+            res = await client.post(
+                f"{COORDINATOR_URL}/find-node-id",
+                json={"public_key": public_key},
+                timeout=10,
+            )
+    except Exception as e:
+        logger.warning(f"Could not reach the coordinator to resolve the public key: {e}")
+        return None
+
+    if res.status_code == 404:
+        return None
+    if res.status_code != 200:
+        logger.warning(f"find-node-id returned {res.status_code}: {res.text[:200]}")
+        return None
+
+    return (res.json() or {}).get("node_id")
 
 def check_existing_node():
     if node_info.get("node_id"):
@@ -30,36 +61,17 @@ def validate_gpu():
     return True, None
 
 async def trigger_background_connection():
-    # 🔐 Only reuse node_id if it matches the stored public_key in DB
-    if node_info.get("node_id") and node_info.get("public_key"):
-        existing = await db.nodes.find_one({
-            "_id": node_info["node_id"],
-            "public_key": node_info["public_key"]
-        })
-        if existing:
-            logger.info(f"🔁 Reusing registered node ID: {node_info['node_id']}")
-            return {"node_id": node_info["node_id"], "status": "already_registered"}
-        else:
-            logger.warning("⚠️ Node ID exists but public key mismatch — resetting for fresh registration.")
-            node_info["node_id"] = None  # Force re-registration
+    # 🔎 The coordinator owns the public_key -> node_id mapping.
+    existing_id = await find_node_id_by_public_key(node_info.get("public_key"))
+    if existing_id:
+        if node_info.get("node_id") and node_info["node_id"] != existing_id:
+            logger.warning("⚠️ Local node ID did not match the coordinator's — using the coordinator's.")
+        node_info["node_id"] = existing_id
+        logger.info(f"🔁 Reusing registered node ID: {existing_id}")
+        return {"node_id": existing_id, "status": "already_registered"}
 
-    # 🔎 Check coordinator for public key mapping
-    try:
-        async with httpx.AsyncClient() as client:
-            res = await client.post(
-                f"{os.getenv('COORDINATOR_URL', 'http://coordinator:8100')}/find-node-id",
-                json={"public_key": node_info.get("public_key")}
-            )
-
-            if res.status_code == 200:
-                data = res.json()
-                existing_id = data.get("node_id")
-                if existing_id:
-                    node_info["node_id"] = existing_id
-                    logger.info(f"🔁 Found existing node ID from coordinator: {existing_id}")
-                    return {"node_id": existing_id, "status": "reused"}
-    except Exception as e:
-        logger.warning(f"⚠️ Failed to check for existing public key on coordinator: {e}")
+    # This key is unknown to the coordinator, so any local node_id is stale.
+    node_info["node_id"] = None
 
     # Proceed as new registration
     capabilities = get_system_capabilities()
@@ -73,16 +85,8 @@ async def trigger_background_connection():
     node_id = response.get("node_id")
 
     if node_id:
+        # The coordinator stores the public key when it registers the node.
         node_info["node_id"] = node_id
-
-        # Save public key if not already saved
-        existing_node = await db.nodes.find_one({"_id": node_id})
-        if existing_node and not existing_node.get("public_key") and node_info.get("public_key"):
-            await db.nodes.update_one(
-                {"_id": node_id},
-                {"$set": {"public_key": node_info["public_key"]}}
-            )
-            logger.info(f"✅ Saved public key for node {node_id} to database.")
     else:
         logger.warning("🚨 Missing node_id in background connection response.")
 

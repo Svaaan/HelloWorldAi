@@ -5,6 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>NodeAI Setup Guide</title>
+    <link rel="stylesheet" href="/static/css/theme.css">
     <link rel="stylesheet" href="/static/css/setup.css">
 </head>
 
@@ -13,7 +14,7 @@
         <div class="header">
             <h2>Setup Guide for Node Contribution</h2>
 
-            <p style="margin-top: 0.5rem; background-color: #2a2a2a; padding: 1rem; border-left: 4px solid #ff4c4c; color: #ccc; border-radius: 8px;">
+            <p class="callout callout-warning">
                 <strong>⚠️ Warning:</strong> This setup may challenge your technical skills. It is part of exploring new and exciting ground. We’re building something innovative, and your contribution is key!
             </p>
 
@@ -51,16 +52,48 @@
         <div class="step">
             <div class="step-header">
                 <div class="step-number">1.5</div>
-                <div class="step-title">Run Auto Setup Script</div>
+                <div class="step-title">Run Auto Setup Script (does steps 3&ndash;6 for you)</div>
             </div>
-            <p>To test automate install and go thru the terminal process click below.</p>
-            <p>If you already have wsl2 installed copy below inside Ubuntu</p>
-            <div class="command-box">
-                <code>bash <(curl -fsSL http://127.0.0.1:3000/static/scripts/setup-node.sh)</code>
+            <p>
+                This installs Docker and the NVIDIA Container Toolkit, checks that a container
+                can actually see your GPUs, then fetches and starts the node. It is safe to
+                re-run &mdash; every step checks before it acts.
+            </p>
+            <p>
+                <strong>Run it inside Ubuntu on WSL 2.</strong> If you do not have WSL 2 yet,
+                do step 2 first, then come back here.
+            </p>
+
+            <label for="coordinatorUrl">Coordinator address:</label>
+            <input type="text" id="coordinatorUrl" spellcheck="false" />
+
+            <div class="command-box" style="margin-top:0.75rem;">
+                <code id="setupCommand">Loading&hellip;</code>
             </div>
             <div class="button-row" style="margin-top: 1rem;">
-                <a href="http://127.0.0.1:3000/static/scripts/setup-node.sh" target="_blank" class="btn">Download setup-node.sh</a>
+                <a href="/static/scripts/setup-node.sh" target="_blank" class="btn">Download setup-node.sh</a>
             </div>
+
+            <script>
+                (function () {
+                    var input = document.getElementById("coordinatorUrl");
+                    var output = document.getElementById("setupCommand");
+                    // Default to wherever this page is served from; the operator
+                    // can point it elsewhere.
+                    input.value = window.location.origin;
+
+                    function render() {
+                        var coordinator = input.value.trim() || window.location.origin;
+                        // curl needs an absolute URL, so build it from the origin.
+                        output.textContent =
+                            "bash <(curl -fsSL " + window.location.origin +
+                            "/static/scripts/setup-node.sh) --coordinator " + coordinator;
+                    }
+
+                    input.addEventListener("input", render);
+                    render();
+                })();
+            </script>
         </div>
 
         <div class="step">
@@ -90,9 +123,16 @@ sudo systemctl restart docker</code>
         <div class="step">
             <div class="step-header">
                 <div class="step-number">4</div>
-                <div class="step-title">Install CUDA Toolkit for WSL</div>
+                <div class="step-title">Install CUDA Toolkit for WSL &mdash; not required</div>
             </div>
-            <p>Run the following commands to install CUDA 12.8 Toolkit for WSL:</p>
+            <p class="callout callout-ok">
+                <strong>You can skip this.</strong> The node runs inside a container built on
+                <code>nvidia/cuda</code>, which already carries the CUDA runtime. On the host you
+                only need the driver (step&nbsp;1), Docker and the NVIDIA Container Toolkit
+                (step&nbsp;3). Install the full toolkit below only if you want to build CUDA code
+                yourself &mdash; it is several GB.
+            </p>
+            <p>If you do want it, run the following to install the CUDA 12.8 Toolkit for WSL:</p>
             <div class="command-box">
                 <code>wget https://developer.download.nvidia.com/compute/cuda/repos/wsl-ubuntu/x86_64/cuda-wsl-ubuntu.pin
 sudo mv cuda-wsl-ubuntu.pin /etc/apt/preferences.d/cuda-repository-pin-600
