@@ -1,0 +1,21 @@
+# GPU overlay. Add this to any other compose file to hand the host's NVIDIA
+# GPUs to the node:
+#
+#   docker compose -f docker/docker-compose.test.yml \
+#                  -f docker/docker-compose.gpu.yml up -d --build
+#
+# It is separate because a GPU reservation makes Docker refuse to start on a
+# machine without an NVIDIA runtime ("could not select device driver nvidia"),
+# which would block anyone developing on a laptop without one.
+#
+# Requires the NVIDIA Container Toolkit on the host.
+
+services:
+  node:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
