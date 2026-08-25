@@ -1,14 +1,16 @@
 import uuid
 import time
 import numpy as np
-from fastapi import Body, FastAPI, HTTPException, Request, Depends
+from fastapi import Body, FastAPI, HTTPException, Request, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from typing import Dict, Optional
 from datetime import datetime, timedelta
 import secrets
 import asyncio
+from backend.database.nodedb import db 
 from backend.service.authNodeService import verify_signature 
+from backend.service.tokenService import issue_node_token, read_node_token, NODE_TOKEN_TTL
 import logging
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase, AsyncIOMotorCollection
 
@@ -61,13 +63,18 @@ class Database:
             cls.nodes_collection = cls.db.nodes
             cls.tasks_collection = cls.db.tasks
 
-            # Create indices for performance
-            await cls.nodes_collection.create_index("_id")
-            await cls.nodes_collection.create_index("isAvailable")
-            await cls.nodes_collection.create_index("isConnected")
-            await cls.tasks_collection.create_index("node_id")
-            await cls.tasks_collection.create_index("received_at")
-            logger.info("✅ Database indices created")
+            # ✅ Create indices (with public_key as unique) and wrap in try/except
+            try:
+                await cls.nodes_collection.create_index("_id")
+                await cls.nodes_collection.create_index("isAvailable")
+                await cls.nodes_collection.create_index("isConnected")
+                await cls.nodes_collection.create_index("public_key", unique=True)  # <-- ✅ Enforce uniqueness
+                await cls.tasks_collection.create_index("node_id")
+                await cls.tasks_collection.create_index("received_at")
+                logger.info("✅ Database indices created")
+            except Exception as e:
+                logger.error(f"❌ Failed to create indexes: {e}")
+
 
     @classmethod
     async def close_db(cls):
@@ -81,6 +88,37 @@ async def get_db():
     if Database.client is None:
         await Database.connect_db()
     return Database
+
+
+def require_node_token(node_id: str, authorization: Optional[str] = Header(default=None)) -> str:
+    """Require a bearer token that was issued for this exact node_id.
+
+    The token comes from /verify-challenge, so holding one proves the caller
+    controls the private key the node registered with.
+    """
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(
+            status_code=401,
+            detail="Missing node session token.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    token = authorization.split(" ", 1)[1].strip()
+    token_node_id = read_node_token(token)
+
+    if token_node_id is None:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or expired node session token. Re-verify the node.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    if token_node_id != node_id:
+        logger.warning(f"🚫 Token for {token_node_id} was used against node {node_id}.")
+        raise HTTPException(status_code=403, detail="Token does not grant access to this node.")
+
+    return token_node_id
+
 
 app = FastAPI()
 task_results = []
@@ -254,7 +292,11 @@ async def sync_nodes_with_db():
 
 
 @app.patch("/toggle-availability/{node_id}")
-async def toggle_availability(node_id: str, db: Database = Depends(get_db)):
+async def toggle_availability(
+    node_id: str,
+    db: Database = Depends(get_db),
+    _node: str = Depends(require_node_token),
+):
     try:
         # Fetch node from MongoDB
         node = await db.nodes_collection.find_one({"_id": node_id})
@@ -304,15 +346,24 @@ async def connect_node(node: NodeConnection, request: Request, db: Database = De
                 "reason": "No valid GPU detected. Node connection refused."
             }
 
-        # ✅ Assign node_id centrally
-        node_id = f"node_{uuid.uuid4()}"
+        node_id = None
+        if node.public_key:
+            existing_node = await db.nodes_collection.find_one({"public_key": node.public_key})
+            if existing_node:
+                node_id = existing_node["_id"]
+                logger.info(f"ℹ️ Existing node found. Reusing node_id: {node_id}")
+            else:
+                node_id = f"node_{uuid.uuid4()}"
+                logger.info(f"🆕 New node. Generated node_id: {node_id}")
+        else:
+            raise HTTPException(status_code=400, detail="Public key is required.")
 
-        # ✅ Set node runtime properties
+        # ✅ Set runtime props
         node.ip = request.client.host
         node.isConnected = True
         node.last_heartbeat = datetime.utcnow()
 
-        # ✅ Prepare node document for DB
+        # ✅ Build full doc
         node_document = {
             "_id": node_id,
             "ip": node.ip,
@@ -322,22 +373,19 @@ async def connect_node(node: NodeConnection, request: Request, db: Database = De
             "isAvailable": node.isAvailable,
             "last_connected": datetime.utcnow(),
             "last_heartbeat": node.last_heartbeat,
-            "has_gpu": bool(gpu_capabilities and gpu_capabilities[0].get("name") not in ["No GPU Detected", None, ""])
+            "has_gpu": bool(gpu_capabilities and gpu_capabilities[0].get("name") not in ["No GPU Detected", None, ""]),
         }
 
-        # ✅ Upsert node in database
         await db.nodes_collection.update_one(
             {"_id": node_id},
             {"$set": node_document},
             upsert=True
         )
 
-        # ✅ Update in-memory connected nodes
+        # ✅ Update in-memory node cache
         connected_nodes[node_id] = node
 
-        logger.info(f"✅ Node connected and stored: {node_id}")
-        logger.info(f"✅ Current connected nodes: {list(connected_nodes.keys())}")
-
+        logger.info(f"✅ Node successfully connected: {node_id}")
         return {
             "status": "success",
             "message": "Node connected",
@@ -346,15 +394,16 @@ async def connect_node(node: NodeConnection, request: Request, db: Database = De
         }
 
     except Exception as e:
-        logger.error(f"❌ Error connecting node: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to connect node: {str(e)}")
+        logger.error(f"❌ Coordinator error in /connect-node: {e}")
+        raise HTTPException(status_code=500, detail=f"Coordinator failed to connect node: {str(e)}")
 
 
 @app.post("/node-heartbeat/{node_id}")
 async def node_heartbeat(
-    node_id: str, 
-    status: dict = Body(...), 
-    db: Database = Depends(get_db)
+    node_id: str,
+    status: dict = Body(...),
+    db: Database = Depends(get_db),
+    _node: str = Depends(require_node_token),
 ):
     """Endpoint for nodes to send regular heartbeats with status updates"""
     try:
@@ -571,20 +620,23 @@ async def generate_challenge(node_id: str, db: Database = Depends(get_db)):
 async def verify_node_challenge(node_id: str, signature_payload: dict, db: Database = Depends(get_db)):
     signature = signature_payload.get("signature")
     if not signature:
+        logger.warning(f"Node {node_id} failed to provide signature.")
         raise HTTPException(status_code=400, detail="Signature is required")
 
     challenge_entry = node_challenges.get(node_id)
     if not challenge_entry:
+        logger.warning(f"No challenge found for node {node_id}.")
         raise HTTPException(status_code=400, detail="No challenge found for node")
 
-    # ⏰ Check if challenge has expired
     if datetime.utcnow() > challenge_entry["expires_at"]:
+        logger.warning(f"Challenge for node {node_id} expired.")
         raise HTTPException(status_code=400, detail="Challenge expired")
 
     challenge = challenge_entry["challenge"]
 
     node = await db.nodes_collection.find_one({"_id": node_id})
     if not node or not node.get("public_key"):
+        logger.warning(f"Node {node_id} or its public key not found in database.")
         raise HTTPException(status_code=404, detail="Node or public key not found")
 
     public_key_pem = node["public_key"]
@@ -592,19 +644,46 @@ async def verify_node_challenge(node_id: str, signature_payload: dict, db: Datab
     if verify_signature(public_key_pem, challenge, signature):
         logger.info(f"✅ Node {node_id} verified successfully with challenge-response.")
 
-        # ✅ Mark node as authenticated + save last verification time
         await db.nodes_collection.update_one(
             {"_id": node_id},
             {"$set": {
                 "isAuthenticated": True,
-                "last_verified": datetime.utcnow()  # ✅ Add last verification timestamp
+                "last_verified": datetime.utcnow()
             }}
         )
 
-        return {"status": "success", "message": "Node verified"}
+        node_challenges.pop(node_id, None)
+
+        token = issue_node_token(node_id)
+        logger.info(f"🎟️ Issued session token for node {node_id}.")
+
+        return {
+            "status": "success",
+            "message": "Node verified",
+            "token": token,
+            "expires_in": NODE_TOKEN_TTL,
+        }
 
     else:
+        logger.warning(f"Invalid signature for node {node_id}.")
         raise HTTPException(status_code=401, detail="Invalid signature")
+
+
+    
+@app.post("/find-node-id")
+async def find_node_id(request: Request):
+    data = await request.json()
+    public_key = data.get("public_key")
+    if not public_key:
+        raise HTTPException(status_code=400, detail="Public key is required.")
+
+    # Query your node database for matching public key
+    node = await db["nodes"].find_one({"public_key": public_key})
+    if not node:
+        raise HTTPException(status_code=404, detail="Node not found for provided public key.")
+
+    return {"node_id": node["_id"]}
+
 
 
 async def cleanup_expired_challenges():

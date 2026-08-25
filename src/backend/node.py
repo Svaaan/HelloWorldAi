@@ -1,10 +1,13 @@
 
+import os
 import uuid
+import asyncio
 import logging
 from fastapi.responses import JSONResponse
+import httpx
+import psutil
 import requests
 import time
-import json
 from typing import Dict, Any, List
 from datetime import datetime
 from fastapi import FastAPI, Request, BackgroundTasks, Body, HTTPException
@@ -12,11 +15,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.service.systemInfoService import get_system_capabilities  # Dynamically fetch system capabilities
 from backend.service.usageService import get_usage
 from backend.shared.nodeState import node_info
-from backend.service.authNodeService import automatic_node_verification
 from backend.executeTask import validate_task_data
 from pydantic import BaseModel
-# Import auth functions but NOT from authNodeService directly
-from backend.service.authNodeService import check_existing_node,validate_gpu, trigger_background_connection
+from backend.database.nodedb import db  
+from backend.service.authNodeService import validate_gpu, trigger_background_connection
+from backend.utils.config import COORDINATOR_URL
 
 # Initialize logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -33,6 +36,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# How often this node reports in to the coordinator. The coordinator marks a
+# node disconnected after 5 minutes without a heartbeat.
+HEARTBEAT_INTERVAL_SECONDS = int(os.getenv("HEARTBEAT_INTERVAL", 60))
 
 # Task queues
 task_queue: List[dict] = []
@@ -61,34 +68,176 @@ async def connect_node(payload: NodeRegistrationRequest):
     node_name = payload.node_name
     public_key = payload.public_key
 
-    # ✅ Update local node_info but skip generating node_id here!
     node_info["connected"] = False
     node_info["node_name"] = node_name
     node_info["public_key"] = public_key
 
-    # ✅ Validate GPU
     gpu_valid, error_response = validate_gpu()
     if not gpu_valid:
         return error_response
 
-    # ✅ Call background connection and WAIT for response
-    coordinator_response = await trigger_background_connection()
-
-    if not coordinator_response or "node_id" not in coordinator_response:
-        return JSONResponse(content={"error": "Failed to connect to coordinator, no node_id received."}, status_code=500)
-
-    # ✅ Update local node_info with real node_id from coordinator
-    node_info["node_id"] = coordinator_response["node_id"]
-    node_info["connected"] = True
-
-    # ✅ Now perform automatic verification with correct node_id
-    await automatic_node_verification(node_info["node_id"])
+    # Skip calling trigger_background_connection() here!
 
     return {
-        "status": coordinator_response.get("status", "success"),
-        "connected": True,
-        "node_id": node_info["node_id"]
+        "status": "pending",
+        "message": "Node information saved. Please proceed with verification."
     }
+
+
+@app.post("/finalize-connection")
+async def finalize_connection(request: Request):
+    try:
+        body = await request.json()
+        req_public_key = body.get("public_key")
+        if not req_public_key:
+            raise ValueError("Missing public_key in request.")
+
+        # 🧠 Restore or validate public key in memory
+        if not node_info.get("public_key"):
+            node_info["public_key"] = req_public_key
+            logger.info("🔐 Public key restored from request body.")
+
+        if node_info["public_key"] != req_public_key:
+            raise HTTPException(status_code=400, detail="Public key mismatch. Aborting.")
+
+        # 🔎 Recover node_id from the DB, or register with the coordinator if this
+        # public key has never been seen before (first-time registration).
+        existing_node = await db.nodes.find_one({"public_key": req_public_key})
+
+        if existing_node:
+            node_id = existing_node["_id"]
+            node_info["node_id"] = node_id
+        else:
+            logger.info("🆕 Public key not registered yet — registering with the coordinator.")
+            registration = await trigger_background_connection()
+
+            if not registration or not registration.get("node_id"):
+                raise HTTPException(
+                    status_code=502,
+                    detail="Coordinator did not return a node_id. Registration failed."
+                )
+
+            if registration.get("status") == "rejected":
+                raise HTTPException(
+                    status_code=400,
+                    detail=registration.get("reason", "Coordinator rejected this node.")
+                )
+
+            node_id = registration["node_id"]
+            node_info["node_id"] = node_id
+
+        node_info["connected"] = True
+
+        # ✅ Fresh system capabilities
+        capabilities = get_system_capabilities()
+        node_info["system_info"] = capabilities
+        node_info["total_gpu_tflops"] = capabilities.get("total_gpu_tflops", 0)
+
+        # Optional: log re-connection in DB
+        await db.nodes.update_one(
+            {"_id": node_id},
+            {
+                "$set": {
+                    "last_connected": datetime.utcnow(),
+                    "isConnected": True
+                }
+            }
+        )
+
+        logger.info(f"✅ Finalize connection complete for node {node_id}")
+        return {
+            "status": "success",
+            "connected": True,
+            "node_id": node_id
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.warning(f"⚠️ Could not finalize connection: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+class NodeSessionPayload(BaseModel):
+    node_id: str
+    token: str
+
+
+@app.post("/node-session")
+async def store_node_session(payload: NodeSessionPayload):
+    """Receive the session token the browser obtained from /verify-challenge.
+
+    The private key never leaves the browser, so this handoff is the only way the
+    node process itself gets credentials to authenticate its heartbeats with.
+    """
+    node_info["node_id"] = payload.node_id
+    node_info["session_token"] = payload.token
+    node_info["connected"] = True
+
+    logger.info(f"🎟️ Stored session token for node {payload.node_id}.")
+
+    # Report in right away so the node shows as connected without waiting a cycle.
+    try:
+        await send_heartbeat_once()
+    except Exception as e:
+        logger.warning(f"⚠️ Initial heartbeat failed: {e}")
+
+    return {"status": "success", "node_id": payload.node_id}
+
+
+async def send_heartbeat_once() -> bool:
+    """Post one heartbeat to the coordinator. Returns False if we have no session."""
+    node_id = node_info.get("node_id")
+    token = node_info.get("session_token")
+
+    if not node_id or not token:
+        return False
+
+    capabilities = get_system_capabilities()
+    gpus = capabilities.get("gpu", []) if isinstance(capabilities, dict) else []
+    loads = [
+        gpu.get("load_percentage") for gpu in gpus
+        if isinstance(gpu, dict) and isinstance(gpu.get("load_percentage"), (int, float))
+    ]
+
+    payload = {
+        # interval=None so we never block the event loop
+        "cpu_usage": psutil.cpu_percent(interval=None),
+        "gpu_usage": round(sum(loads) / len(loads), 2) if loads else 0.0,
+        "capabilities": capabilities,
+    }
+
+    async with httpx.AsyncClient() as client:
+        res = await client.post(
+            f"{COORDINATOR_URL}/node-heartbeat/{node_id}",
+            json=payload,
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10,
+        )
+
+    if res.status_code in (401, 403):
+        logger.warning("🔒 Coordinator rejected the session token — clearing it. Re-verify this node.")
+        node_info.pop("session_token", None)
+        return False
+
+    res.raise_for_status()
+    return True
+
+
+async def heartbeat_loop():
+    while True:
+        try:
+            await send_heartbeat_once()
+        except Exception as e:
+            logger.warning(f"⚠️ Heartbeat failed: {e}")
+        await asyncio.sleep(HEARTBEAT_INTERVAL_SECONDS)
+
+
+@app.on_event("startup")
+async def start_heartbeat_task():
+    asyncio.create_task(heartbeat_loop())
+    logger.info(f"💓 Heartbeat loop started (every {HEARTBEAT_INTERVAL_SECONDS}s).")
+
 
 @app.get("/usage")
 async def get_usage_info():
@@ -230,8 +379,11 @@ def task_with_logging(task):
                 json={**result_payload, "logs": task_logs.get(task_id, [])},
                 timeout=5
             )
-            log(f"✅ Result sent to {origin_ip}, Response: {response.status_code}")
+            log(f" Result sent to {origin_ip}, Response: {response.status_code}")
         except Exception as e:
             log(f"❌ Failed to send result to {origin_ip}: {e}")
     else:
-        log("⚠️ No origin IP found, result not sent back.")
+        log(" No origin IP found, result not sent back.")
+
+
+

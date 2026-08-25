@@ -5,21 +5,10 @@ import psutil
 import platform
 import pynvml
 import logging
-import json
-import os
+
+from backend.service.gpuMatch import find_gpu_entry, get_database_clock_mhz
 
 logger = logging.getLogger(__name__)
-
-# === Load GPU database once ===
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-GPU_DB_PATH = os.path.join(BASE_DIR, 'gpu-db.json')
-
-try:
-    with open(GPU_DB_PATH, 'r') as f:
-        gpu_db = json.load(f)
-except Exception as e:
-    logger.error(f"Failed to load GPU database: {e}")
-    gpu_db = []
 
 # === Helper functions ===
 
@@ -37,19 +26,6 @@ def calculate_tflops(cores, clock_hz, flops_per_cycle=2):
     except Exception as e:
         logger.warning(f"TFLOPS calculation error: {e}")
         return 0
-
-def get_cuda_cores(gpu_name: str):
-    gpu_name_clean = gpu_name.lower().replace("nvidia", "").strip()
-
-    for gpu in gpu_db:
-        db_gpu_name = gpu['name'].lower()
-        if gpu_name_clean in db_gpu_name or db_gpu_name in gpu_name_clean:
-            return gpu.get('shaders')  # ✅ THIS IS THE FIX 🔥
-
-    logger.warning(f"No CUDA cores found for GPU: '{gpu_name}'")
-    return None
-
-
 
 def get_system_capabilities():
     total_tflops = 0
@@ -80,26 +56,27 @@ def get_system_capabilities():
                 temperature = pynvml.nvmlDeviceGetTemperature(handle, pynvml.NVML_TEMPERATURE_GPU)
                 clock_mhz = pynvml.nvmlDeviceGetClockInfo(handle, pynvml.NVML_CLOCK_GRAPHICS)
 
-                # ✅ Check if clock is suspiciously low, if so, use your scraped GPU database
-                boost_clock_mhz = clock_mhz
-                matching_gpu = next((gpu for gpu in gpu_db if gpu['name'].lower() in name.lower()), None)
+                # Resolve the card once — core count and reference clock must come
+                # from the same database entry, or the TFLOPS figure is meaningless.
+                db_entry = find_gpu_entry(name)
+                cuda_cores = db_entry.get('shaders') if db_entry else None
 
-                if clock_mhz < 500 and matching_gpu:
-                    try:
-                        gpu_clock_str = matching_gpu.get('gpu_clock', '0 MHz').replace(' MHz', '')
-                        boost_clock_mhz = int(float(gpu_clock_str))
-                        logger.info(f"🧩 Boosted GPU clock from database: {boost_clock_mhz} MHz (original: {clock_mhz} MHz)")
-                    except Exception as e:
-                        logger.warning(f"Error parsing boost clock from database: {e}")
+                # NVML reports the *current* clock, which is near-idle on a quiet GPU.
+                # Fall back to the database's reference clock so an idle card is not
+                # rated at zero.
+                boost_clock_mhz = clock_mhz
+                if clock_mhz < 500:
+                    db_clock = get_database_clock_mhz(db_entry)
+                    if db_clock:
+                        boost_clock_mhz = db_clock
+                        logger.info(f"🧩 Using database clock {boost_clock_mhz} MHz (NVML reported {clock_mhz} MHz)")
 
                 clock_hz = boost_clock_mhz * 1_000_000  # Convert MHz to Hz
 
-                # Match CUDA cores
-                cuda_cores = get_cuda_cores(name)
-                if not cuda_cores:
-                    logger.warning(f"No CUDA core count found for GPU: '{name}'")
-                else:
+                if cuda_cores:
                     logger.info(f"Found CUDA cores from database: {cuda_cores}")
+                else:
+                    logger.warning(f"Could not resolve '{name}' in the GPU database — reporting 0 TFLOPS for it.")
 
                 tflops = calculate_tflops(cuda_cores, clock_hz) if cuda_cores else 0
                 total_tflops += tflops
