@@ -1,0 +1,59 @@
+# Contributor stack: run this on the machine whose GPUs you want to donate.
+#
+# It starts the node agent (which does the actual compute) plus a local
+# dashboard so you can register the node and manage it in a browser. The
+# coordinator is NOT here -- it runs centrally and this points at it.
+#
+#   COORDINATOR_URL=https://coordinator.example.com docker compose \
+#       -f docker/docker-compose.node.yml up -d --build
+#
+# Then open http://localhost:3000
+#
+# There is deliberately no MongoDB: the node reaches the coordinator's API and
+# never touches its database.
+
+services:
+  node:
+    build:
+      context: ../
+      dockerfile: docker/Dockerfile
+    environment:
+      - USE_DOCKER=true
+      - ENV=production
+      - NODE_PORT=9100
+      # Where the central coordinator lives. Required.
+      - COORDINATOR_URL=${COORDINATOR_URL:?set COORDINATOR_URL to the coordinator address}
+      - HEARTBEAT_INTERVAL=${HEARTBEAT_INTERVAL:-60}
+      - TASK_POLL_INTERVAL=${TASK_POLL_INTERVAL:-10}
+    command: uvicorn src.backend.node:app --host 0.0.0.0 --port 9100
+    restart: unless-stopped
+
+    # Hand the host's NVIDIA GPUs to the container. Without this the image has
+    # the CUDA libraries but no devices, and the node is rejected for having no
+    # GPU. Requires the NVIDIA Container Toolkit on the host.
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  dashboard:
+    build:
+      context: ../
+      dockerfile: docker/Dockerfile
+    ports:
+      # Local only: this UI drives your own node and should not be exposed.
+      - "127.0.0.1:3000:3000"
+    environment:
+      - USE_DOCKER=true
+      - ENV=production
+      - DASHBOARD_PORT=3000
+      - COORDINATOR_URL=${COORDINATOR_URL:?set COORDINATOR_URL to the coordinator address}
+      # The dashboard proxies node calls over the internal compose network.
+      - NODE_URL=http://node:9100
+    command: uvicorn src.app:app --host 0.0.0.0 --port 3000
+    depends_on:
+      - node
+    restart: unless-stopped

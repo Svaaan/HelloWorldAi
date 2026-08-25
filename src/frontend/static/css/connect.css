@@ -1,249 +1,206 @@
+/* Connect page — node registration and reconnection.
+   Base styles, buttons, inputs and modals come from theme.css. */
 
-/* Base Styles */
 body {
-    font-family: 'Segoe UI', 'Arial', sans-serif;
-    background-color: #111111;
-    color: #e6e6e6;
-    margin: 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    height: 100vh;
-    align-items: center;
-    justify-content: flex-start;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 100vh;
 }
 
-/* Header Styles */
 header {
-    width: 100%;
-    background-color: #0a0a0a;
-    padding: 1.2rem 0;
-    text-align: center;
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    border-bottom: 1px solid #222;
+  width: 100%;
+  padding: 1.4rem 1.5rem;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background-color: rgba(11, 14, 19, 0.72);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 50;
 }
 
 h1 {
-    color: #00e6ff;
-    margin: 0;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    font-size: 1.8rem;
-    font-weight: 500;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--text);
 }
 
-/* Node Icon */
+/* --- node mark --- */
+
 .node-icon {
-    width: 32px;
-    height: 32px;
-    background-color: transparent;
-    border: 2px solid #00e6ff;
-    border-radius: 50%;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    position: relative;
-    box-shadow: 0 0 8px rgba(0, 230, 255, 0.5);
+  width: 30px;
+  height: 30px;
+  border: 2px solid var(--accent);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  flex-shrink: 0;
 }
 
-.node-icon:after {
-    content: '';
-    position: absolute;
-    width: 60%;
-    height: 60%;
-    border-radius: 50%;
-    background-color: #00e6ff;
-    box-shadow: 0 0 5px rgba(0, 230, 255, 0.5);
+.node-icon::after {
+  content: "";
+  position: absolute;
+  width: 55%;
+  height: 55%;
+  border-radius: 50%;
+  background-color: var(--accent);
 }
 
-/* Connection Info Panel */
+/* --- main panel --- */
+
 .connect-info {
-    background: #0a0a0a;
-    padding: 2.5rem;
-    margin: 3rem 0;
-    border-radius: 6px;
-    text-align: center;
-    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
-    max-width: 450px;
-    width: 90%;
-    border: 1px solid #333;
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow-md);
+  padding: 2.5rem;
+  margin: 3rem 1.25rem;
+  max-width: 460px;
+  width: 100%;
+  text-align: center;
 }
 
-/* Text Styles */
 .info-text {
-    font-size: 16px;
-    color: #aaaaaa;
-    margin-bottom: 25px;
-    line-height: 1.5;
+  color: var(--text-muted);
+  margin: 0 0 1.75rem;
+  font-size: 0.95rem;
 }
 
-.status-message {
-    font-weight: 500;
-    color: #00e6ff;
-    margin-bottom: 25px;
-    font-size: 18px;
-    position: relative;
-    display: inline-block;
-    padding-bottom: 10px;
-    border-bottom: 1px solid #333;
+#gpuInfo {
+  font-size: 0.9rem;
+  font-weight: 550;
+  padding: 0.7rem 0.9rem;
+  border-radius: var(--r-sm);
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border);
+  margin-bottom: 1.5rem;
 }
 
-/* Button Styles */
-button {
-    background-color: #00e6ff;
-    color: #000000;
-    padding: 12px 24px;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 16px;
-    font-weight: 500;
-    margin-top: 15px;
-    transition: all 0.2s ease;
-    box-shadow: 0 0 10px rgba(0, 230, 255, 0.3);
+/* --- actions --- */
+
+.button-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  margin-top: 1.5rem;
 }
 
-button:hover {
-    background-color: #00f0ff;
-    box-shadow: 0 0 15px rgba(0, 230, 255, 0.5);
+.button-group > * {
+  width: 100%;
 }
 
-button:active {
-    transform: translateY(1px);
+.setup-button {
+  background-color: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  padding: 0.7rem 1.15rem;
+  font-size: 0.9375rem;
+  font-weight: 550;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  text-decoration: none;
+  transition:
+    background-color var(--t-fast) var(--ease),
+    transform var(--t-fast) var(--ease);
 }
 
-button:disabled {
-    background-color: #333333;
-    color: #777777;
-    cursor: not-allowed;
-    box-shadow: none;
+.setup-button:hover {
+  background-color: var(--surface-3);
+  color: var(--text);
+  transform: translateY(-1px);
 }
 
-/* Processing Message */
+#connectNodeButton {
+  background-color: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+}
+
+#connectNodeButton:hover {
+  background-color: var(--surface-3);
+}
+
+/* --- modal contents --- */
+
+.modal-container h3 {
+  margin: 0 0 1.25rem;
+  font-size: 1.15rem;
+  text-align: center;
+}
+
+.modal-container label {
+  display: block;
+  text-align: left;
+  font-size: 0.875rem;
+  color: var(--text-muted);
+  margin-bottom: 0.4rem;
+}
+
+.modal-container input {
+  margin-bottom: 1.1rem;
+}
+
+.modal-container button:not(.modal-close) {
+  width: 100%;
+}
+
+/* --- progress and results --- */
+
 #processingMessage {
-    color: #00e6ff;
-    font-weight: 500;
-    margin-top: 20px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 10px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  margin-top: 1.25rem;
+  color: var(--text-muted);
+  font-size: 0.9rem;
 }
 
 .loading-spinner {
-    width: 18px;
-    height: 18px;
-    border: 2px solid rgba(0, 230, 255, 0.2);
-    border-radius: 50%;
-    border-top-color: #00e6ff;
-    animation: spin 1s linear infinite;
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--border-strong);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  flex-shrink: 0;
 }
 
-/* Result Messages */
-.success-message {
-    color: #00ff9d;
-    font-size: 16px;
-    margin-top: 20px;
-    padding: 10px;
-}
-
-.error-message {
-    color: #ff4d4d;
-    font-size: 16px;
-    margin-top: 20px;
-    padding: 10px;
-}
-
-/* Animations */
 @keyframes spin {
-    0% {
-        transform: rotate(0deg);
-    }
-    100% {
-        transform: rotate(360deg);
-    }
+  to { transform: rotate(360deg); }
 }
 
-/* Responsive Design */
+#resultMessage:not(:empty) {
+  margin-top: 1.25rem;
+  text-align: left;
+}
+
+/* Buttons injected after a successful registration. */
+#resultMessage button {
+  margin-top: 0.6rem;
+  margin-right: 0.5rem;
+  font-size: 0.875rem;
+  padding: 0.55rem 0.9rem;
+}
+
 @media (max-width: 600px) {
-    .connect-info {
-        padding: 2rem;
-        margin: 2rem 0;
-    }
+  .connect-info {
+    padding: 1.75rem;
+    margin: 1.5rem 1rem;
+  }
 
-    .info-text {
-        font-size: 15px;
-    }
-
-    h1 {
-        font-size: 1.5rem;
-    }
-
-    button {
-        padding: 10px 20px;
-        font-size: 15px;
-    }
-}
-
- /* Modal backdrop */
- .modal-backdrop {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100vw;
-    height: 100vh;
-    background: rgba(0, 0, 0, 0.6);
-    display: none;
-    justify-content: center;
-    align-items: center;
-    z-index: 1000;
-}
-
-/* Modal window */
-.modal-container {
-    background: white;
-    padding: 20px;
-    border-radius: 10px;
-    width: 300px;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-    text-align: center;
-    position: relative;
-}
-
-/* Close button */
-.modal-close {
-    position: absolute;
-    top: 8px;
-    right: 12px;
-    background: transparent;
-    border: none;
-    font-size: 20px;
-    cursor: pointer;
-}
-
-/* Input and button styling */
-#nodeName {
-    width: 100%;
-    padding: 8px;
-    margin-top: 10px;
-    border-radius: 5px;
-    border: 1px solid #ccc;
-}
-
-#confirmRegisterNodeButton {
-    margin-top: 12px;
-    padding: 8px 12px;
-    border: none;
-    background-color: #4caf50;
-    color: white;
-    border-radius: 4px;
-    cursor: pointer;
-}
-
-#confirmRegisterNodeButton:hover {
-    background-color: #45a049;
+  h1 { font-size: 1.25rem; }
 }

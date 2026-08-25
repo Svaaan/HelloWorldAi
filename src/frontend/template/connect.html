@@ -4,70 +4,9 @@
 <head>
   <meta charset="UTF-8" />
   <title>Node Connection</title>
+  <link rel="stylesheet" href="/static/css/theme.css">
   <link rel="stylesheet" href="/static/css/connect.css" />
 
-  <!-- ✅ Modal Styling -->
-  <style>
-    /* Modal backdrop */
-    .modal-backdrop {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100vw;
-      height: 100vh;
-      background: rgba(0, 0, 0, 0.6);
-      display: none;
-      justify-content: center;
-      align-items: center;
-      z-index: 1000;
-    }
-
-    /* Modal window */
-    .modal-container {
-      background: white;
-      padding: 20px;
-      border-radius: 10px;
-      width: 300px;
-      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-      text-align: center;
-      position: relative;
-    }
-
-    /* Close button */
-    .modal-close {
-      position: absolute;
-      top: 8px;
-      right: 12px;
-      background: transparent;
-      border: none;
-      font-size: 20px;
-      cursor: pointer;
-    }
-
-    /* Input and button styling */
-    input[type="text"],
-    input[type="file"] {
-      width: 100%;
-      padding: 8px;
-      margin-top: 10px;
-      border-radius: 5px;
-      border: 1px solid #ccc;
-    }
-
-    button {
-      margin-top: 12px;
-      padding: 8px 12px;
-      border: none;
-      background-color: #4caf50;
-      color: white;
-      border-radius: 4px;
-      cursor: pointer;
-    }
-
-    button:hover {
-      background-color: #45a049;
-    }
-  </style>
 </head>
 
 <body>
@@ -155,7 +94,9 @@
       gpuInfoElement.textContent = isGpuDetected
         ? `✅ GPU Detected: ${gpuInfo}`
         : "❌ No supported GPU detected. Please check your hardware.";
-      gpuInfoElement.style.color = isGpuDetected ? "#00c853" : "#ff5252";
+      gpuInfoElement.style.color = isGpuDetected
+        ? "var(--success)"
+        : "var(--danger)";
     }
 
     document.addEventListener("DOMContentLoaded", async () => {
