@@ -202,6 +202,35 @@ async def proxy_node_session(request: Request):
         return {"error": f"Unexpected error: {str(e)}"}
 
 
+@router.post("/submit-task/{node_id}")
+async def proxy_submit_task(node_id: str, request: Request):
+    """Queue work for a node. Goes to the coordinator, which holds the queue.
+
+    Unlike /queue-task this never tries to reach the node directly - the node
+    polls for its own work, so contributors behind home routers can take part.
+    """
+    try:
+        task_data = await request.json()
+        async with httpx.AsyncClient() as client:
+            res = await client.post(f"{COORDINATOR_URL}/submit-task/{node_id}", json=task_data)
+            if res.status_code >= 400:
+                raise HTTPException(status_code=res.status_code, detail=safe_json(res))
+            return safe_json(res)
+    except httpx.RequestError as e:
+        return {"status": "error", "message": f"Failed to reach coordinator: {e}"}
+
+
+@router.get("/tasks")
+async def proxy_tasks(request: Request):
+    try:
+        async with httpx.AsyncClient() as client:
+            res = await client.get(f"{COORDINATOR_URL}/tasks", params=dict(request.query_params))
+            res.raise_for_status()
+            return safe_json(res)
+    except httpx.RequestError as e:
+        return {"error": f"Failed to fetch tasks: {e}"}
+
+
 @router.post("/queue-task/{node_id}")
 async def proxy_queue_task(node_id: str, request: Request):
     try:
