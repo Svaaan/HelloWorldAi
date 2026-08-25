@@ -12,8 +12,16 @@ from backend.database.nodedb import db
 from backend.service.authNodeService import verify_signature 
 from backend.service.tokenService import issue_node_token, read_node_token, NODE_TOKEN_TTL
 import logging
-from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase, AsyncIOMotorCollection
+from motor.motor_asyncio import (
+    AsyncIOMotorClient,
+    AsyncIOMotorDatabase,
+    AsyncIOMotorCollection,
+    AsyncIOMotorGridFSBucket,
+)
 from pymongo import ReturnDocument
+from bson import ObjectId
+from fastapi.responses import Response
+from backend.service.artifacts import MAX_ARTIFACT_BYTES
 
 import pynvml
 import os  # ✅ Import os for env vars
@@ -36,6 +44,10 @@ node_challenges = {}
 # A node that claims a task and then dies must not strand it forever.
 TASK_CLAIM_TIMEOUT_MINUTES = int(os.getenv("TASK_CLAIM_TIMEOUT_MINUTES", 10))
 MAX_TASK_ATTEMPTS = int(os.getenv("MAX_TASK_ATTEMPTS", 3))
+
+# Fraction of a submitted dataset withheld from the node so its returned
+# model can be scored on data it never saw.
+HOLDOUT_FRACTION = float(os.getenv("HOLDOUT_FRACTION", 0.2))
 
 # Database connection class
 class Database:
@@ -628,10 +640,26 @@ async def submit_task(
     if not node.get("isAvailable"):
         raise HTTPException(status_code=409, detail="Node is not accepting work.")
 
+    # Optional: a dataset the node should download before training. It is split
+    # here so the node only ever receives the training half.
+    dataset_id = task_data.pop("dataset_id", None)
+    holdout_id = None
+
+    if dataset_id:
+        try:
+            dataset_id, holdout_id = await prepare_dataset_split(
+                db, dataset_id, seed=int(task_data.get("holdout_seed", 0) or 0)
+            )
+        except Exception as e:
+            logger.error(f"Could not split dataset {dataset_id}: {e}")
+            raise HTTPException(status_code=400, detail=f"Dataset could not be prepared: {e}")
+
     task = {
         "_id": f"task_{uuid.uuid4()}",
         "node_id": node_id,
         "task_data": task_data,
+        "dataset_id": dataset_id,
+        "holdout_artifact_id": holdout_id,
         "status": "pending",
         "attempts": 0,
         "submitted_at": datetime.utcnow(),
@@ -641,7 +669,12 @@ async def submit_task(
     await db.tasks_collection.insert_one(task)
     logger.info(f"Queued task {task['_id']} for node {node_id}")
 
-    return {"status": "success", "task_id": task["_id"], "task_status": "pending"}
+    return {
+        "status": "success",
+        "task_id": task["_id"],
+        "task_status": "pending",
+        "verifiable": bool(holdout_id),
+    }
 
 
 @app.get("/next-task/{node_id}")
@@ -674,6 +707,7 @@ async def next_task(
         "task": {
             "task_id": task["_id"],
             "task_data": task.get("task_data", {}),
+            "dataset_id": task.get("dataset_id"),
             "attempts": task.get("attempts", 1),
         }
     }
@@ -706,13 +740,27 @@ async def submit_task_result(
             "result": payload.get("result"),
             "logs": payload.get("logs", []),
             "metrics": payload.get("metrics", {}),
+            "weights_id": payload.get("weights_id"),
             "finished_at": datetime.utcnow(),
             "received_at": datetime.utcnow(),
         }},
     )
 
     logger.info(f"Task {task_id} reported {status} by node {caller}")
+
+    # Verify in the background so the node is not held open for it.
+    if status == "completed" and task.get("holdout_artifact_id") and payload.get("weights_id"):
+        asyncio.create_task(_verify_quietly(task_id))
+
     return {"status": "success", "task_id": task_id, "task_status": status}
+
+
+async def _verify_quietly(task_id: str):
+    """Run verification without letting a failure disturb result reporting."""
+    try:
+        await verify_task(task_id, await get_db())
+    except Exception as e:
+        logger.warning(f"Verification of {task_id} did not complete: {e}")
 
 
 @app.get("/tasks")
@@ -776,6 +824,179 @@ async def requeue_stale_tasks():
             logger.error(f"Error requeueing stale tasks: {e}")
 
         await asyncio.sleep(60)
+
+
+@app.post("/artifacts")
+async def upload_artifact(request: Request, db: Database = Depends(get_db)):
+    """Store a blob (a dataset, or trained weights) and return its id.
+
+    The body is raw bytes rather than multipart so no extra dependency is
+    needed. The coordinator never deserialises the contents -- it only moves
+    them -- so a hostile payload cannot execute anything here. The node and the
+    submitter both parse with artifacts.unpack_*, which refuses pickles.
+    """
+    payload = await request.body()
+
+    if not payload:
+        raise HTTPException(status_code=400, detail="Artifact body is empty.")
+    if len(payload) > MAX_ARTIFACT_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Artifact is {len(payload)} bytes; the limit is {MAX_ARTIFACT_BYTES}.",
+        )
+
+    kind = request.query_params.get("kind", "dataset")
+    if kind not in ("dataset", "weights"):
+        raise HTTPException(status_code=400, detail=f"Unknown artifact kind: {kind}")
+
+    summary = {}
+
+    # A browser cannot easily produce .npz, so CSV is converted here. Parsing is
+    # plain text handling -- an uploaded file still cannot execute anything.
+    if request.query_params.get("format", "").lower() == "csv":
+        from backend.service.artifacts import ArtifactError, pack_dataset, parse_csv_dataset
+        try:
+            features, labels, class_names = parse_csv_dataset(payload)
+            payload = pack_dataset(features, labels)
+        except ArtifactError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+        summary = {
+            "rows": int(features.shape[0]),
+            "features": int(features.shape[1]),
+            "classes": len(set(labels.tolist())),
+            "class_names": class_names,
+        }
+        logger.info(
+            f"Converted CSV upload: {summary['rows']} rows x {summary['features']} features, "
+            f"{summary['classes']} classes"
+        )
+
+    bucket = AsyncIOMotorGridFSBucket(db.db, bucket_name="artifacts")
+    artifact_id = await bucket.upload_from_stream(
+        kind,
+        payload,
+        metadata={"kind": kind, "uploaded_at": datetime.utcnow(), "bytes": len(payload)},
+    )
+
+    logger.info(f"Stored {kind} artifact {artifact_id} ({len(payload)} bytes)")
+    return {
+        "status": "success",
+        "artifact_id": str(artifact_id),
+        "bytes": len(payload),
+        **summary,
+    }
+
+
+@app.get("/artifacts/{artifact_id}")
+async def download_artifact(artifact_id: str, db: Database = Depends(get_db)):
+    """Return a stored blob verbatim."""
+    try:
+        object_id = ObjectId(artifact_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Malformed artifact id.")
+
+    bucket = AsyncIOMotorGridFSBucket(db.db, bucket_name="artifacts")
+
+    try:
+        stream = await bucket.open_download_stream(object_id)
+        payload = await stream.read()
+    except Exception as e:
+        logger.warning(f"Artifact {artifact_id} could not be read: {e}")
+        raise HTTPException(status_code=404, detail="Artifact not found.")
+
+    return Response(content=payload, media_type="application/octet-stream")
+
+
+async def _read_artifact(db, artifact_id: str) -> bytes:
+    bucket = AsyncIOMotorGridFSBucket(db.db, bucket_name="artifacts")
+    stream = await bucket.open_download_stream(ObjectId(artifact_id))
+    return await stream.read()
+
+
+async def _write_artifact(db, payload: bytes, kind: str) -> str:
+    bucket = AsyncIOMotorGridFSBucket(db.db, bucket_name="artifacts")
+    artifact_id = await bucket.upload_from_stream(
+        kind, payload,
+        metadata={"kind": kind, "uploaded_at": datetime.utcnow(), "bytes": len(payload)},
+    )
+    return str(artifact_id)
+
+
+async def prepare_dataset_split(db, dataset_id: str, seed: int):
+    """Split a submitted dataset, keeping a holdout the node will never see.
+
+    Returns (train_artifact_id, holdout_artifact_id). The node is handed only
+    the training half, so scoring the returned weights on the holdout is a
+    genuine test of whether it learned anything.
+    """
+    from backend.service.artifacts import pack_dataset, unpack_dataset
+    from backend.service.verification import split_holdout
+
+    raw = await _read_artifact(db, dataset_id)
+    x, y = unpack_dataset(raw)          # safe loader: refuses anything executable
+
+    train_x, train_y, holdout_x, holdout_y = split_holdout(
+        x, y, holdout_fraction=HOLDOUT_FRACTION, seed=seed
+    )
+
+    train_id = await _write_artifact(db, pack_dataset(train_x, train_y), "dataset")
+    holdout_id = await _write_artifact(db, pack_dataset(holdout_x, holdout_y), "holdout")
+
+    logger.info(
+        f"Split dataset {dataset_id}: {train_x.shape[0]} train rows to the node, "
+        f"{holdout_x.shape[0]} held back for verification."
+    )
+    return train_id, holdout_id
+
+
+@app.post("/verify-task/{task_id}")
+async def verify_task(task_id: str, db: Database = Depends(get_db)):
+    """Score a returned model against the holdout the node never received."""
+    task = await db.tasks_collection.find_one({"_id": task_id})
+    if not task:
+        raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+
+    if task.get("status") != "completed":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Task is {task.get('status')}; only completed tasks can be verified.",
+        )
+
+    holdout_id = task.get("holdout_artifact_id")
+    weights_id = task.get("weights_id")
+
+    if not holdout_id:
+        raise HTTPException(status_code=409, detail="This task has no holdout to verify against.")
+    if not weights_id:
+        raise HTTPException(status_code=409, detail="The node returned no weights to verify.")
+
+    from backend.service.artifacts import unpack_dataset, unpack_state_dict
+    from backend.service.verification import summarise, verify_training_result
+
+    try:
+        holdout_x, holdout_y = unpack_dataset(await _read_artifact(db, holdout_id))
+        state_dict = unpack_state_dict(await _read_artifact(db, weights_id))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not load artifacts: {e}")
+
+    task_data = task.get("task_data", {}) or {}
+    spec = task_data.get("model_spec") or {}
+
+    # Evaluation is CPU-bound; keep it off the event loop.
+    report = await asyncio.to_thread(
+        verify_training_result,
+        state_dict, spec, holdout_x, holdout_y,
+        task.get("metrics", {}),
+    )
+
+    await db.tasks_collection.update_one(
+        {"_id": task_id},
+        {"$set": {"verification": report, "verified_at": datetime.utcnow()}},
+    )
+
+    logger.info(f"Task {task_id} verification: {summarise(report)}")
+    return {"task_id": task_id, **report}
 
 
 @app.get("/generate-challenge/{node_id}")

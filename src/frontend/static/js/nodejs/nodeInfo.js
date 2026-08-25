@@ -127,10 +127,10 @@ export function initNodeInfoManager() {
                     const gpuDetailsHTML = nodeGpuList.map(gpu => {
                         const temp = gpu.temperature ?? '?';
                         const tempCritical = gpu.temperature_critical ?? 'N/A';
-                        const temperatureColor = temp === '?' ? 'gray'
-                            : temp < 50 ? 'green'
-                            : temp < 70 ? 'orange'
-                            : 'red';
+                        const temperatureColor = temp === '?' ? 'var(--text-faint)'
+                            : temp < 50 ? 'var(--success)'
+                            : temp < 70 ? 'var(--warning)'
+                            : 'var(--danger)';
 
                         return `
                             <div class="node-detail">
@@ -141,7 +141,7 @@ export function initNodeInfoManager() {
                                     ${gpu.used_memory ?? '?'} MB used,
                                     ${gpu.load_percentage ?? '?'}% load,
                                     <span style="color:${temperatureColor}; font-weight:bold;">${temp}°C</span>
-                                    <span style="color:gray;">(Critical: ${tempCritical}°C)</span>
+                                    <span style="color:var(--text-faint);">(Critical: ${tempCritical}°C)</span>
                                 </span>
                             </div>
                         `;

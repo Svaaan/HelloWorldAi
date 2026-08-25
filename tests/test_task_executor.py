@@ -12,6 +12,18 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'
 from backend.service import taskExecutor  # noqa: E402
 from backend.service.taskExecutor import describe_pool, execute_task  # noqa: E402
 
+try:
+    import torch  # noqa: F401
+    HAVE_TORCH = True
+except ImportError:
+    HAVE_TORCH = False
+
+
+def requires_torch(fn):
+    """Training runs for real, so these need torch present."""
+    fn.requires_torch = True
+    return fn
+
 
 def run(task_data):
     """Execute a task, returning (outcome, logs)."""
@@ -45,6 +57,7 @@ class fake_gpus:
 
 # --- dispatch ------------------------------------------------------------
 
+@requires_torch
 def test_known_task_type_completes():
     outcome, logs = run({"task_type": "llm_training", "model_name": "demo"})
     assert outcome["status"] == "completed"
@@ -65,7 +78,7 @@ def test_missing_and_empty_task_data_fail_cleanly():
 
 
 def test_handler_exception_is_reported_not_raised():
-    def boom(task_data, log):
+    def boom(task_data, log, dataset=None):
         raise RuntimeError("GPU fell over")
 
     taskExecutor.HANDLERS["explode"] = boom
@@ -86,12 +99,14 @@ def test_outcome_always_has_the_keys_the_node_reports():
 
 # --- batch size handling -------------------------------------------------
 
+@requires_torch
 def test_batch_size_is_taken_from_hyperparameters():
     outcome, _ = run({"task_type": "llm_training", "model_name": "m",
                       "hyperparameters": {"batch_size": 256}})
     assert outcome["metrics"]["batch_size"] == 256
 
 
+@requires_torch
 def test_invalid_batch_sizes_fall_back_to_the_default():
     for bad in ["abc", None, 0, -5, {}]:
         outcome, _ = run({"task_type": "llm_training", "model_name": "m",
@@ -99,6 +114,7 @@ def test_invalid_batch_sizes_fall_back_to_the_default():
         assert outcome["metrics"]["batch_size"] == taskExecutor.DEFAULT_BATCH_SIZE, bad
 
 
+@requires_torch
 def test_missing_hyperparameters_uses_the_default():
     outcome, _ = run({"task_type": "llm_training", "model_name": "m"})
     assert outcome["metrics"]["batch_size"] == taskExecutor.DEFAULT_BATCH_SIZE
@@ -109,12 +125,14 @@ def test_missing_hyperparameters_uses_the_default():
 def test_pool_is_described_in_the_task_log():
     logs = []
     with fake_gpus(FAKE_POOL):
-        summary = describe_pool(256, logs.append)
+        summary, plan = describe_pool(256, logs.append)
 
     joined = "\n".join(logs)
     assert "63.7 TFLOPS across 3 GPU(s)" in joined, joined
     assert "cuda:0" in joined and "cuda:1" in joined and "cuda:2" in joined
     assert summary["device_count"] == 3
+    # The plan handed to the trainer is the proportional split, not an even one.
+    assert [p["batch_size"] for p in plan] == [153, 66, 37], plan
 
 
 def test_log_calls_out_the_gain_over_an_even_split():
@@ -135,17 +153,22 @@ def test_identical_gpus_do_not_advertise_a_pointless_speedup():
     assert not any("even split" in line for line in logs)
 
 
+@requires_torch
 def test_machine_without_gpus_says_so_and_still_completes():
     logs = []
     with fake_gpus([]):
-        summary = describe_pool(64, logs.append)
-        outcome, task_logs = run({"task_type": "llm_training", "model_name": "m"})
+        summary, plan = describe_pool(64, logs.append)
+        outcome, task_logs = run({"task_type": "llm_training", "model_name": "m",
+                                  "hyperparameters": {"steps": 1, "batch_size": 8}})
 
     assert summary["device_count"] == 0
+    assert plan == []
     assert any("No benchmarked GPU" in line for line in logs)
+    # Falls back to CPU rather than failing, so a GPU-less node still works.
     assert outcome["status"] == "completed"
 
 
+@requires_torch
 def test_metrics_carry_the_measured_pool_total():
     with fake_gpus(FAKE_POOL):
         outcome, _ = run({"task_type": "llm_training", "model_name": "m"})
@@ -153,9 +176,19 @@ def test_metrics_carry_the_measured_pool_total():
     assert outcome["metrics"]["device_count"] == 3
 
 
-def test_results_are_flagged_simulated_until_the_real_executor_lands():
-    outcome, _ = run({"task_type": "llm_training", "model_name": "m"})
-    assert outcome["metrics"]["simulated"] is True
+@requires_torch
+def test_training_reports_real_measured_work():
+    outcome, _ = run({"task_type": "llm_training", "model_name": "m",
+                      "hyperparameters": {"steps": 2, "batch_size": 8}})
+    metrics = outcome["metrics"]
+
+    # Nothing is simulated any more: these come from an actual training run.
+    assert "simulated" not in metrics
+    assert metrics["parameters"] > 0
+    assert metrics["samples_per_second"] > 0
+    assert metrics["initial_loss"] is not None
+    assert metrics["final_loss"] is not None
+    assert metrics["steps"] == 2
 
 
 # --- standalone runner ---------------------------------------------------
@@ -164,7 +197,12 @@ def _main():
     tests = [(n, o) for n, o in sorted(globals().items())
              if n.startswith('test_') and callable(o)]
     failed = []
+    skipped = 0
     for name, fn in tests:
+        if getattr(fn, "requires_torch", False) and not HAVE_TORCH:
+            skipped += 1
+            print("  SKIP  %s (needs torch)" % name)
+            continue
         try:
             fn()
             print("  PASS  %s" % name)
@@ -175,7 +213,9 @@ def _main():
             failed.append(name)
             print("  ERROR %s: %s: %s" % (name, type(e).__name__, e))
     print("")
-    summary = "%d/%d passed" % (len(tests) - len(failed), len(tests))
+    summary = "%d/%d passed" % (len(tests) - len(failed) - skipped, len(tests) - skipped)
+    if skipped:
+        summary += " (%d skipped, no torch)" % skipped
     if failed:
         summary += " -- FAILED: %s" % ", ".join(failed)
     print(summary)

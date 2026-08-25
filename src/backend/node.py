@@ -17,10 +17,14 @@ from backend.service.usageService import get_usage
 from backend.shared.nodeState import node_info
 from backend.executeTask import validate_task_data
 from pydantic import BaseModel
-from backend.database.nodedb import db  
-from backend.service.authNodeService import validate_gpu, trigger_background_connection
+from backend.service.authNodeService import (
+    validate_gpu,
+    trigger_background_connection,
+    find_node_id_by_public_key,
+)
 from backend.utils.config import COORDINATOR_URL
 from backend.service.taskExecutor import execute_task
+from backend.service.artifacts import ArtifactError, pack_state_dict, unpack_dataset
 
 # Initialize logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -104,12 +108,12 @@ async def finalize_connection(request: Request):
         if node_info["public_key"] != req_public_key:
             raise HTTPException(status_code=400, detail="Public key mismatch. Aborting.")
 
-        # 🔎 Recover node_id from the DB, or register with the coordinator if this
-        # public key has never been seen before (first-time registration).
-        existing_node = await db.nodes.find_one({"public_key": req_public_key})
+        # 🔎 Ask the coordinator whether this key is already registered, or
+        # register it if not. The node has no database of its own.
+        existing_id = await find_node_id_by_public_key(req_public_key)
 
-        if existing_node:
-            node_id = existing_node["_id"]
+        if existing_id:
+            node_id = existing_id
             node_info["node_id"] = node_id
         else:
             logger.info("🆕 Public key not registered yet — registering with the coordinator.")
@@ -137,17 +141,8 @@ async def finalize_connection(request: Request):
         node_info["system_info"] = capabilities
         node_info["total_gpu_tflops"] = capabilities.get("total_gpu_tflops", 0)
 
-        # Optional: log re-connection in DB
-        await db.nodes.update_one(
-            {"_id": node_id},
-            {
-                "$set": {
-                    "last_connected": datetime.utcnow(),
-                    "isConnected": True
-                }
-            }
-        )
-
+        # The coordinator marks the node connected from the heartbeat that
+        # follows the session handover, so there is nothing to write here.
         logger.info(f"✅ Finalize connection complete for node {node_id}")
         return {
             "status": "success",
@@ -363,19 +358,80 @@ async def claim_and_run_one_task() -> bool:
     task_logs[task_id] = logs
     log("Task started")
 
+    # Fetch the submitter's dataset, if this job carries one. unpack_dataset
+    # refuses anything that could execute code, so a hostile payload fails here
+    # rather than on this contributor's machine.
+    dataset = None
+    dataset_id = task.get("dataset_id")
+    if dataset_id:
+        try:
+            log(f"Downloading dataset {dataset_id}")
+            async with httpx.AsyncClient() as client:
+                res = await client.get(
+                    f"{COORDINATOR_URL}/artifacts/{dataset_id}",
+                    headers=headers, timeout=120,
+                )
+                res.raise_for_status()
+            dataset = unpack_dataset(res.content)
+            log(f"Dataset received: {dataset[0].shape[0]:,} rows")
+        except ArtifactError as e:
+            log(f"Rejected the dataset: {e}")
+            await _report_result(task_id, headers,
+                                 {"status": "failed",
+                                  "result": f"Dataset rejected: {e}",
+                                  "metrics": {}}, logs)
+            return True
+        except Exception as e:
+            log(f"Could not download the dataset: {e}")
+            await _report_result(task_id, headers,
+                                 {"status": "failed",
+                                  "result": f"Dataset download failed: {e}",
+                                  "metrics": {}}, logs)
+            return True
+
     try:
         # execute_task blocks (and real training will block hard), so it runs off
         # the event loop or heartbeats would stall for the whole job.
-        outcome = await asyncio.to_thread(execute_task, task.get("task_data", {}), log)
+        outcome = await asyncio.to_thread(
+            execute_task, task.get("task_data", {}), log, dataset
+        )
     except Exception as e:
         logger.error(f"Task {task_id} raised: {e}")
         log(f"Error processing task: {e}")
         outcome = {"status": "failed", "result": f"Error: {e}"}
 
+    # Hand the trained weights back so the submitter can collect them.
+    weights_id = None
+    state_dict = outcome.get("state_dict")
+    if state_dict:
+        try:
+            blob = pack_state_dict(state_dict)
+            async with httpx.AsyncClient() as client:
+                res = await client.post(
+                    f"{COORDINATOR_URL}/artifacts?kind=weights",
+                    content=blob,
+                    headers={**headers, "Content-Type": "application/octet-stream"},
+                    timeout=120,
+                )
+                res.raise_for_status()
+            weights_id = (res.json() or {}).get("artifact_id")
+            log(f"Uploaded trained weights ({len(blob):,} bytes) as {weights_id}")
+        except Exception as e:
+            # The training itself succeeded, so report it rather than losing it.
+            log(f"Could not upload trained weights: {e}")
+
+    await _report_result(task_id, headers, outcome, logs, weights_id)
+    completed_tasks.append({"task_id": task_id, "status": outcome.get("status")})
+    return True
+
+
+async def _report_result(task_id, headers, outcome, logs, weights_id=None):
+    """Send a task outcome to the coordinator."""
     payload = {
         "status": outcome.get("status", "completed"),
         "result": outcome.get("result"),
         "metrics": outcome.get("metrics", {}),
+        "weights_id": weights_id,
         "logs": logs,
     }
 
@@ -391,9 +447,6 @@ async def claim_and_run_one_task() -> bool:
         # The coordinator requeues tasks whose node went quiet, so a lost report
         # means the task is retried rather than dropped.
         logger.error(f"Could not report result for {task_id}: {e}")
-
-    completed_tasks.append({"task_id": task_id, "status": payload["status"]})
-    return True
 
 
 async def task_poll_loop():

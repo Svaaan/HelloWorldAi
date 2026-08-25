@@ -1,19 +1,17 @@
 """Run one task on this machine's own hardware.
 
-This module is the seam where real compute lands. Everything around it -- the
-node claiming work from the coordinator, logging, reporting results, retrying
-abandoned tasks -- is finished. Only `_run_llm_training` is still simulated.
+This module dispatches a task to a handler and reports the outcome. It is
+deliberately free of FastAPI, Mongo and HTTP imports so it can be tested without
+the rest of the node.
 
-It is deliberately free of FastAPI, Mongo and HTTP imports so it can be tested
-without the rest of the node, and it already benchmarks and plans across
-whatever GPUs the machine has, so the pool a job would run on shows up in the
-task log today.
+Training runs for real on this machine's GPUs: the batch is split across them in
+proportion to measured throughput (see poolPlanner) and executed by trainer.py.
 """
 
 import logging
-import time
-from typing import Any, Callable, Dict
+from typing import Any, Callable, Dict, List, Tuple
 
+from backend.service import trainer
 from backend.service.gpuBenchmark import benchmark_all
 from backend.service.poolPlanner import plan_batch_split, pool_summary
 
@@ -22,15 +20,19 @@ logger = logging.getLogger(__name__)
 DEFAULT_BATCH_SIZE = 64
 
 
-def describe_pool(batch_size: int, log: Callable[[str], None]) -> Dict[str, Any]:
-    """Benchmark local GPUs and log how a batch would be split across them."""
+def describe_pool(batch_size: int,
+                  log: Callable[[str], None]) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
+    """Benchmark local GPUs and log how a batch would be split across them.
+
+    Returns (summary, plan). The plan is what the trainer shards the batch by.
+    """
     devices = benchmark_all()
     summary = pool_summary(devices)
     plan = plan_batch_split(devices, batch_size)
 
     if not plan:
         log("No benchmarked GPU available on this machine.")
-        return summary
+        return summary, []
 
     log(f"Pool: {summary['pooled_tflops']} TFLOPS across {summary['device_count']} GPU(s)")
 
@@ -42,16 +44,12 @@ def describe_pool(batch_size: int, log: Callable[[str], None]) -> Dict[str, Any]
         log(f"  cuda:{part['device_index']} {part['name']} <- "
             f"{part['batch_size']} of {batch_size} samples")
 
-    return summary
+    return summary, plan
 
 
-def _run_llm_training(task_data: Dict[str, Any], log: Callable[[str], None]) -> Dict[str, Any]:
-    """SIMULATED. Replace this body with a real training loop.
-
-    The replacement consumes the same plan_batch_split() output that
-    describe_pool() logs, giving each local GPU a share of the batch sized to
-    its measured throughput.
-    """
+def _run_llm_training(task_data: Dict[str, Any], log: Callable[[str], None],
+                      dataset=None) -> Dict[str, Any]:
+    """Train for real on this machine's GPUs, sharded by measured throughput."""
     model_name = task_data.get("model_name")
     hyperparameters = task_data.get("hyperparameters", {}) or {}
 
@@ -62,33 +60,43 @@ def _run_llm_training(task_data: Dict[str, Any], log: Callable[[str], None]) -> 
     if batch_size <= 0:
         batch_size = DEFAULT_BATCH_SIZE
 
-    summary = describe_pool(batch_size, log)
+    summary, plan = describe_pool(batch_size, log)
 
-    log(f"Training {model_name} with hyperparameters {hyperparameters}")
-    for i in range(1, 4):
-        time.sleep(1)
-        log(f"Processing batch {i}/3")
-    log(f"Training {model_name} completed!")
+    outcome = trainer.train(task_data, log, plan,
+                            batch_size=batch_size, dataset=dataset)
+    metrics = outcome["metrics"]
+    metrics["pooled_tflops"] = summary["pooled_tflops"]
+    metrics["device_count"] = max(summary["device_count"], len(metrics.get("devices", [])))
+
+    data_note = (
+        f" on {metrics['dataset_rows']:,} rows" if metrics.get("dataset_rows")
+        else " on synthetic data"
+    )
 
     return {
         "status": "completed",
-        "result": f"Training of {model_name} completed successfully.",
-        "metrics": {
-            "pooled_tflops": summary["pooled_tflops"],
-            "device_count": summary["device_count"],
-            "batch_size": batch_size,
-            "simulated": True,
-        },
+        "result": (
+            f"Trained {model_name or 'model'} "
+            f"({metrics['parameters']:,} parameters) for {metrics['steps']} steps"
+            f"{data_note}. "
+            f"Loss {metrics['initial_loss']} -> {metrics['final_loss']}, "
+            f"{metrics['achieved_tflops']} TFLOPS achieved."
+        ),
+        "metrics": metrics,
+        "state_dict": outcome["state_dict"],
     }
 
 
-HANDLERS: Dict[str, Callable[[Dict[str, Any], Callable[[str], None]], Dict[str, Any]]] = {
+HANDLERS: Dict[str, Callable[..., Dict[str, Any]]] = {
     "llm_training": _run_llm_training,
 }
 
 
-def execute_task(task_data: Dict[str, Any], log: Callable[[str], None]) -> Dict[str, Any]:
-    """Dispatch a task to its handler and return {status, result, metrics}.
+def execute_task(task_data: Dict[str, Any], log: Callable[[str], None],
+                 dataset=None) -> Dict[str, Any]:
+    """Dispatch a task and return {status, result, metrics[, state_dict]}.
+
+    `dataset` is the (x, y) pair the node downloaded for this task, or None.
 
     Never raises: a failing task reports `failed` so the node can hand the
     outcome back rather than looking like it went silent.
@@ -106,7 +114,7 @@ def execute_task(task_data: Dict[str, Any], log: Callable[[str], None]) -> Dict[
         }
 
     try:
-        return handler(task_data, log)
+        return handler(task_data, log, dataset)
     except Exception as e:
         logger.exception("Task handler raised")
         log(f"Error processing task: {e}")

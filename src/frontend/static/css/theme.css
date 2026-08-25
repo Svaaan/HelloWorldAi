@@ -1,0 +1,464 @@
+/* ============================================================
+   HelloWorldAi — shared dark theme
+   ------------------------------------------------------------
+   Single source of visual truth. Load this BEFORE any page CSS.
+
+   It also defines the older variable names that distribution.css,
+   modalHandler.css and setup.css already reference. Those were
+   never defined anywhere, so the distribution page and its modal
+   were rendering with transparent cards and unstyled text.
+   ============================================================ */
+
+:root {
+  /* --- surfaces: layered, never pure black --- */
+  --bg:            #0b0e13;
+  --bg-elevated:   #10141b;
+  --surface:       #141922;
+  --surface-2:     #1a2029;
+  --surface-3:     #212936;   /* hover */
+
+  /* --- text --- */
+  --text:          #e7ebf2;
+  --text-muted:    #98a3b6;
+  --text-faint:    #6b7688;
+
+  /* --- accent: the original cyan, eased off the neon --- */
+  --accent:        #22d3ee;
+  --accent-strong: #67e8f9;
+  --accent-dim:    #0e7490;
+  --accent-wash:   rgba(34, 211, 238, 0.10);
+  --accent-edge:   rgba(34, 211, 238, 0.28);
+
+  /* --- state --- */
+  --success:       #34d399;
+  --success-wash:  rgba(52, 211, 153, 0.12);
+  --warning:       #fbbf24;
+  --warning-wash:  rgba(251, 191, 36, 0.12);
+  --danger:        #f87171;
+  --danger-wash:   rgba(248, 113, 113, 0.12);
+
+  /* --- lines --- */
+  --border:        rgba(255, 255, 255, 0.07);
+  --border-strong: rgba(255, 255, 255, 0.13);
+
+  /* --- corners: generous and consistent --- */
+  --r-xs:   6px;
+  --r-sm:   10px;
+  --r-md:   14px;
+  --r-lg:   18px;
+  --r-xl:   24px;
+  --r-pill: 999px;
+
+  /* --- depth: soft and layered, no neon glow --- */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.30);
+  --shadow:    0 4px 16px rgba(0, 0, 0, 0.34);
+  --shadow-md: 0 10px 30px rgba(0, 0, 0, 0.40);
+  --shadow-lg: 0 20px 50px rgba(0, 0, 0, 0.48);
+  --ring:      0 0 0 3px rgba(34, 211, 238, 0.32);
+
+  /* --- motion --- */
+  --ease:      cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-out:  cubic-bezier(0.16, 1, 0.3, 1);
+  --t-fast:    140ms;
+  --t:         220ms;
+  --t-slow:    380ms;
+
+  --font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", "Consolas", "Monaco", monospace;
+
+  /* --- compatibility aliases for existing stylesheets --- */
+  --primary:        var(--accent);
+  --primary-hover:  var(--accent-strong);
+  --background:     var(--bg);
+  --foreground:     var(--text);
+  --card:           var(--surface);
+  --card-bg:        var(--surface);
+  --secondary:      var(--surface-2);
+  --muted:          var(--text-muted);
+  --text-primary:   var(--text);
+  --text-secondary: var(--text-muted);
+  --error:          var(--danger);
+  --code-bg:        var(--bg-elevated);
+  --code-text:      var(--text);
+  --radius:         var(--r-md);
+  --shadow-legacy:  var(--shadow);
+  --glow:           var(--shadow-sm);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--text);
+  background-color: var(--bg);
+  /* Very soft light from the top, so the page is not a flat slab. */
+  background-image:
+    radial-gradient(1200px 600px at 50% -280px, rgba(34, 211, 238, 0.06), transparent 70%);
+  background-attachment: fixed;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+h1, h2, h3, h4 {
+  color: var(--text);
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+  transition: color var(--t-fast) var(--ease);
+}
+
+a:hover {
+  color: var(--accent-strong);
+}
+
+/* Visible focus for keyboard users, invisible for mouse users. */
+:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+  border-radius: var(--r-sm);
+}
+
+/* --- surfaces ------------------------------------------------ */
+
+.surface,
+.card {
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow);
+}
+
+/* --- buttons ------------------------------------------------- */
+
+button,
+.btn {
+  font-family: inherit;
+  font-size: 0.9375rem;
+  font-weight: 550;
+  line-height: 1;
+  padding: 0.7rem 1.15rem;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  background-color: var(--accent);
+  color: #04222a;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  text-decoration: none;
+  transition:
+    background-color var(--t-fast) var(--ease),
+    transform var(--t-fast) var(--ease),
+    box-shadow var(--t-fast) var(--ease),
+    opacity var(--t-fast) var(--ease);
+}
+
+button:hover,
+.btn:hover {
+  background-color: var(--accent-strong);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow);
+}
+
+button:active,
+.btn:active {
+  transform: translateY(0);
+  box-shadow: var(--shadow-sm);
+}
+
+button:disabled,
+.btn:disabled,
+button[disabled] {
+  background-color: var(--surface-2);
+  color: var(--text-faint);
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+  opacity: 0.75;
+}
+
+/* Quieter variant for secondary actions. */
+.btn-ghost,
+.refresh-button,
+.toggle-btn {
+  background-color: var(--surface-2);
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+
+.btn-ghost:hover,
+.refresh-button:hover,
+.toggle-btn:hover {
+  background-color: var(--surface-3);
+  color: var(--text);
+}
+
+/* --- form controls ------------------------------------------- */
+
+input[type="text"],
+input[type="file"],
+input[type="number"],
+input[type="password"],
+textarea,
+select {
+  width: 100%;
+  font-family: inherit;
+  font-size: 0.9375rem;
+  color: var(--text);
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  padding: 0.7rem 0.85rem;
+  transition:
+    border-color var(--t-fast) var(--ease),
+    box-shadow var(--t-fast) var(--ease),
+    background-color var(--t-fast) var(--ease);
+}
+
+input:hover,
+textarea:hover,
+select:hover {
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  outline: none;
+  border-color: var(--accent-edge);
+  box-shadow: var(--ring);
+  background-color: var(--surface);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-faint);
+}
+
+textarea {
+  resize: vertical;
+  min-height: 120px;
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
+/* --- code ---------------------------------------------------- */
+
+code,
+pre {
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+}
+
+pre {
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: 1rem 1.1rem;
+  overflow-x: auto;
+  color: var(--text);
+}
+
+/* --- status pills -------------------------------------------- */
+
+.status-connected,
+.status-available,
+.status-online,
+.status-disconnected,
+.status-unavailable,
+.status-offline {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.22rem 0.7rem;
+  border-radius: var(--r-pill);
+  font-size: 0.8125rem;
+  font-weight: 550;
+  line-height: 1.5;
+}
+
+.status-connected,
+.status-available,
+.status-online {
+  color: var(--success);
+  background-color: var(--success-wash);
+}
+
+.status-disconnected,
+.status-unavailable,
+.status-offline {
+  color: var(--danger);
+  background-color: var(--danger-wash);
+}
+
+.status-connected::before,
+.status-available::before,
+.status-online::before,
+.status-disconnected::before,
+.status-unavailable::before,
+.status-offline::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: currentColor;
+  flex-shrink: 0;
+}
+
+.status-connected::before,
+.status-available::before,
+.status-online::before {
+  animation: hw-pulse 2.4s var(--ease) infinite;
+}
+
+@keyframes hw-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.35; }
+}
+
+/* --- messages ------------------------------------------------ */
+
+.success-message,
+.error-message {
+  border-radius: var(--r-sm);
+  padding: 0.7rem 0.9rem;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  border: 1px solid transparent;
+}
+
+.success-message {
+  color: var(--success);
+  background-color: var(--success-wash);
+  border-color: rgba(52, 211, 153, 0.22);
+}
+
+.error-message {
+  color: var(--danger);
+  background-color: var(--danger-wash);
+  border-color: rgba(248, 113, 113, 0.22);
+}
+
+/* --- modals -------------------------------------------------- */
+
+.modal-backdrop,
+.modal {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(4, 6, 10, 0.72);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  z-index: 1000;
+  padding: 1.25rem;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal-backdrop { display: none; }
+.modal          { display: flex; }
+.modal.hidden   { display: none; }
+
+.modal-container,
+.modal-content {
+  background-color: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow-lg);
+  color: var(--text);
+  padding: 1.75rem;
+  width: 100%;
+  max-width: 420px;
+  position: relative;
+  text-align: left;
+  animation: hw-rise var(--t) var(--ease-out);
+}
+
+.modal-content { max-width: 620px; }
+
+@keyframes hw-rise {
+  from { opacity: 0; transform: translateY(10px) scale(0.985); }
+  to   { opacity: 1; transform: translateY(0)    scale(1); }
+}
+
+.modal-close,
+.close-button {
+  position: absolute;
+  top: 0.85rem;
+  right: 0.85rem;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  font-size: 1.1rem;
+  line-height: 1;
+  color: var(--text-muted);
+  background-color: transparent;
+  border: none;
+  border-radius: var(--r-pill);
+  cursor: pointer;
+  transition: background-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+
+.modal-close:hover,
+.close-button:hover {
+  background-color: var(--surface-3);
+  color: var(--text);
+  transform: none;
+  box-shadow: none;
+}
+
+/* --- scrollbars ---------------------------------------------- */
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--surface-3) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: var(--surface-3);
+  border-radius: var(--r-pill);
+  border: 2px solid var(--bg);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: #2c3746;
+}
+
+/* --- respect motion preferences ------------------------------ */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

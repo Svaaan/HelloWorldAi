@@ -1,7 +1,7 @@
 import os
 import httpx
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from fastapi.templating import Jinja2Templates
 from backend.utils.config import NODE_URL, COORDINATOR_URL
 
@@ -200,6 +200,51 @@ async def proxy_node_session(request: Request):
         return {"error": f"Failed to reach node at {NODE_URL}: {str(e)}"}
     except Exception as e:
         return {"error": f"Unexpected error: {str(e)}"}
+
+
+@router.post("/verify-task/{task_id}")
+async def proxy_verify_task(task_id: str):
+    """Score a completed task's model against the withheld holdout."""
+    try:
+        async with httpx.AsyncClient() as client:
+            res = await client.post(f"{COORDINATOR_URL}/verify-task/{task_id}", timeout=120)
+            if res.status_code >= 400:
+                raise HTTPException(status_code=res.status_code, detail=safe_json(res))
+            return safe_json(res)
+    except httpx.RequestError as e:
+        return {"error": f"Failed to reach coordinator: {e}"}
+
+
+@router.post("/artifacts")
+async def proxy_upload_artifact(request: Request):
+    """Forward a dataset (or weights) blob to the coordinator's store."""
+    try:
+        body = await request.body()
+        async with httpx.AsyncClient() as client:
+            res = await client.post(
+                f"{COORDINATOR_URL}/artifacts",
+                params=dict(request.query_params),
+                content=body,
+                headers={"Content-Type": "application/octet-stream"},
+                timeout=120,
+            )
+            if res.status_code >= 400:
+                raise HTTPException(status_code=res.status_code, detail=safe_json(res))
+            return safe_json(res)
+    except httpx.RequestError as e:
+        return {"status": "error", "message": f"Failed to reach coordinator: {e}"}
+
+
+@router.get("/artifacts/{artifact_id}")
+async def proxy_download_artifact(artifact_id: str):
+    try:
+        async with httpx.AsyncClient() as client:
+            res = await client.get(f"{COORDINATOR_URL}/artifacts/{artifact_id}", timeout=120)
+            if res.status_code >= 400:
+                raise HTTPException(status_code=res.status_code, detail="Artifact not available.")
+            return Response(content=res.content, media_type="application/octet-stream")
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=502, detail=f"Failed to reach coordinator: {e}")
 
 
 @router.post("/submit-task/{node_id}")
