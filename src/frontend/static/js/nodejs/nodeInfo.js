@@ -1,3 +1,5 @@
+import { authHeaders } from "../connect/nodeSession.js";
+
 export function initNodeInfoManager() {
     let currentNodeId = localStorage.getItem("currentNodeId");
     let retryInterval = null;
@@ -206,8 +208,12 @@ export function initNodeInfoManager() {
         try {
             const res = await fetch(`/toggle-availability/${currentNodeId}`, {
                 method: "PATCH",
-                headers: { "Content-Type": "application/json" }
+                headers: authHeaders({ "Content-Type": "application/json" })
             });
+
+            if (res.status === 401 || res.status === 403) {
+                throw new Error("Session expired. Reconnect this node with its key file.");
+            }
 
             if (!res.ok) throw new Error(`Failed with status: ${res.status}`);
             const result = await res.json();
@@ -220,7 +226,7 @@ export function initNodeInfoManager() {
         } catch (err) {
             console.error("Error toggling availability:", err);
             if (availabilityToggle) availabilityToggle.checked = !isAvailable;
-            showToggleMessage("Failed to update availability", "error");
+            showToggleMessage(err.message || "Failed to update availability", "error");
         } finally {
             if (toggleProcessing) toggleProcessing.style.display = "none";
             if (availabilityToggle) availabilityToggle.disabled = false;
