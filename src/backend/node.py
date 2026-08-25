@@ -20,6 +20,7 @@ from pydantic import BaseModel
 from backend.database.nodedb import db  
 from backend.service.authNodeService import validate_gpu, trigger_background_connection
 from backend.utils.config import COORDINATOR_URL
+from backend.service.taskExecutor import execute_task
 
 # Initialize logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -40,6 +41,9 @@ app.add_middleware(
 # How often this node reports in to the coordinator. The coordinator marks a
 # node disconnected after 5 minutes without a heartbeat.
 HEARTBEAT_INTERVAL_SECONDS = int(os.getenv("HEARTBEAT_INTERVAL", 60))
+
+# How often an idle node asks the coordinator for work.
+TASK_POLL_INTERVAL_SECONDS = int(os.getenv("TASK_POLL_INTERVAL", 10))
 
 # Task queues
 task_queue: List[dict] = []
@@ -316,6 +320,97 @@ def reject_task(task_id: str):
 
     logger.info(f"Task {task_id} was rejected and removed from queue.")
     return {"status": "rejected", "message": f"Task {task_id} has been rejected."}
+
+
+async def claim_and_run_one_task() -> bool:
+    """Claim one task from the coordinator and run it. True if work was done.
+
+    The node reaches out; the coordinator never connects inward. That is what
+    lets a contributor behind a home router take part at all.
+    """
+    node_id = node_info.get("node_id")
+    token = node_info.get("session_token")
+
+    if not node_id or not token:
+        return False
+    if not node_info.get("accept_tasks", True):
+        return False
+
+    headers = {"Authorization": f"Bearer {token}"}
+
+    async with httpx.AsyncClient() as client:
+        res = await client.get(
+            f"{COORDINATOR_URL}/next-task/{node_id}", headers=headers, timeout=15
+        )
+
+    if res.status_code in (401, 403):
+        logger.warning("Coordinator rejected the session token while polling - clearing it.")
+        node_info.pop("session_token", None)
+        return False
+
+    res.raise_for_status()
+    task = (res.json() or {}).get("task")
+    if not task:
+        return False
+
+    task_id = task["task_id"]
+    logs = []
+
+    def log(message):
+        logger.info(f"[{task_id}] {message}")
+        logs.append(message)
+
+    task_logs[task_id] = logs
+    log("Task started")
+
+    try:
+        # execute_task blocks (and real training will block hard), so it runs off
+        # the event loop or heartbeats would stall for the whole job.
+        outcome = await asyncio.to_thread(execute_task, task.get("task_data", {}), log)
+    except Exception as e:
+        logger.error(f"Task {task_id} raised: {e}")
+        log(f"Error processing task: {e}")
+        outcome = {"status": "failed", "result": f"Error: {e}"}
+
+    payload = {
+        "status": outcome.get("status", "completed"),
+        "result": outcome.get("result"),
+        "metrics": outcome.get("metrics", {}),
+        "logs": logs,
+    }
+
+    try:
+        async with httpx.AsyncClient() as client:
+            report = await client.post(
+                f"{COORDINATOR_URL}/task-result/{task_id}",
+                json=payload, headers=headers, timeout=30,
+            )
+            report.raise_for_status()
+        logger.info(f"Reported {payload['status']} for task {task_id}")
+    except Exception as e:
+        # The coordinator requeues tasks whose node went quiet, so a lost report
+        # means the task is retried rather than dropped.
+        logger.error(f"Could not report result for {task_id}: {e}")
+
+    completed_tasks.append({"task_id": task_id, "status": payload["status"]})
+    return True
+
+
+async def task_poll_loop():
+    while True:
+        did_work = False
+        try:
+            did_work = await claim_and_run_one_task()
+        except Exception as e:
+            logger.warning(f"Task poll failed: {e}")
+        # Drain a backlog quickly, but idle politely when there is nothing to do.
+        await asyncio.sleep(0.5 if did_work else TASK_POLL_INTERVAL_SECONDS)
+
+
+@app.on_event("startup")
+async def start_task_poll_task():
+    asyncio.create_task(task_poll_loop())
+    logger.info(f"Task poller started (every {TASK_POLL_INTERVAL_SECONDS}s when idle).")
 
 
 # === Background Task ===

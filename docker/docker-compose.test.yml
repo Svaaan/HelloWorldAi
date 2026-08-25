@@ -68,6 +68,17 @@ services:
       - mongo_test
       - coordinator
     command: uvicorn src.backend.node:app --host 0.0.0.0 --port 9100
+    # Pass the host's NVIDIA GPUs into the container. Without this the image has
+    # the CUDA libraries but no devices: torch.cuda.is_available() is False and
+    # pynvml finds nothing, so the node is rejected for having no GPU.
+    # Requires the NVIDIA Container Toolkit on the host.
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     restart: always
     volumes:
       - ~/.cache/pip:/root/.cache/pip  # ✅ Optional: pip caching
