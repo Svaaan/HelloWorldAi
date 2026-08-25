@@ -58,7 +58,7 @@ def get_system_capabilities():
 
                 # Resolve the card once — core count and reference clock must come
                 # from the same database entry, or the TFLOPS figure is meaningless.
-                db_entry = find_gpu_entry(name)
+                db_entry = find_gpu_entry(name, memory_info.total / 1024 ** 2)
                 cuda_cores = db_entry.get('shaders') if db_entry else None
 
                 # NVML reports the *current* clock, which is near-idle on a quiet GPU.

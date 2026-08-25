@@ -20,8 +20,8 @@ from backend.service.gpuMatch import (  # noqa: E402
 )
 
 
-def _name(gpu_name):
-    entry = find_gpu_entry(gpu_name)
+def _name(gpu_name, total_memory_mb=None):
+    entry = find_gpu_entry(gpu_name, total_memory_mb)
     return entry['name'] if entry else None
 
 
@@ -125,6 +125,37 @@ def test_blank_input_returns_none():
 def test_non_nvidia_names_do_not_match():
     assert find_gpu_entry("AMD Radeon RX 7900 XTX") is None
     assert find_gpu_entry("Intel Arc A770") is None
+
+
+# --- memory variants -----------------------------------------------------
+
+def test_memory_variants_are_resolved_by_reported_vram():
+    # NVML reports a bare "RTX 3050" for boards that ship as 4/6/8 GB with
+    # 2048/2304/2560 cores. The installed VRAM is what tells them apart.
+    for vram_mb, expected_cores in [(4096, 2048), (6144, 2304), (8192, 2560)]:
+        assert get_cuda_cores("NVIDIA GeForce RTX 3050", vram_mb) == expected_cores, vram_mb
+
+
+def test_memory_variant_without_vram_refuses_to_guess():
+    assert find_gpu_entry("NVIDIA GeForce RTX 3050") is None
+
+
+def test_bare_name_never_resolves_to_a_different_sku():
+    # "RTX 3050 Ti Max-Q" and the OEM board are different parts and must not be
+    # picked up by a bare "RTX 3050" probe.
+    entry = find_gpu_entry("NVIDIA GeForce RTX 3050", 8192)
+    assert entry is not None
+    for marker in ("Ti", "OEM", "Max-Q", "Mobile"):
+        assert marker not in entry['name'], entry['name']
+
+
+def test_laptop_ti_resolves_to_the_mobile_ti_part():
+    assert _name("NVIDIA GeForce RTX 3050 Ti Laptop GPU") == "GeForce RTX 3050 Ti Mobile"
+
+
+def test_vram_does_not_disturb_unambiguous_lookups():
+    assert _name("NVIDIA GeForce RTX 3070", 8192) == "GeForce RTX 3070"
+    assert _name("NVIDIA GeForce RTX 4060 Ti", 16384) == "GeForce RTX 4060 Ti 16 GB"
 
 
 # --- clock parsing -------------------------------------------------------

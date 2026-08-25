@@ -45,7 +45,7 @@ export function showNodeModal(node) {
         taskResponseMessage.textContent = "Sending task... ⏳";
 
         try {
-            const response = await fetch(`/queue-task/${node.node_id}`, {
+            const response = await fetch(`/submit-task/${node.node_id}`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json"
@@ -55,12 +55,14 @@ export function showNodeModal(node) {
 
             const result = await response.json();
 
-            if (result.status === "success") {
+            if (response.ok && result.status === "success") {
                 taskResponseMessage.style.color = "green";
-                taskResponseMessage.textContent = `✅ Task request sent: ${result.message}`;
+                taskResponseMessage.textContent =
+                    `✅ Task queued (${result.task_id}). The node will pick it up on its next poll.`;
             } else {
+                const detail = result.detail?.detail || result.detail || result.message;
                 taskResponseMessage.style.color = "red";
-                taskResponseMessage.textContent = `⚠️ ${result.message || "Error sending task."}`;
+                taskResponseMessage.textContent = `⚠️ ${detail || "Error sending task."}`;
             }
 
         } catch (error) {

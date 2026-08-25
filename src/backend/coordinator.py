@@ -13,6 +13,7 @@ from backend.service.authNodeService import verify_signature
 from backend.service.tokenService import issue_node_token, read_node_token, NODE_TOKEN_TTL
 import logging
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase, AsyncIOMotorCollection
+from pymongo import ReturnDocument
 
 import pynvml
 import os  # ✅ Import os for env vars
@@ -31,6 +32,10 @@ MAX_RECONNECT_ATTEMPTS = 5
 RECONNECT_DELAY = 5  # seconds
 
 node_challenges = {}
+
+# A node that claims a task and then dies must not strand it forever.
+TASK_CLAIM_TIMEOUT_MINUTES = int(os.getenv("TASK_CLAIM_TIMEOUT_MINUTES", 10))
+MAX_TASK_ATTEMPTS = int(os.getenv("MAX_TASK_ATTEMPTS", 3))
 
 # Database connection class
 class Database:
@@ -90,8 +95,8 @@ async def get_db():
     return Database
 
 
-def require_node_token(node_id: str, authorization: Optional[str] = Header(default=None)) -> str:
-    """Require a bearer token that was issued for this exact node_id.
+def authenticated_node(authorization: Optional[str] = Header(default=None)) -> str:
+    """Return the node_id a valid bearer token was issued for.
 
     The token comes from /verify-challenge, so holding one proves the caller
     controls the private key the node registered with.
@@ -113,11 +118,15 @@ def require_node_token(node_id: str, authorization: Optional[str] = Header(defau
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    if token_node_id != node_id:
-        logger.warning(f"🚫 Token for {token_node_id} was used against node {node_id}.")
-        raise HTTPException(status_code=403, detail="Token does not grant access to this node.")
-
     return token_node_id
+
+
+def require_node_token(node_id: str, caller: str = Depends(authenticated_node)) -> str:
+    """Require a token issued for this exact node_id."""
+    if caller != node_id:
+        logger.warning(f"🚫 Token for {caller} was used against node {node_id}.")
+        raise HTTPException(status_code=403, detail="Token does not grant access to this node.")
+    return caller
 
 
 app = FastAPI()
@@ -139,6 +148,7 @@ async def startup_event():
     await Database.connect_db()
     asyncio.create_task(sync_nodes_with_db())
     asyncio.create_task(cleanup_expired_challenges())  # ✅ Start cleanup task
+    asyncio.create_task(requeue_stale_tasks())
 
 
 @app.on_event("shutdown")
@@ -488,18 +498,14 @@ async def receive_task_result(result: dict, db: Database = Depends(get_db)):
     try:
         logger.info(f"Task result received with status: {result.get('status', 'unknown')}")
 
-        result.pop('logs', None)
-        
         # Correct node ID handling
         if 'nodeId' in result and 'node_id' not in result:
             result['node_id'] = result.pop('nodeId')  # Rename 'nodeId' to 'node_id'
         
-        # Use the preserved node_id as _id if it exists, otherwise generate a new one
-        if 'node_id' in result:
-            result["_id"] = result["node_id"]
-        else:
-            result["_id"] = str(uuid.uuid4())
-            
+        # Every result needs its own primary key. This previously used node_id,
+        # so a node's second result collided with its first.
+        result["_id"] = result.get("task_id") or str(uuid.uuid4())
+        
         result["received_at"] = datetime.utcnow()
 
         # Save to MongoDB
@@ -599,6 +605,178 @@ async def get_connected_nodes_count():
     except Exception as e:
         logger.error(f"Error counting connected nodes: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to count connected nodes: {str(e)}")
+
+@app.post("/submit-task/{node_id}")
+async def submit_task(
+    node_id: str,
+    task_data: dict = Body(...),
+    request: Request = None,
+    db: Database = Depends(get_db),
+):
+    """Queue work for a node. Called by whoever needs compute (person B).
+
+    The task sits in the database until the node claims it via /next-task. The
+    coordinator never connects to the node: contributors are behind home routers
+    that drop unsolicited inbound connections.
+    """
+    node = await db.nodes_collection.find_one({"_id": node_id})
+    if not node:
+        raise HTTPException(status_code=404, detail=f"Node {node_id} not found")
+
+    if not node.get("isConnected"):
+        raise HTTPException(status_code=409, detail="Node is not currently connected.")
+    if not node.get("isAvailable"):
+        raise HTTPException(status_code=409, detail="Node is not accepting work.")
+
+    task = {
+        "_id": f"task_{uuid.uuid4()}",
+        "node_id": node_id,
+        "task_data": task_data,
+        "status": "pending",
+        "attempts": 0,
+        "submitted_at": datetime.utcnow(),
+        "submitted_from": request.client.host if request else None,
+    }
+
+    await db.tasks_collection.insert_one(task)
+    logger.info(f"Queued task {task['_id']} for node {node_id}")
+
+    return {"status": "success", "task_id": task["_id"], "task_status": "pending"}
+
+
+@app.get("/next-task/{node_id}")
+async def next_task(
+    node_id: str,
+    db: Database = Depends(get_db),
+    _node: str = Depends(require_node_token),
+):
+    """Claim the oldest pending task for this node. Polled by the node itself.
+
+    find_one_and_update is atomic, so two concurrent polls can never be handed
+    the same task.
+    """
+    task = await db.tasks_collection.find_one_and_update(
+        {"node_id": node_id, "status": "pending"},
+        {
+            "$set": {"status": "running", "started_at": datetime.utcnow()},
+            "$inc": {"attempts": 1},
+        },
+        sort=[("submitted_at", 1)],
+        return_document=ReturnDocument.AFTER,
+    )
+
+    if not task:
+        return {"task": None}
+
+    logger.info(f"Node {node_id} claimed task {task['_id']} (attempt {task.get('attempts')})")
+
+    return {
+        "task": {
+            "task_id": task["_id"],
+            "task_data": task.get("task_data", {}),
+            "attempts": task.get("attempts", 1),
+        }
+    }
+
+
+@app.post("/task-result/{task_id}")
+async def submit_task_result(
+    task_id: str,
+    payload: dict = Body(...),
+    db: Database = Depends(get_db),
+    caller: str = Depends(authenticated_node),
+):
+    """Record the outcome of a task. Only the node that owns it may report."""
+    task = await db.tasks_collection.find_one({"_id": task_id})
+    if not task:
+        raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+
+    if task.get("node_id") != caller:
+        logger.warning(f"Node {caller} tried to report on task {task_id} owned by {task.get('node_id')}")
+        raise HTTPException(status_code=403, detail="This task belongs to another node.")
+
+    status = payload.get("status", "completed")
+    if status not in ("completed", "failed", "rejected"):
+        raise HTTPException(status_code=400, detail=f"Invalid task status: {status}")
+
+    await db.tasks_collection.update_one(
+        {"_id": task_id},
+        {"$set": {
+            "status": status,
+            "result": payload.get("result"),
+            "logs": payload.get("logs", []),
+            "metrics": payload.get("metrics", {}),
+            "finished_at": datetime.utcnow(),
+            "received_at": datetime.utcnow(),
+        }},
+    )
+
+    logger.info(f"Task {task_id} reported {status} by node {caller}")
+    return {"status": "success", "task_id": task_id, "task_status": status}
+
+
+@app.get("/tasks")
+async def list_tasks(
+    node_id: Optional[str] = None,
+    status: Optional[str] = None,
+    limit: int = 50,
+    db: Database = Depends(get_db),
+):
+    """List tasks for the dashboard, newest first."""
+    query = {}
+    if node_id:
+        query["node_id"] = node_id
+    if status:
+        query["status"] = status
+
+    limit = max(1, min(limit, 200))
+    cursor = db.tasks_collection.find(query).sort("submitted_at", -1).limit(limit)
+    tasks = await cursor.to_list(length=limit)
+
+    for task in tasks:
+        task["task_id"] = task.pop("_id")
+
+    return tasks
+
+
+async def requeue_stale_tasks():
+    """Return tasks abandoned by a node that went away back to the queue.
+
+    Contributor machines get shut down mid-job; without this those tasks would
+    sit in 'running' forever.
+    """
+    while True:
+        try:
+            cutoff = datetime.utcnow() - timedelta(minutes=TASK_CLAIM_TIMEOUT_MINUTES)
+            stale = await Database.tasks_collection.find(
+                {"status": "running", "started_at": {"$lt": cutoff}}
+            ).to_list(length=100)
+
+            for task in stale:
+                if task.get("attempts", 0) >= MAX_TASK_ATTEMPTS:
+                    logger.warning(
+                        f"Task {task['_id']} abandoned after {task.get('attempts')} attempts."
+                    )
+                    await Database.tasks_collection.update_one(
+                        {"_id": task["_id"]},
+                        {"$set": {
+                            "status": "failed",
+                            "result": "Abandoned: node stopped responding.",
+                            "finished_at": datetime.utcnow(),
+                        }},
+                    )
+                else:
+                    logger.info(f"Requeueing stale task {task['_id']}")
+                    await Database.tasks_collection.update_one(
+                        {"_id": task["_id"]},
+                        {"$set": {"status": "pending"}, "$unset": {"started_at": ""}},
+                    )
+
+        except Exception as e:
+            logger.error(f"Error requeueing stale tasks: {e}")
+
+        await asyncio.sleep(60)
+
 
 @app.get("/generate-challenge/{node_id}")
 async def generate_challenge(node_id: str, db: Database = Depends(get_db)):
