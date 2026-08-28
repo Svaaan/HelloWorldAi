@@ -3,40 +3,53 @@
 
 <head>
     <meta charset="UTF-8">
-    <title>Node Information</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Your Node</title>
     <link rel="stylesheet" href="/static/css/theme.css">
     <link rel="stylesheet" href="/static/css/node.css">
 </head>
 
 <body>
-    <!-- Dynamic Header Include -->
     <div id="header-placeholder"></div>
 
-    <div class="dashboard-container">
-        <div class="node-info">
-            <h2>Node Details</h2>
-            <div id="nodeDetails">
-                <p>Loading node information...</p>
+    <main class="dashboard-container">
+        <!-- Left: what this node is -->
+        <section class="panel node-info">
+            <div class="panel-head">
+                <h2>Node details</h2>
             </div>
-            <div class="action-section">
-                <a href="/distribution" class="action-button">Manage Distribution</a>
-            </div>
-        </div>
 
-        <div class="usage-info">
-            <button class="refresh-button" id="refreshNodeInfo" type="button">Refresh</button>
-            <h2>System Usage</h2>
-            <div>
-                <div class="node-detail">
-                    <span>CPU Usage</span>
+            <div id="nodeDetails">
+                <div class="panel-notice">
+                    <strong>Loading…</strong>
+                </div>
+            </div>
+
+            <div class="action-section">
+                <a href="/distribution" class="action-button">Send work to a node</a>
+            </div>
+        </section>
+
+        <!-- Right: what it is doing -->
+        <section class="panel usage-info">
+            <div class="panel-head">
+                <h2>Live usage</h2>
+                <button class="refresh-button" id="refreshNodeInfo" type="button">Refresh</button>
+            </div>
+
+            <div class="meter">
+                <div class="meter-head">
+                    <span>CPU</span>
                     <span id="cpuUsagePercent">0%</span>
                 </div>
                 <div class="usage-bar">
                     <div id="cpuUsageBar" class="usage-bar-fill"></div>
                 </div>
+            </div>
 
-                <div class="node-detail">
-                    <span>GPU Usage</span>
+            <div class="meter">
+                <div class="meter-head">
+                    <span>GPU</span>
                     <span id="gpuUsagePercent">0%</span>
                 </div>
                 <div class="usage-bar">
@@ -44,48 +57,70 @@
                 </div>
             </div>
 
-            <div class="node-detail availability-container">
+            <div class="thermal" id="thermalStatus"></div>
+
+            <div class="availability-container">
                 <div class="switch-container">
-                    <label class="switch">
-                        <input type="checkbox" id="availabilityToggle">
-                        <span class="slider">
-                            <div class="switch-icons">
-                                <i>O</i>
-                                <i>Power</i>
-                            </div>
-                        </span>
+                    <label class="switch" for="availabilityToggle">
+                        <input type="checkbox" id="availabilityToggle" disabled>
+                        <span class="slider"></span>
                     </label>
-                    <span id="availabilityStatus"></span>
-                    <div id="toggleProcessing" class="toggle-processing">
-                        <div class="loading-dots">
-                            <span></span>
-                            <span></span>
-                            <span></span>
-                        </div>
+                    <div class="availability-text">
+                        <span class="availability-label">Accept work</span>
+                        <span id="availabilityStatus"></span>
                     </div>
-                    <span id="toggleStatusMessage" class="toggle-status-message"></span>
+                    <div id="toggleProcessing" class="toggle-processing">
+                        <div class="loading-dots"><span></span><span></span><span></span></div>
+                    </div>
                 </div>
-                <div class="task-panel">
-                    <h2>Jobs</h2>
-                    <div id="taskList"></div>
-                </div>
+                <p class="availability-hint">
+                    While this is on, the node takes queued jobs and runs them on
+                    your GPUs.
+                </p>
+
+                <label class="approval-mode">
+                    <input type="checkbox" id="approvalModeToggle">
+                    <span>Ask me before each job</span>
+                </label>
+                <p class="availability-hint">
+                    Off means jobs start on their own, so the node keeps earning
+                    while you are away.
+                </p>
+                <span id="toggleStatusMessage" class="toggle-status-message" role="status"
+                      aria-live="polite"></span>
             </div>
-        </div>
-    </div>
+        </section>
+
+        <!-- Full width: what the node is doing at this moment. -->
+        <section class="panel live-panel">
+            <div class="panel-head">
+                <h2>Running now</h2>
+            </div>
+            <div id="approvalPrompt" class="approval-prompt" hidden></div>
+            <div id="liveTask"></div>
+        </section>
+
+        <!-- Full width: finished work. -->
+        <section class="panel task-panel">
+            <div class="panel-head">
+                <h2>Jobs</h2>
+                <span id="jobCount" class="panel-count"></span>
+            </div>
+            <div id="taskList"></div>
+        </section>
+    </main>
 
     <script type="module">
         import { loadHeader } from "/static/js/component/header.js";
         import { startJobPolling } from "/static/js/nodejs/jobList.js";
         import { initNodeInfoManager } from "/static/js/nodejs/nodeInfo.js";
+        import { startLiveWorkPolling } from "/static/js/nodejs/liveWork.js";
 
-        // Initialize components independently
         loadHeader();
         startJobPolling();
-
-        // Initialize and expose node info manager
+        startLiveWorkPolling();
         window.nodeInfoManager = initNodeInfoManager();
     </script>
-
 </body>
 
 </html>

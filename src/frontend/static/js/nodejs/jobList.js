@@ -8,6 +8,8 @@
 // innerHTML. Job fields come from whoever submitted the work, so treating them
 // as markup would let a submitter run script in a contributor's dashboard.
 
+import { showRunningJob } from "./liveWork.js";
+
 const POLL_INTERVAL_MS = 8000;
 const MAX_JOBS = 15;
 
@@ -58,38 +60,70 @@ function metricLine(label, value) {
   return row;
 }
 
-function buildJobCard(job) {
-  const card = el("div", "job-item");
+function emptyState(title, detail) {
+  const box = el("div", "job-empty");
+  box.appendChild(el("strong", null, title));
+  box.appendChild(el("span", null, detail));
+  return box;
+}
 
-  const header = el("div", "job-header");
-  header.appendChild(el("span", "job-id", job.task_id || "unknown"));
-  header.appendChild(statusPill(job.status));
-  card.appendChild(header);
+// A full-width panel of stacked cards left content pinned to the far edges with
+// dead space between. A compact disclosure row fits the shape far better: the
+// collapsed line carries the whole summary, detail is one click away.
+function buildJobRow(job) {
+  const row = el("details", "job-row");
+  const summary = el("summary", "job-summary");
 
-  const meta = el("div", "job-meta");
-  const model = job.task_data?.model_name || job.task_data?.task_type || "job";
-  meta.appendChild(el("span", null, model));
-  const submitted = relativeTime(job.submitted_at);
-  if (submitted) meta.appendChild(el("span", "job-time", `submitted ${submitted}`));
-  if (job.dataset_id) meta.appendChild(el("span", "job-badge", "dataset attached"));
-  card.appendChild(meta);
+  summary.appendChild(statusPill(job.status));
 
-  // Verification verdict — the reason the node can be trusted at all.
+  const title = el("div", "job-title");
+  title.appendChild(el("span", "job-name",
+    job.task_data?.model_name || job.task_data?.task_type || "job"));
+  if (job.dataset_id) title.appendChild(el("span", "job-badge", "data"));
+  summary.appendChild(title);
+
+  // One headline figure, so a collapsed row still says something useful.
+  const metrics = job.metrics || {};
+  if (metrics.achieved_tflops) {
+    summary.appendChild(el("span", "job-headline", `${metrics.achieved_tflops} TFLOPS`));
+  } else if (metrics.final_loss !== undefined && metrics.final_loss !== null) {
+    summary.appendChild(el("span", "job-headline", `loss ${metrics.final_loss}`));
+  }
+
   const verdict = job.verification?.verdict;
   if (verdict) {
-    const banner = el("div", `job-verdict job-verdict-${verdict}`);
-    banner.appendChild(el("span", null, VERDICT_LABEL[verdict] || verdict));
+    summary.appendChild(el("span", `job-verdict job-verdict-${verdict}`,
+      VERDICT_LABEL[verdict] || verdict));
+  }
 
+  summary.appendChild(el("span", "job-time", relativeTime(job.submitted_at)));
+  row.appendChild(summary);
+
+  // --- detail, revealed on expand ---
+  const body = el("div", "job-body");
+  body.appendChild(el("div", "job-id", job.task_id || "unknown"));
+
+  // A running job has no metrics yet; offer the live view instead.
+  if (job.status === "running") {
+    const open = el("button", "btn-ghost", "Watch it run");
+    open.addEventListener("click", () => {
+      if (!showRunningJob(job.task_id)) {
+        open.textContent = "That job is no longer running here";
+        open.disabled = true;
+      }
+    });
+    body.appendChild(open);
+  }
+
+  if (verdict) {
     const failed = (job.verification.checks || [])
       .filter((check) => !check.passed)
       .map((check) => check.name);
     if (failed.length) {
-      banner.appendChild(el("span", "job-verdict-detail", `failed: ${failed.join(", ")}`));
+      body.appendChild(el("p", "job-verdict-detail", `Failed checks: ${failed.join(", ")}`));
     }
-    card.appendChild(banner);
   }
 
-  const metrics = job.metrics || {};
   if (Object.keys(metrics).length) {
     const grid = el("div", "job-metrics");
     if (metrics.final_loss !== undefined && metrics.final_loss !== null) {
@@ -100,21 +134,34 @@ function buildJobCard(job) {
     if (metrics.dataset_rows) grid.appendChild(metricLine("Rows", metrics.dataset_rows.toLocaleString()));
     else if (metrics.synthetic_data) grid.appendChild(metricLine("Data", "synthetic"));
     if (metrics.steps) grid.appendChild(metricLine("Steps", metrics.steps));
-    card.appendChild(grid);
+    body.appendChild(grid);
   }
 
-  if (job.result) {
-    card.appendChild(el("p", "job-result", job.result));
-  }
+  if (job.result) body.appendChild(el("p", "job-result", job.result));
 
   if (Array.isArray(job.logs) && job.logs.length) {
-    const details = el("details", "job-logs");
-    details.appendChild(el("summary", null, `Log (${job.logs.length} lines)`));
-    details.appendChild(el("pre", null, job.logs.join("\n")));
-    card.appendChild(details);
+    const logs = el("details", "job-logs");
+    logs.appendChild(el("summary", null, `Log (${job.logs.length} lines)`));
+    logs.appendChild(el("pre", null, job.logs.join("\n")));
+    body.appendChild(logs);
   }
 
-  return card;
+  row.appendChild(body);
+  return row;
+}
+
+function updateJobCount(jobs) {
+  const label = document.getElementById("jobCount");
+  if (!label) return;
+
+  if (!jobs || jobs.length === 0) {
+    label.textContent = "";
+    return;
+  }
+  const active = jobs.filter(j => j.status === "running" || j.status === "pending").length;
+  label.textContent = active
+    ? `${jobs.length} total, ${active} active`
+    : `${jobs.length} total`;
 }
 
 export async function loadJobs() {
@@ -123,7 +170,11 @@ export async function loadJobs() {
 
   const nodeId = localStorage.getItem("currentNodeId");
   if (!nodeId) {
-    container.replaceChildren(el("p", "job-empty", "Connect this node to see its jobs."));
+    updateJobCount([]);
+    container.replaceChildren(emptyState(
+      "Not connected",
+      "Connect this node to see the work it has run."
+    ));
     return;
   }
 
@@ -137,18 +188,22 @@ export async function loadJobs() {
       throw new Error(jobs?.error || "Unexpected response from the coordinator.");
     }
 
+    updateJobCount(jobs);
+
     if (jobs.length === 0) {
-      container.replaceChildren(
-        el("p", "job-empty", "No jobs yet. Work sent to this node will appear here.")
-      );
+      container.replaceChildren(emptyState(
+        "No jobs yet",
+        "Work sent to this node will appear here as it runs."
+      ));
       return;
     }
 
-    const fragment = document.createDocumentFragment();
-    jobs.forEach((job) => fragment.appendChild(buildJobCard(job)));
-    container.replaceChildren(fragment);
+    const list = el("div", "job-list");
+    jobs.forEach((job) => list.appendChild(buildJobRow(job)));
+    container.replaceChildren(list);
   } catch (error) {
     console.error("Error loading jobs:", error);
+    updateJobCount([]);
     container.replaceChildren(
       el("p", "error-message", `Could not load jobs. ${error.message}`)
     );

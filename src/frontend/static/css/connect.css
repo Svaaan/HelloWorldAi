@@ -1,46 +1,38 @@
-/* Connect page — node registration and reconnection.
+/* Connect page — the first screen a contributor sees.
    Base styles, buttons, inputs and modals come from theme.css. */
 
-body {
+.connect-page {
   display: flex;
   flex-direction: column;
-  align-items: center;
   min-height: 100vh;
 }
 
-header {
-  width: 100%;
-  padding: 1.4rem 1.5rem;
-  display: flex;
-  justify-content: center;
-  align-items: center;
+/* --- header --- */
+
+.site-header {
+  padding: 1.1rem 1.5rem;
+  border-bottom: 1px solid var(--border);
   background-color: rgba(11, 14, 19, 0.72);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border-bottom: 1px solid var(--border);
-  position: sticky;
-  top: 0;
-  z-index: 50;
 }
 
-h1 {
-  margin: 0;
+.brand {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  font-size: 1.5rem;
+  gap: 0.65rem;
+  font-size: 1rem;
   font-weight: 600;
+  letter-spacing: -0.01em;
   color: var(--text);
 }
 
-/* --- node mark --- */
-
 .node-icon {
-  width: 30px;
-  height: 30px;
+  width: 22px;
+  height: 22px;
   border: 2px solid var(--accent);
   border-radius: 50%;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   position: relative;
@@ -56,111 +48,155 @@ h1 {
   background-color: var(--accent);
 }
 
-/* --- main panel --- */
+/* --- centred card --- */
 
-.connect-info {
+.connect-main {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2.5rem 1.25rem 4rem;
+}
+
+.connect-card {
+  width: 100%;
+  max-width: 460px;
   background-color: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--r-xl);
-  box-shadow: var(--shadow-md);
-  padding: 2.5rem;
-  margin: 3rem 1.25rem;
-  max-width: 460px;
-  width: 100%;
-  text-align: center;
+  box-shadow: var(--shadow-lg);
+  padding: 2.25rem;
+  animation: connect-rise 420ms var(--ease-out) both;
 }
 
-.info-text {
+@keyframes connect-rise {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.connect-card h1 {
+  margin: 0 0 0.5rem;
+  font-size: 1.45rem;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.lede {
+  margin: 0 0 1.5rem;
   color: var(--text-muted);
-  margin: 0 0 1.75rem;
-  font-size: 0.95rem;
+  font-size: 0.9375rem;
+  line-height: 1.6;
 }
 
-#gpuInfo {
-  font-size: 0.9rem;
-  font-weight: 550;
-  padding: 0.7rem 0.9rem;
-  border-radius: var(--r-sm);
-  background-color: var(--bg-elevated);
-  border: 1px solid var(--border);
+/* --- GPU status --- */
+
+.gpu-status {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.7rem;
+  padding: 0.85rem 1rem;
   margin-bottom: 1.5rem;
+  border-radius: var(--r-md);
+  background-color: var(--surface-2);
+  border: 1px solid var(--border);
+  /* Colour arrives with the check result, so ease into it. */
+  transition:
+    background-color var(--t) var(--ease),
+    border-color var(--t) var(--ease);
+}
+
+.gpu-status-dot {
+  width: 8px;
+  height: 8px;
+  margin-top: 0.45rem;
+  border-radius: 50%;
+  background-color: var(--text-faint);
+  flex-shrink: 0;
+  transition: background-color var(--t) var(--ease);
+}
+
+.gpu-status-text {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.gpu-status-title {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.gpu-status-detail {
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.gpu-status.is-checking .gpu-status-dot {
+  animation: hw-pulse 1.2s var(--ease) infinite;
+}
+
+.gpu-status.is-ok {
+  background-color: var(--success-wash);
+  border-color: rgba(52, 211, 153, 0.22);
+}
+
+.gpu-status.is-ok .gpu-status-dot {
+  background-color: var(--success);
+}
+
+.gpu-status.is-ok .gpu-status-detail {
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+}
+
+.gpu-status.is-bad {
+  background-color: var(--danger-wash);
+  border-color: rgba(248, 113, 113, 0.22);
+}
+
+.gpu-status.is-bad .gpu-status-dot {
+  background-color: var(--danger);
 }
 
 /* --- actions --- */
 
 .button-group {
-  display: flex;
-  flex-direction: column;
-  gap: 0.65rem;
-  margin-top: 1.5rem;
+  display: grid;
+  gap: 0.6rem;
 }
 
-.button-group > * {
+.button-group button {
   width: 100%;
-}
-
-.setup-button {
-  background-color: var(--surface-2);
-  color: var(--text);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--r-sm);
-  padding: 0.7rem 1.15rem;
+  padding: 0.8rem 1.15rem;
   font-size: 0.9375rem;
-  font-weight: 550;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  text-decoration: none;
-  transition:
-    background-color var(--t-fast) var(--ease),
-    transform var(--t-fast) var(--ease);
 }
 
-.setup-button:hover {
-  background-color: var(--surface-3);
-  color: var(--text);
-  transform: translateY(-1px);
-}
-
-#connectNodeButton {
+.btn-secondary {
   background-color: var(--surface-2);
   color: var(--text);
   border: 1px solid var(--border-strong);
 }
 
-#connectNodeButton:hover {
+.btn-secondary:hover {
   background-color: var(--surface-3);
+  color: var(--text);
 }
 
-/* --- modal contents --- */
-
-.modal-container h3 {
-  margin: 0 0 1.25rem;
-  font-size: 1.15rem;
+.footnote {
+  margin: 1.25rem 0 0;
   text-align: center;
-}
-
-.modal-container label {
-  display: block;
-  text-align: left;
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
   color: var(--text-muted);
-  margin-bottom: 0.4rem;
-}
-
-.modal-container input {
-  margin-bottom: 1.1rem;
-}
-
-.modal-container button:not(.modal-close) {
-  width: 100%;
 }
 
 /* --- progress and results --- */
 
-#processingMessage {
-  display: none;
+.processing {
+  display: none;          /* the connect scripts flip this to flex */
   align-items: center;
   justify-content: center;
   gap: 0.6rem;
@@ -170,8 +206,8 @@ h1 {
 }
 
 .loading-spinner {
-  width: 16px;
-  height: 16px;
+  width: 15px;
+  height: 15px;
   border: 2px solid var(--border-strong);
   border-top-color: var(--accent);
   border-radius: 50%;
@@ -185,10 +221,11 @@ h1 {
 
 #resultMessage:not(:empty) {
   margin-top: 1.25rem;
-  text-align: left;
+  font-size: 0.9rem;
+  line-height: 1.6;
 }
 
-/* Buttons injected after a successful registration. */
+/* Buttons the registration flow injects once a key pair exists. */
 #resultMessage button {
   margin-top: 0.6rem;
   margin-right: 0.5rem;
@@ -196,11 +233,80 @@ h1 {
   padding: 0.55rem 0.9rem;
 }
 
-@media (max-width: 600px) {
-  .connect-info {
-    padding: 1.75rem;
-    margin: 1.5rem 1rem;
+/* --- modals --- */
+
+.modal-container h3 {
+  margin: 0 0 0.5rem;
+  padding-right: 2rem;
+  font-size: 1.1rem;
+  font-weight: 620;
+}
+
+.modal-lede {
+  margin: 0 0 1.25rem;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
+.modal-lede code {
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--r-xs);
+  padding: 0.1rem 0.35rem;
+  font-size: 0.85em;
+  color: var(--accent-strong);
+}
+
+.modal-container label {
+  display: block;
+  margin-bottom: 0.4rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.modal-container input {
+  margin-bottom: 1.1rem;
+}
+
+.modal-container input[type="file"] {
+  padding: 0.6rem 0.7rem;
+  cursor: pointer;
+}
+
+.modal-container input[type="file"]::file-selector-button {
+  margin-right: 0.7rem;
+  padding: 0.35rem 0.7rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-xs);
+  background-color: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.8125rem;
+  cursor: pointer;
+  transition: background-color var(--t-fast) var(--ease);
+}
+
+.modal-container input[type="file"]::file-selector-button:hover {
+  background-color: var(--surface-3);
+}
+
+.modal-container .btn-primary {
+  width: 100%;
+}
+
+@media (max-width: 520px) {
+  .connect-main {
+    padding: 1.5rem 1rem 3rem;
+    align-items: flex-start;
   }
 
-  h1 { font-size: 1.25rem; }
+  .connect-card {
+    padding: 1.6rem;
+  }
+
+  .connect-card h1 {
+    font-size: 1.25rem;
+  }
 }
