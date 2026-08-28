@@ -48,6 +48,25 @@ dashboard_app.add_middleware(
     allow_headers=["*"],
 )
 
+# Without Cache-Control, browsers apply heuristic caching and keep serving
+# stale pages, JS modules and stylesheets after an edit. `no-cache` means
+# "revalidate before use", not "never store": the browser still gets 304s, it
+# just never shows out-of-date code.
+#
+# This covers the HTML routes as well as /static -- the page templates were
+# being cached too, so a rebuilt layout kept rendering from the old markup.
+@dashboard_app.middleware("http")
+async def revalidate_pages_and_assets(request, call_next):
+    response = await call_next(request)
+
+    is_asset = request.url.path.startswith(("/static", "/template"))
+    is_page = response.headers.get("content-type", "").startswith("text/html")
+
+    if is_asset or is_page:
+        response.headers["Cache-Control"] = "no-cache, must-revalidate"
+    return response
+
+
 # === Frontend routes ===
 @dashboard_app.get("/", include_in_schema=False)
 def redirect_to_connect():

@@ -42,7 +42,18 @@ FAKE_POOL = [
 
 
 class fake_gpus:
-    """Swap in a fixed pool for the duration of a block."""
+    """Swap in a fixed pool for the duration of a block.
+
+    The pool is hypothetical -- three cards this machine almost certainly does
+    not have -- so the block also reports CUDA as unavailable. Without that the
+    tests only pass on hardware that happens to match: the planner would hand
+    the trainer a cuda:2 that torch cannot address, and the job would die with
+    "invalid device ordinal" rather than testing anything.
+
+    Reporting no CUDA keeps the split and the metrics under test while the
+    training itself falls back to CPU, so these stay hardware-independent.
+    Tests that want the real GPU do not use this fixture.
+    """
 
     def __init__(self, devices):
         self.devices = devices
@@ -51,8 +62,19 @@ class fake_gpus:
         self.original = taskExecutor.benchmark_all
         taskExecutor.benchmark_all = lambda *a, **k: self.devices
 
+        self.cuda_available = None
+        try:
+            import torch
+            self.cuda_available = torch.cuda.is_available
+            torch.cuda.is_available = lambda: False
+        except ImportError:
+            pass
+
     def __exit__(self, *exc):
         taskExecutor.benchmark_all = self.original
+        if self.cuda_available is not None:
+            import torch
+            torch.cuda.is_available = self.cuda_available
 
 
 # --- dispatch ------------------------------------------------------------

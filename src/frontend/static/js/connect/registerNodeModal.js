@@ -196,7 +196,7 @@ async function registerNode() {
 export function setupRegisterModal() {
     document.getElementById("registerNodeButton").addEventListener("click", showNodeNameInput);
     document.getElementById("confirmRegisterNodeButton").addEventListener("click", registerNode);
-    document.querySelector(".modal-close").addEventListener("click", () => {
-        document.getElementById("nodeNameModal").style.display = "none";
-    });
+    // Closing is handled centrally by the page (close button, backdrop click and
+    // Escape, for every modal). This used to bind querySelector(".modal-close"),
+    // which only ever matched the first modal on the page.
 }

@@ -1,196 +1,300 @@
 import { authHeaders } from "../connect/nodeSession.js";
 
+const USAGE_POLL_MS = 2000;
+const RETRY_POLL_MS = 5000;
+const MAX_RETRIES = 5;
+
+/** Build a labelled detail row without going through innerHTML.
+ *  Node names, countries and GPU strings come from other people's machines,
+ *  so they are inserted as text, never as markup. */
+function detailRow(label, valueNode) {
+    const row = document.createElement("div");
+    row.className = "node-detail";
+
+    const key = document.createElement("span");
+    key.className = "node-detail-label";
+    key.textContent = label;
+
+    row.append(key);
+    if (valueNode) row.append(valueNode);
+    return row;
+}
+
+function textSpan(value, className) {
+    const span = document.createElement("span");
+    if (className) span.className = className;
+    span.textContent = value;
+    return span;
+}
+
 export function initNodeInfoManager() {
     let currentNodeId = localStorage.getItem("currentNodeId");
-    let retryInterval = null;
-    let isRefreshing = false;
+
+    // Exactly one of each timer may exist. Both used to be re-armed without
+    // being cleared, so every refresh added another /usage poller.
+    let usageTimer = null;
+    let retryTimer = null;
+    let currentGpuList = [];
+
+    // --- usage polling ---------------------------------------------------
+
+    function stopUsagePolling() {
+        if (usageTimer) {
+            clearInterval(usageTimer);
+            usageTimer = null;
+        }
+    }
+
+    function startUsagePolling(gpuList = []) {
+        currentGpuList = Array.isArray(gpuList) ? gpuList : [];
+        stopUsagePolling();                 // never stack pollers
+        if (!currentNodeId || document.hidden) return;
+
+        fetchUsage();
+        usageTimer = setInterval(fetchUsage, USAGE_POLL_MS);
+    }
+
+    async function fetchUsage() {
+        try {
+            const res = await fetch("/usage");
+            if (!res.ok) throw new Error(`usage returned ${res.status}`);
+            const data = await res.json();
+
+            const cpu = Number(data.cpu_usage ?? 0);
+            setMeter("cpuUsagePercent", "cpuUsageBar", cpu);
+
+            const gpuData = Array.isArray(data.gpu_data) ? data.gpu_data : [];
+            const loads = gpuData
+                .map(g => Number.parseFloat(g.gpu_usage))
+                .filter(v => Number.isFinite(v));
+            const avgGpu = loads.length
+                ? Math.round(loads.reduce((a, b) => a + b, 0) / loads.length)
+                : 0;
+            setMeter("gpuUsagePercent", "gpuUsageBar", avgGpu);
+
+            renderGpuDetails(gpuData);
+        } catch (err) {
+            console.error("Error fetching usage details:", err);
+        }
+    }
+
+    function setMeter(labelId, barId, value) {
+        const rounded = Math.max(0, Math.min(100, Math.round(value)));
+        const label = document.getElementById(labelId);
+        const bar = document.getElementById(barId);
+        if (label) label.textContent = `${rounded}%`;
+        if (bar) bar.style.width = `${rounded}%`;
+    }
+
+    function renderGpuDetails(liveGpus) {
+        const container = document.getElementById("gpuDetailsContainer");
+        if (!container || currentGpuList.length === 0) return;
+
+        container.replaceChildren();
+
+        currentGpuList.forEach((gpu, index) => {
+            const live = liveGpus[index] || {};
+            const temp = live.gpu_temperature ?? gpu.temperature;
+            const critical = live.critical_temperature ?? gpu.temperature_critical ?? 85;
+            const load = live.gpu_usage ?? gpu.load_percentage;
+
+            const value = document.createElement("span");
+            value.className = "gpu-line";
+
+            const specs = [
+                gpu.total_memory != null ? `${gpu.total_memory} MB total` : null,
+                gpu.free_memory != null ? `${gpu.free_memory} MB free` : null,
+                load != null ? `${load}% load` : null,
+            ].filter(Boolean).join(" · ");
+
+            value.append(document.createTextNode(specs ? `${specs} · ` : ""));
+
+            const tempSpan = document.createElement("strong");
+            tempSpan.className = "gpu-temp " + temperatureClass(temp, critical);
+            tempSpan.textContent = temp != null ? `${temp}°C` : "—";
+            value.append(tempSpan);
+
+            container.append(detailRow(gpu.name || "Unknown GPU", value));
+        });
+    }
+
+    function temperatureClass(temp, critical) {
+        if (temp == null) return "is-unknown";
+        if (temp >= critical - 5) return "is-critical";
+        if (temp >= 70) return "is-warm";
+        return "is-cool";
+    }
+
+    // --- node details ----------------------------------------------------
 
     async function fetchNodeInfo(retryCount = 0) {
-        const nodeDetailsElement = document.getElementById("nodeDetails");
-        const availabilityToggle = document.getElementById("availabilityToggle");
+        const details = document.getElementById("nodeDetails");
+        const toggle = document.getElementById("availabilityToggle");
 
         if (!currentNodeId) {
-            nodeDetailsElement.innerHTML = "<p class='status-disconnected'>Access denied: No node ID in localStorage.</p>";
-            if (availabilityToggle) availabilityToggle.disabled = true;
+            showNotice(
+                "No node connected yet",
+                "Register a node, or reconnect one with its key file.",
+                false,
+                { label: "Go to connect", href: "/connect" }
+            );
+            if (toggle) toggle.disabled = true;
             return;
         }
 
         try {
-            // ✅ Fetch static node info (only when user manually refreshes)
-            const nodeRes = await fetch(`/nodes?node_id=${currentNodeId}`);
-            const nodeData = await nodeRes.json();
+            const res = await fetch(`/nodes?node_id=${encodeURIComponent(currentNodeId)}`);
+            const data = await res.json();
+            const node = Array.isArray(data)
+                ? data.find(n => n.node_id === currentNodeId)
+                : null;
 
-            if (!Array.isArray(nodeData) || nodeData.length === 0) {
-                handleRetry(retryCount, fetchNodeInfo);
-                return;
+            if (!node) return handleRetry(retryCount);
+
+            if (retryTimer) {
+                clearInterval(retryTimer);
+                retryTimer = null;          // nulled, so retries can re-arm later
             }
 
-            const node = nodeData.find(n => n.node_id === currentNodeId);
-            if (!node) {
-                handleRetry(retryCount, fetchNodeInfo);
-                return;
-            }
-
-            clearInterval(retryInterval);
-
-            const connectionStatus = node.isConnected
-                ? '<span class="status-connected">Connected</span>'
-                : '<span class="status-disconnected">Disconnected</span>';
-
-            const capabilities = node.capabilities || { cpu: {}, gpu: [] };
-            const gpuTflops = node.total_gpu_tflops ?? '?';
-
-            // GPU tooltip (static calculation)
-            const firstGpu = capabilities.gpu?.[0];
-            const gpuTooltip = firstGpu && firstGpu.cuda_cores && firstGpu.core_clock_mhz
-                ? `Formula: (CUDA Cores: ${firstGpu.cuda_cores} × Clock: ${firstGpu.core_clock_mhz} MHz × 2) ÷ 1,000,000 = ${(firstGpu.cuda_cores * firstGpu.core_clock_mhz * 2 / 1_000_000).toFixed(2)} TFLOPS`
-                : 'No calculation available';
-
-            const nodeDetailsHTML = `
-                <div class="node-detail-group">
-                    <div class="node-detail"><span class="node-detail-label">Node ID:</span> <span>${node.node_id}</span></div>
-                    <div class="node-detail"><span class="node-detail-label">Country:</span> <span>${node.country || 'Unknown'}</span></div>
-                    <div class="node-detail"><span class="node-detail-label">Status:</span> ${connectionStatus}</div>
-                    <div class="node-detail"><span class="node-detail-label">CPU:</span> <span>${capabilities.cpu.brand || 'Unknown'}, ${capabilities.cpu.cores ?? '?'} cores</span></div>
-                    <div class="node-detail">
-                        <span class="node-detail-label">GPU Compute:</span>
-                        <span title="${gpuTooltip}">${gpuTflops !== '?' ? Number(gpuTflops).toFixed(2) : '?'} TFLOPS</span>
-                    </div>
-                    <div class="node-detail"><span class="node-detail-label">GPUs:</span></div>
-                    <div id="gpuDetailsContainer">Loading...</div>
-                    <hr />
-                </div>
-            `;
-
-            nodeDetailsElement.innerHTML = nodeDetailsHTML;
+            renderNodeDetails(details, node);
 
             updateAvailabilityStatus(node.isAvailable);
-            if (availabilityToggle) {
-                availabilityToggle.checked = node.isAvailable;
-                availabilityToggle.disabled = false;
+            if (toggle) {
+                toggle.checked = Boolean(node.isAvailable);
+                toggle.disabled = false;
             }
 
-            // ✅ Start fast GPU usage live update
-            startUsageFastUpdate(capabilities.gpu);
-
+            startUsagePolling(node.capabilities?.gpu || []);
         } catch (err) {
             console.error("Error fetching node details:", err);
             showTemporaryUnavailable();
         }
     }
 
-    function startUsageFastUpdate(nodeGpuList = []) {
-        if (!currentNodeId) return;
+    function renderNodeDetails(container, node) {
+        const capabilities = node.capabilities || { cpu: {}, gpu: [] };
+        const cpu = capabilities.cpu || {};
+        const tflops = node.total_gpu_tflops;
 
-        async function fetchUsageInfoFast() {
-            try {
-                const res = await fetch(`/usage`);
-                if (!res.ok) throw new Error(`Failed to fetch usage info with status: ${res.status}`);
+        const group = document.createElement("div");
+        group.className = "node-detail-group";
 
-                const data = await res.json();
+        const id = textSpan(node.node_id, "mono");
+        group.append(detailRow("Node ID", id));
+        group.append(detailRow("Country", textSpan(node.country || "Unknown")));
 
-                // CPU Update
-                const cpuUsagePercent = document.getElementById("cpuUsagePercent");
-                const cpuUsageBar = document.getElementById("cpuUsageBar");
-                const cpuUsage = data.cpu_usage ?? 0;
-                if (cpuUsagePercent) cpuUsagePercent.textContent = `${cpuUsage}%`;
-                if (cpuUsageBar) cpuUsageBar.style.width = `${cpuUsage}%`;
+        const status = document.createElement("span");
+        status.append(textSpan(
+            node.isConnected ? "Connected" : "Disconnected",
+            node.isConnected ? "status-connected" : "status-disconnected"
+        ));
 
-                // GPU Update
-                const gpuUsagePercent = document.getElementById("gpuUsagePercent");
-                const gpuUsageBar = document.getElementById("gpuUsageBar");
-
-                const usageGpuList = Array.isArray(data.gpu_data) ? data.gpu_data : [];
-                const validGpuUsages = usageGpuList
-                    .map(gpu => parseInt(gpu.gpu_usage))
-                    .filter(val => !isNaN(val));
-
-                const averageGpuUsage = validGpuUsages.length > 0
-                    ? Math.round(validGpuUsages.reduce((sum, val) => sum + val, 0) / validGpuUsages.length)
-                    : 0;
-
-                if (gpuUsagePercent) gpuUsagePercent.textContent = `${averageGpuUsage}%`;
-                if (gpuUsageBar) gpuUsageBar.style.width = `${averageGpuUsage}%`;
-
-                // Detailed GPU Info
-                const gpuDetailsContainer = document.getElementById("gpuDetailsContainer");
-                if (gpuDetailsContainer && nodeGpuList.length > 0) {
-                    nodeGpuList.forEach((gpu, index) => {
-                        const liveGpu = usageGpuList[index];
-                        if (liveGpu) {
-                            gpu.load_percentage = liveGpu.gpu_usage;
-                            gpu.temperature = liveGpu.gpu_temperature;
-                            gpu.temperature_critical = liveGpu.critical_temperature;
-                        }
-                    });
-
-                    const gpuDetailsHTML = nodeGpuList.map(gpu => {
-                        const temp = gpu.temperature ?? '?';
-                        const tempCritical = gpu.temperature_critical ?? 'N/A';
-                        const temperatureColor = temp === '?' ? 'var(--text-faint)'
-                            : temp < 50 ? 'var(--success)'
-                            : temp < 70 ? 'var(--warning)'
-                            : 'var(--danger)';
-
-                        return `
-                            <div class="node-detail">
-                                <span class="node-detail-label">→ ${gpu.name || 'Unknown'}</span>
-                                <span>
-                                    ${gpu.total_memory ?? '?'} MB total,
-                                    ${gpu.free_memory ?? '?'} MB free,
-                                    ${gpu.used_memory ?? '?'} MB used,
-                                    ${gpu.load_percentage ?? '?'}% load,
-                                    <span style="color:${temperatureColor}; font-weight:bold;">${temp}°C</span>
-                                    <span style="color:var(--text-faint);">(Critical: ${tempCritical}°C)</span>
-                                </span>
-                            </div>
-                        `;
-                    }).join('');
-
-                    gpuDetailsContainer.innerHTML = gpuDetailsHTML;
-                }
-
-            } catch (err) {
-                console.error("Error fetching usage details:", err);
-            }
+        if (!node.isConnected) {
+            const why = document.createElement("span");
+            why.className = "status-hint";
+            why.textContent =
+                "The node has not reported in for over 5 minutes. If it restarted, " +
+                "reconnect it from the connect page to hand it a new session.";
+            status.append(why);
         }
+        group.append(detailRow("Status", status));
 
-        // Faster interval for smooth updates 🚀
-        setInterval(fetchUsageInfoFast, 2000);
+        const cpuText = [cpu.brand || "Unknown", cpu.cores != null ? `${cpu.cores} cores` : null]
+            .filter(Boolean).join(" · ");
+        group.append(detailRow("CPU", textSpan(cpuText)));
+
+        const measured = capabilities.measured_tflops;
+        const isMeasured = Number.isFinite(Number(measured));
+        const shown = isMeasured ? Number(measured) : Number(tflops);
+
+        const compute = document.createElement("span");
+        compute.append(document.createTextNode(
+            Number.isFinite(shown) ? `${shown.toFixed(2)} TFLOPS` : "Not measured"
+        ));
+
+        // Spec-sheet peak and benchmarked throughput differ a lot, so say which.
+        const tag = document.createElement("span");
+        tag.className = isMeasured ? "compute-tag is-measured" : "compute-tag";
+        tag.textContent = isMeasured ? "measured" : "theoretical";
+        compute.append(tag);
+
+        const theoretical = capabilities.theoretical_tflops ?? tflops;
+        if (isMeasured && Number.isFinite(Number(theoretical))) {
+            compute.title =
+                `Benchmarked ${Number(measured).toFixed(2)} TFLOPS; ` +
+                `spec-sheet peak is ${Number(theoretical).toFixed(2)}.`;
+        }
+        group.append(detailRow("GPU compute", compute));
+
+        const gpuHeading = document.createElement("div");
+        gpuHeading.className = "node-detail-heading";
+        gpuHeading.textContent = "GPUs";
+        group.append(gpuHeading);
+
+        const gpuContainer = document.createElement("div");
+        gpuContainer.id = "gpuDetailsContainer";
+        group.append(gpuContainer);
+
+        container.replaceChildren(group);
     }
 
-    function handleRetry(retryCount, callback) {
-        if (retryCount < 5) {
-            setTimeout(() => callback(retryCount + 1), 2000);
+    function showNotice(title, detail, isError, action) {
+        const container = document.getElementById("nodeDetails");
+        if (!container) return;
+
+        const box = document.createElement("div");
+        box.className = isError ? "panel-notice is-error" : "panel-notice";
+
+        const strong = document.createElement("strong");
+        strong.textContent = title;
+        box.append(strong);
+
+        if (detail) {
+            const p = document.createElement("span");
+            p.textContent = detail;
+            box.append(p);
+        }
+
+        if (action) {
+            const link = document.createElement("a");
+            link.className = "panel-notice-action";
+            link.href = action.href;
+            link.textContent = action.label;
+            box.append(link);
+        }
+
+        container.replaceChildren(box);
+    }
+
+    function handleRetry(retryCount) {
+        if (retryCount < MAX_RETRIES) {
+            setTimeout(() => fetchNodeInfo(retryCount + 1), 2000);
         } else {
             showTemporaryUnavailable();
         }
     }
 
     function showTemporaryUnavailable() {
-        const nodeDetailsElement = document.getElementById("nodeDetails");
-        const availabilityToggle = document.getElementById("availabilityToggle");
+        showNotice("Node unavailable", "Retrying…", true);
 
-        if (nodeDetailsElement) {
-            nodeDetailsElement.innerHTML = "<p class='status-disconnected'>Node temporarily unavailable. Retrying connection…</p>";
-        }
+        const toggle = document.getElementById("availabilityToggle");
+        if (toggle) toggle.disabled = true;
 
-        if (availabilityToggle) {
-            availabilityToggle.disabled = true;
-        }
-
-        if (!retryInterval) {
-            retryInterval = setInterval(fetchNodeInfo, 5000);
+        stopUsagePolling();     // nothing to poll while the node is gone
+        if (!retryTimer) {
+            retryTimer = setInterval(() => fetchNodeInfo(), RETRY_POLL_MS);
         }
     }
 
+    // --- availability ----------------------------------------------------
+
     function updateAvailabilityStatus(isAvailable) {
-        const availabilityStatus = document.getElementById("availabilityStatus");
-        if (availabilityStatus) {
-            availabilityStatus.innerHTML = isAvailable
-                ? '<span class="status-available">Available</span>'
-                : '<span class="status-unavailable">Not Available</span>';
-        }
+        const el = document.getElementById("availabilityStatus");
+        if (!el) return;
+        el.replaceChildren(textSpan(
+            isAvailable ? "Available" : "Not available",
+            isAvailable ? "status-available" : "status-unavailable"
+        ));
     }
 
     async function toggleAvailability(isAvailable) {
@@ -199,14 +303,14 @@ export function initNodeInfoManager() {
             return;
         }
 
-        const toggleProcessing = document.getElementById("toggleProcessing");
-        const availabilityToggle = document.getElementById("availabilityToggle");
+        const processing = document.getElementById("toggleProcessing");
+        const toggle = document.getElementById("availabilityToggle");
 
-        if (toggleProcessing) toggleProcessing.style.display = "block";
-        if (availabilityToggle) availabilityToggle.disabled = true;
+        if (processing) processing.style.display = "flex";
+        if (toggle) toggle.disabled = true;
 
         try {
-            const res = await fetch(`/toggle-availability/${currentNodeId}`, {
+            const res = await fetch(`/toggle-availability/${encodeURIComponent(currentNodeId)}`, {
                 method: "PATCH",
                 headers: authHeaders({ "Content-Type": "application/json" })
             });
@@ -214,72 +318,70 @@ export function initNodeInfoManager() {
             if (res.status === 401 || res.status === 403) {
                 throw new Error("Session expired. Reconnect this node with its key file.");
             }
-
             if (!res.ok) throw new Error(`Failed with status: ${res.status}`);
+
             const result = await res.json();
             if (result.error) throw new Error(result.error);
 
             updateAvailabilityStatus(isAvailable);
-            showToggleMessage(isAvailable ? "Node is now available" : "Node is now unavailable", "success");
+            showToggleMessage(
+                isAvailable ? "Node is now available for work" : "Node is now unavailable",
+                "success"
+            );
 
             setTimeout(() => fetchNodeInfo(), 500);
         } catch (err) {
             console.error("Error toggling availability:", err);
-            if (availabilityToggle) availabilityToggle.checked = !isAvailable;
+            if (toggle) toggle.checked = !isAvailable;
             showToggleMessage(err.message || "Failed to update availability", "error");
         } finally {
-            if (toggleProcessing) toggleProcessing.style.display = "none";
-            if (availabilityToggle) availabilityToggle.disabled = false;
+            if (processing) processing.style.display = "none";
+            if (toggle) toggle.disabled = false;
         }
     }
 
+    let toggleMessageTimer = null;
     function showToggleMessage(message, type) {
-        const messageElement = document.getElementById("toggleStatusMessage");
-        if (!messageElement) return;
+        const el = document.getElementById("toggleStatusMessage");
+        if (!el) return;
 
-        messageElement.textContent = message;
-        messageElement.className = `toggle-status-message ${type === "success" ? "success-message" : "error-message"}`;
-        setTimeout(() => {
-            messageElement.textContent = "";
-            messageElement.className = "toggle-status-message";
-        }, 3000);
+        el.textContent = message;
+        el.className = `toggle-status-message ${type === "success" ? "success-message" : "error-message"}`;
+
+        clearTimeout(toggleMessageTimer);
+        toggleMessageTimer = setTimeout(() => {
+            el.textContent = "";
+            el.className = "toggle-status-message";
+        }, 4000);
     }
+
+    // --- lifecycle -------------------------------------------------------
 
     function manualRefresh() {
         fetchNodeInfo();
     }
 
     function init() {
-        if (!currentNodeId) {
-            currentNodeId = localStorage.getItem("currentNodeId");
-            if (!currentNodeId) console.warn("No node ID found in localStorage.");
-        }
-
-        const availabilityToggle = document.getElementById("availabilityToggle");
-        if (availabilityToggle) {
-            availabilityToggle.addEventListener("change", (e) => {
-                toggleAvailability(e.target.checked);
-            });
+        const toggle = document.getElementById("availabilityToggle");
+        if (toggle) {
+            toggle.addEventListener("change", e => toggleAvailability(e.target.checked));
         }
 
         const refreshButton = document.getElementById("refreshNodeInfo");
-        if (refreshButton) {
-            refreshButton.addEventListener("click", manualRefresh);
-        }
+        if (refreshButton) refreshButton.addEventListener("click", manualRefresh);
 
-        // Manual fetch once on load
-        setTimeout(() => {
-            manualRefresh();
-        }, 1000);
-
-        window.addEventListener("beforeunload", () => {
-            if (!currentNodeId) return;
-            try {
-                navigator.sendBeacon(`/toggle-availability/${currentNodeId}`);
-            } catch (err) {
-                console.warn("Error setting availability to false on unload:", err);
+        // Stop polling a page nobody is looking at, and catch up on return.
+        document.addEventListener("visibilitychange", () => {
+            if (document.hidden) {
+                stopUsagePolling();
+            } else if (currentNodeId) {
+                startUsagePolling(currentGpuList);
             }
         });
+
+        window.addEventListener("beforeunload", stopUsagePolling);
+
+        fetchNodeInfo();
     }
 
     init();
@@ -288,6 +390,7 @@ export function initNodeInfoManager() {
         manualRefresh,
         fetchNodeInfo,
         toggleAvailability,
+        stopUsagePolling,
         getCurrentNodeId: () => currentNodeId
     };
 }

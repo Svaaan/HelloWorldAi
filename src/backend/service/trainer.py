@@ -25,11 +25,17 @@ replica draws its own masks.
 """
 
 import logging
+import os
 import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
+
+# How often to look at GPU temperature while training. A read costs about a
+# millisecond and a step costs far more, so this is effectively free, but there
+# is no point checking more often than the card can heat up.
+THERMAL_CHECK_EVERY = int(os.getenv("THERMAL_CHECK_EVERY", 5))
 
 
 def _torch():
@@ -343,7 +349,8 @@ def resolve_devices(plan: List[Dict[str, Any]], log: Callable[[str], None]):
 def train(task_data: Dict[str, Any], log: Callable[[str], None],
           plan: Optional[List[Dict[str, Any]]] = None,
           batch_size: Optional[int] = None,
-          dataset: Optional[Tuple[Any, Any]] = None) -> Dict[str, Any]:
+          dataset: Optional[Tuple[Any, Any]] = None,
+          on_progress: Optional[Callable[[Dict[str, Any]], None]] = None) -> Dict[str, Any]:
     """Run a real training job. Returns metrics for the coordinator.
 
     `batch_size` overrides the hyperparameter when the caller has already
@@ -351,6 +358,9 @@ def train(task_data: Dict[str, Any], log: Callable[[str], None],
 
     `dataset` is an (x, y) pair of numpy arrays from the submitter. Without one
     the run falls back to synthetic data, which is only useful for benchmarking.
+
+    `on_progress` is called after every step with structured numbers, so the
+    dashboard can draw a progress bar instead of scraping the log text.
 
     Returns {"metrics": {...}, "state_dict": {...}} where state_dict holds the
     trained weights as numpy arrays, ready to hand back to the submitter.
@@ -417,10 +427,28 @@ def train(task_data: Dict[str, Any], log: Callable[[str], None],
     first_loss = None
     last_loss = None
 
+    from backend.service.thermalPolicy import (
+        STATE_STOP, STATE_WARN, ThermalAbort, thermal_status,
+    )
+
     make_batch = sampler or workload["make_batch"]
+    warned_hot = False
+    stopped_early = None
 
     start = time.perf_counter()
     for step in range(1, steps + 1):
+        # Stop of our own accord before the card has to throttle itself. This
+        # is somebody else's hardware.
+        if step % THERMAL_CHECK_EVERY == 0:
+            status = thermal_status()
+            if status["state"] == STATE_STOP:
+                stopped_early = status["reason"]
+                log(f"Stopping early — {status['reason']}")
+                raise ThermalAbort(status["reason"])
+            if status["state"] == STATE_WARN and not warned_hot:
+                log(f"Running hot — {status['reason']}")
+                warned_hot = True
+
         batch_x, batch_y = make_batch(
             effective_batch, generator, torch.device("cpu")
         )
@@ -429,6 +457,15 @@ def train(task_data: Dict[str, Any], log: Callable[[str], None],
         )
         if first_loss is None:
             first_loss = last_loss
+        if on_progress:
+            on_progress({
+                "step": step,
+                "steps": steps,
+                "loss": round(last_loss, 5),
+                "initial_loss": round(first_loss, 5) if first_loss is not None else None,
+                "elapsed_s": round(time.perf_counter() - start, 1),
+            })
+
         if step == 1 or step % max(1, steps // 4) == 0:
             log(f"  step {step}/{steps}  loss {last_loss:.4f}")
 
@@ -462,6 +499,8 @@ def train(task_data: Dict[str, Any], log: Callable[[str], None],
         "final_loss": round(last_loss, 5) if last_loss is not None else None,
         "dataset_rows": dataset_rows,
         "synthetic_data": dataset is None,
+        "ran_hot": warned_hot,
+        "stopped_early": stopped_early,
     }
 
     return {"metrics": metrics, "state_dict": state_dict}
