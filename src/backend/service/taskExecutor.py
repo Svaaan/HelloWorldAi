@@ -12,6 +12,7 @@ import logging
 from typing import Any, Callable, Dict, List, Tuple
 
 from backend.service import trainer
+from backend.service.thermalPolicy import ThermalAbort
 from backend.service.gpuBenchmark import benchmark_all
 from backend.service.poolPlanner import plan_batch_split, pool_summary
 
@@ -115,6 +116,14 @@ def execute_task(task_data: Dict[str, Any], log: Callable[[str], None],
 
     try:
         return handler(task_data, log, dataset)
+    except ThermalAbort as e:
+        # Not a fault in the job — the contributor's hardware got too hot.
+        logger.warning(f"Task stopped on temperature: {e}")
+        return {
+            "status": "failed",
+            "result": f"Stopped to protect the GPU: {e}",
+            "metrics": {"thermal_abort": True},
+        }
     except Exception as e:
         logger.exception("Task handler raised")
         log(f"Error processing task: {e}")

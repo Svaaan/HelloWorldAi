@@ -3,106 +3,168 @@
 
 <head>
   <meta charset="UTF-8" />
-  <title>Node Connection</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Connect a Node</title>
   <link rel="stylesheet" href="/static/css/theme.css">
   <link rel="stylesheet" href="/static/css/connect.css" />
-
 </head>
 
-<body>
-  <header>
-    <h1>
-      <div class="node-icon"></div>
-      Node Connections
-    </h1>
+<body class="connect-page">
+  <header class="site-header">
+    <div class="brand">
+      <span class="node-icon" aria-hidden="true"></span>
+      <span>HelloWorldAi</span>
+    </div>
   </header>
 
-  <div class="connect-info">
-    <p class="info-text">Connect to the node network to access distributed AI computing resources.</p>
-    <div id="gpuInfo" style="margin-top: 10px; font-weight: bold;"></div>
+  <main class="connect-main">
+    <section class="connect-card">
+      <h1>Contribute your GPU</h1>
+      <p class="lede">
+        Join the network and put an idle graphics card to work training AI for
+        people who have the data but not the hardware.
+      </p>
 
-    <!-- ✅ Modal: Register New Node -->
-    <div id="nodeNameModal" class="modal-backdrop">
-      <div class="modal-container">
-        <button class="modal-close" onclick="document.getElementById('nodeNameModal').style.display='none'">×</button>
-        <h3>Register New Node</h3>
-        <label for="nodeName">Node Name:</label>
-        <input type="text" id="nodeName" placeholder="Enter your node name" />
-        <button id="confirmRegisterNodeButton" type="button">✅ Confirm Registration</button>
+      <!-- Filled in by the GPU check on load. -->
+      <div id="gpuInfo" class="gpu-status is-checking" role="status" aria-live="polite">
+        <span class="gpu-status-dot" aria-hidden="true"></span>
+        <span class="gpu-status-text">
+          <strong class="gpu-status-title">Checking for a GPU…</strong>
+        </span>
       </div>
-    </div>
 
-    <!-- ✅ Modal: Connect Existing Node -->
-    <div id="connectNodeModal" class="modal-backdrop">
-      <div class="modal-container">
-        <button class="modal-close" onclick="document.getElementById('connectNodeModal').style.display='none'">×</button>
-        <h3>Connect Existing Node</h3>
-        <label for="privateKeyFile">Upload Private Key (.json):</label>
-        <input type="file" id="privateKeyFile" accept=".txt,application/json" />
-        <button id="confirmConnectNodeButton" type="button">🔑 Connect Node</button>
+      <div class="button-group">
+        <button id="registerNodeButton" type="button" class="btn-primary">
+          Register a new node
+        </button>
+        <button id="connectNodeButton" type="button" class="btn-secondary">
+          I already have a key file
+        </button>
       </div>
+
+      <p class="footnote">
+        First time here? Read the <a href="/setup">setup guide</a> to install the
+        node agent.
+      </p>
+
+      <div id="processingMessage" class="processing" role="status" aria-live="polite">
+        <span class="loading-spinner" aria-hidden="true"></span>
+        <span>Working…</span>
+      </div>
+
+      <div id="resultMessage" role="status" aria-live="polite"></div>
+    </section>
+  </main>
+
+  <!-- Register a brand new node -->
+  <div id="nodeNameModal" class="modal-backdrop" role="dialog" aria-modal="true"
+       aria-labelledby="registerModalTitle">
+    <div class="modal-container">
+      <button class="modal-close" type="button" data-close="nodeNameModal"
+              aria-label="Close">&times;</button>
+      <h3 id="registerModalTitle">Register a new node</h3>
+      <p class="modal-lede">
+        This creates a key pair in your browser. The key file it produces is the
+        only proof this node is yours &mdash; there is no password reset.
+      </p>
+      <label for="nodeName">Node name</label>
+      <input type="text" id="nodeName" placeholder="e.g. daniel-desktop"
+             autocomplete="off" spellcheck="false" />
+      <button id="confirmRegisterNodeButton" type="button" class="btn-primary">
+        Create node
+      </button>
     </div>
-
-    <!-- Buttons -->
-    <div class="button-group">
-      <a href="/setup" class="setup-button">⚙️ Get Started</a>
-      <button id="registerNodeButton" type="button">📝 Register New Node</button>
-      <button id="connectNodeButton" type="button">🔗 Connect Existing Node</button>
-    </div>
-
-    <div id="gpuStatusMessage" style="margin-top: 8px; font-size: 14px;"></div>
-
-    <div id="processingMessage" style="display: none;">
-      <div class="loading-spinner"></div>
-      <span>Processing...</span>
-    </div>
-
-    <div id="resultMessage"></div>
   </div>
 
-  <!-- ✅ JS imports -->
+  <!-- Reconnect an existing node from its key file -->
+  <div id="connectNodeModal" class="modal-backdrop" role="dialog" aria-modal="true"
+       aria-labelledby="connectModalTitle">
+    <div class="modal-container">
+      <button class="modal-close" type="button" data-close="connectNodeModal"
+              aria-label="Close">&times;</button>
+      <h3 id="connectModalTitle">Connect an existing node</h3>
+      <p class="modal-lede">
+        Upload the <code>node_key_pair.json</code> you downloaded when you first
+        registered. It never leaves your browser.
+      </p>
+      <label for="privateKeyFile">Key file</label>
+      <input type="file" id="privateKeyFile" accept=".json,.txt,application/json" />
+      <button id="confirmConnectNodeButton" type="button" class="btn-primary">
+        Connect node
+      </button>
+    </div>
+  </div>
+
   <script type="module">
     import { setupRegisterModal } from '/static/js/connect/registerNodeModal.js';
     import { setupConnectExistingNodeModal } from '/static/js/connect/connectExistingNode.js';
+    import { detectGpu } from '/static/js/connect/gpuDetect.js';
 
-    async function detectGPU() {
-      let gpuInfo = "Unknown";
-      let isGpuDetected = false;
+    function renderGpuStatus() {
+      const box = document.getElementById("gpuInfo");
+      const { supported, name } = detectGpu();
 
-      try {
-        const gl = document.createElement('canvas').getContext('webgl');
-        const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+      box.classList.remove("is-checking");
+      box.classList.toggle("is-ok", supported);
+      box.classList.toggle("is-bad", !supported);
 
-        if (debugInfo) {
-          const rawGpuInfo = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL);
-          gpuInfo = rawGpuInfo
-            .replace(/ANGLE|Direct3D11|D3D11|vs_5_0|ps_5_0/gi, '')
-            .replace(/\(0x[a-fA-F0-9]+\)/g, '')
-            .replace(/[()]/g, '')
-            .replace(/\s{2,}/g, ' ')
-            .trim();
+      const title = supported ? "GPU ready" : "No supported GPU found";
+      const detail = supported
+        ? name
+        : (name
+            ? `${name} is not an NVIDIA card. The node only accepts NVIDIA GPUs.`
+            : "Your browser did not report a GPU. Check your drivers.");
 
-          if (gpuInfo.toLowerCase().includes("nvidia")) {
-            isGpuDetected = true;
-          }
-        }
-      } catch (e) {
-        console.warn("GPU detection failed:", e);
-      }
+      // Built as nodes rather than markup: the renderer string comes from the
+      // driver, and it is never worth trusting a driver string to innerHTML.
+      box.replaceChildren();
 
-      const gpuInfoElement = document.getElementById("gpuInfo");
-      gpuInfoElement.textContent = isGpuDetected
-        ? `✅ GPU Detected: ${gpuInfo}`
-        : "❌ No supported GPU detected. Please check your hardware.";
-      gpuInfoElement.style.color = isGpuDetected
-        ? "var(--success)"
-        : "var(--danger)";
+      const dot = document.createElement("span");
+      dot.className = "gpu-status-dot";
+      dot.setAttribute("aria-hidden", "true");
+
+      const text = document.createElement("span");
+      text.className = "gpu-status-text";
+
+      const strong = document.createElement("strong");
+      strong.className = "gpu-status-title";
+      strong.textContent = title;
+
+      const small = document.createElement("span");
+      small.className = "gpu-status-detail";
+      small.textContent = detail;
+
+      text.append(strong, small);
+      box.append(dot, text);
     }
 
-    document.addEventListener("DOMContentLoaded", async () => {
-      detectGPU();
+    // One handler for every close button and backdrop click.
+    function setupModalDismissal() {
+      document.querySelectorAll("[data-close]").forEach(button => {
+        button.addEventListener("click", () => {
+          document.getElementById(button.dataset.close).style.display = "none";
+        });
+      });
+
+      document.querySelectorAll(".modal-backdrop").forEach(backdrop => {
+        backdrop.addEventListener("mousedown", event => {
+          if (event.target === backdrop) backdrop.style.display = "none";
+        });
+      });
+
+      document.addEventListener("keydown", event => {
+        if (event.key !== "Escape") return;
+        document.querySelectorAll(".modal-backdrop").forEach(backdrop => {
+          backdrop.style.display = "none";
+        });
+      });
+    }
+
+    document.addEventListener("DOMContentLoaded", () => {
+      renderGpuStatus();
       setupRegisterModal();
       setupConnectExistingNodeModal();
+      setupModalDismissal();
     });
   </script>
 </body>

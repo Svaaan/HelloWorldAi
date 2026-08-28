@@ -28,6 +28,12 @@ services:
     command: uvicorn src.backend.node:app --host 0.0.0.0 --port 9100
     restart: unless-stopped
 
+    volumes:
+      # Keeps the session token handed over by the browser. Without this the
+      # node forgets it whenever the container is recreated and silently stops
+      # heartbeating until somebody reconnects by hand.
+      - node-session:/app/data
+
     # Hand the host's NVIDIA GPUs to the container. Without this the image has
     # the CUDA libraries but no devices, and the node is rejected for having no
     # GPU. Requires the NVIDIA Container Toolkit on the host.
@@ -57,3 +63,6 @@ services:
     depends_on:
       - node
     restart: unless-stopped
+
+volumes:
+  node-session:

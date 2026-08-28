@@ -680,14 +680,39 @@ async def submit_task(
 @app.get("/next-task/{node_id}")
 async def next_task(
     node_id: str,
+    claim: bool = True,
     db: Database = Depends(get_db),
     _node: str = Depends(require_node_token),
 ):
-    """Claim the oldest pending task for this node. Polled by the node itself.
+    """The oldest pending task for this node. Polled by the node itself.
 
-    find_one_and_update is atomic, so two concurrent polls can never be handed
-    the same task.
+    With `claim=true` (the default) the task is atomically marked running, so
+    two concurrent polls can never be handed the same one.
+
+    With `claim=false` the task is only looked at. That is what the node uses
+    when its owner has asked to approve each job by hand: claiming first would
+    mark the task running while a human decides, and the stale-task reaper
+    would then take it back mid-decision.
     """
+    if not claim:
+        task = await db.tasks_collection.find_one(
+            {"node_id": node_id, "status": "pending"},
+            sort=[("submitted_at", 1)],
+        )
+        if not task:
+            return {"task": None}
+        return {
+            "task": {
+                "task_id": task["_id"],
+                "task_data": task.get("task_data", {}),
+                "dataset_id": task.get("dataset_id"),
+                "attempts": task.get("attempts", 0),
+                "submitted_at": (task.get("submitted_at").isoformat()
+                                 if task.get("submitted_at") else None),
+            },
+            "claimed": False,
+        }
+
     task = await db.tasks_collection.find_one_and_update(
         {"node_id": node_id, "status": "pending"},
         {
