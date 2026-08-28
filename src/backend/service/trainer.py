@@ -349,7 +349,8 @@ def resolve_devices(plan: List[Dict[str, Any]], log: Callable[[str], None]):
 def train(task_data: Dict[str, Any], log: Callable[[str], None],
           plan: Optional[List[Dict[str, Any]]] = None,
           batch_size: Optional[int] = None,
-          dataset: Optional[Tuple[Any, Any]] = None) -> Dict[str, Any]:
+          dataset: Optional[Tuple[Any, Any]] = None,
+          on_progress: Optional[Callable[[Dict[str, Any]], None]] = None) -> Dict[str, Any]:
     """Run a real training job. Returns metrics for the coordinator.
 
     `batch_size` overrides the hyperparameter when the caller has already
@@ -357,6 +358,9 @@ def train(task_data: Dict[str, Any], log: Callable[[str], None],
 
     `dataset` is an (x, y) pair of numpy arrays from the submitter. Without one
     the run falls back to synthetic data, which is only useful for benchmarking.
+
+    `on_progress` is called after every step with structured numbers, so the
+    dashboard can draw a progress bar instead of scraping the log text.
 
     Returns {"metrics": {...}, "state_dict": {...}} where state_dict holds the
     trained weights as numpy arrays, ready to hand back to the submitter.
@@ -453,6 +457,15 @@ def train(task_data: Dict[str, Any], log: Callable[[str], None],
         )
         if first_loss is None:
             first_loss = last_loss
+        if on_progress:
+            on_progress({
+                "step": step,
+                "steps": steps,
+                "loss": round(last_loss, 5),
+                "initial_loss": round(first_loss, 5) if first_loss is not None else None,
+                "elapsed_s": round(time.perf_counter() - start, 1),
+            })
+
         if step == 1 or step % max(1, steps // 4) == 0:
             log(f"  step {step}/{steps}  loss {last_loss:.4f}")
 

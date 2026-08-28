@@ -320,8 +320,14 @@ async def get_current_task():
             "seconds_left": max(0, int(APPROVAL_TIMEOUT_SECONDS - elapsed)),
         }
 
+    task_view = None
+    if current_task:
+        task_view = {k: v for k, v in current_task.items() if k != "started_ts"}
+        if current_task.get("started_ts"):
+            task_view["elapsed_s"] = round(time.time() - current_task["started_ts"], 1)
+
     return {
-        "task": current_task or None,
+        "task": task_view,
         "awaiting_approval": waiting,
         "approval_mode": node_info.get("approval_mode", "auto"),
         "thermal": thermal_status(),
@@ -614,10 +620,16 @@ async def _run_task(task, node_id, headers) -> bool:
         "task_id": task_id,
         "model_name": (task.get("task_data") or {}).get("model_name"),
         "started_at": datetime.utcnow().isoformat(),
+        "started_ts": time.time(),
         "status": "running",
         "logs": logs,
+        "progress": None,
     })
     log("Task started")
+
+    def on_progress(update):
+        """Structured numbers for the dashboard, written as the job runs."""
+        current_task["progress"] = update
 
     # Fetch the submitter's dataset, if this job carries one. unpack_dataset
     # refuses anything that could execute code, so a hostile payload fails here
@@ -654,7 +666,7 @@ async def _run_task(task, node_id, headers) -> bool:
         # execute_task blocks (and real training will block hard), so it runs off
         # the event loop or heartbeats would stall for the whole job.
         outcome = await asyncio.to_thread(
-            execute_task, task.get("task_data", {}), log, dataset
+            execute_task, task.get("task_data", {}), log, dataset, on_progress
         )
     except Exception as e:
         logger.error(f"Task {task_id} raised: {e}")

@@ -131,11 +131,31 @@ def read_gpu_thermals() -> List[Dict[str, Any]]:
                 threshold("NVML_TEMPERATURE_THRESHOLD_GPU_MAX"),
             )
 
+            # Utilisation and memory come from the same NVML session, so the
+            # dashboard can show what the card is doing next to how hot it is.
+            def optional(fn, default=None):
+                try:
+                    return fn()
+                except Exception:
+                    return default
+
+            utilisation = optional(
+                lambda: int(pynvml.nvmlDeviceGetUtilizationRates(handle).gpu))
+            memory = optional(lambda: pynvml.nvmlDeviceGetMemoryInfo(handle))
+            power = optional(
+                lambda: round(pynvml.nvmlDeviceGetPowerUsage(handle) / 1000))
+            fan = optional(lambda: int(pynvml.nvmlDeviceGetFanSpeed(handle)))
+
             out.append({
                 "index": index,
                 "name": pynvml.nvmlDeviceGetName(handle),
                 "temperature": temperature,
                 "state": classify(temperature, limits),
+                "utilisation": utilisation,
+                "memory_used_mb": round(memory.used / 1024 ** 2) if memory else None,
+                "memory_total_mb": round(memory.total / 1024 ** 2) if memory else None,
+                "power_w": power,
+                "fan_percent": fan,
                 **limits,
             })
     except Exception as e:
