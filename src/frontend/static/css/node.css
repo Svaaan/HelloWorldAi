@@ -655,7 +655,100 @@ input:disabled + .slider {
   padding: 1.5rem;
 }
 
-.run-body { display: grid; gap: 0.85rem; }
+.run-body { display: grid; gap: 0.9rem; }
+
+/* --- progress --- */
+
+.run-progress { display: grid; gap: 0.4rem; }
+
+.run-progress-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+.run-progress-pct {
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+  color: var(--text);
+}
+
+/* --- the numbers that matter while work runs --- */
+
+.run-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(88px, 1fr));
+  gap: 0.75rem 1rem;
+  padding: 0.9rem 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.run-stat { display: grid; gap: 0.15rem; min-width: 0; }
+
+.run-stat-label {
+  color: var(--text-faint);
+  font-size: 0.65rem;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+}
+
+.run-stat-value {
+  color: var(--text);
+  font-size: 0.95rem;
+  font-weight: 620;
+  font-variant-numeric: tabular-nums;
+}
+
+.run-stat.is-warn .run-stat-value { color: var(--warning); }
+.run-stat.is-stop .run-stat-value { color: var(--danger); }
+
+/* --- heat headroom --- */
+
+.run-thermal {
+  display: grid;
+  grid-template-columns: minmax(130px, auto) minmax(80px, 1fr) auto;
+  align-items: center;
+  gap: 0.7rem;
+  font-size: 0.75rem;
+}
+
+.run-thermal-name {
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.run-thermal.is-warn .thermal-fill { background: var(--warning); }
+.run-thermal.is-stop .thermal-fill { background: var(--danger); }
+
+.run-warning {
+  margin: 0;
+  padding: 0.6rem 0.8rem;
+  border-radius: var(--r-sm);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--warning);
+  background-color: var(--warning-wash);
+  border: 1px solid rgba(251, 191, 36, 0.25);
+}
+
+.run-warning.is-stop {
+  color: var(--danger);
+  background-color: var(--danger-wash);
+  border-color: rgba(248, 113, 113, 0.25);
+}
+
+.run-log-details summary {
+  cursor: pointer;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  margin-bottom: 0.4rem;
+}
 
 .run-head {
   display: flex;

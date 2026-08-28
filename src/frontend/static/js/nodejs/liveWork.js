@@ -121,7 +121,23 @@ function renderApproval(waiting) {
 
 // --- running job overlay -------------------------------------------------
 
-function buildOverlayBody(task) {
+function stat(label, value, className) {
+  const box = el("div", `run-stat ${className || ""}`.trim());
+  box.appendChild(el("span", "run-stat-label", label));
+  box.appendChild(el("span", "run-stat-value", value));
+  return box;
+}
+
+function formatElapsed(seconds) {
+  if (seconds == null) return "—";
+  const s = Math.round(seconds);
+  if (s < 60) return `${s}s`;
+  return `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`;
+}
+
+// The log alone does not say how hot the card is or how far along the job is.
+// Progress, heat and live GPU stats come first; the log is underneath.
+function buildOverlayBody(task, thermal) {
   const body = el("div", "run-body");
 
   const head = el("div", "run-head");
@@ -138,15 +154,85 @@ function buildOverlayBody(task) {
   head.appendChild(close);
   body.appendChild(head);
 
+  const progress = task.progress;
+  if (progress && progress.steps) {
+    const wrap = el("div", "run-progress");
+    const line = el("div", "run-progress-head");
+    line.appendChild(el("span", null, `Step ${progress.step} of ${progress.steps}`));
+    line.appendChild(el("span", "run-progress-pct",
+      `${Math.round((progress.step / progress.steps) * 100)}%`));
+    wrap.appendChild(line);
+
+    const track = el("div", "usage-bar");
+    const fill = el("div", "usage-bar-fill");
+    fill.style.width = `${Math.min(100, (progress.step / progress.steps) * 100)}%`;
+    track.appendChild(fill);
+    wrap.appendChild(track);
+    body.appendChild(wrap);
+  }
+
+  const stats = el("div", "run-stats");
+  stats.appendChild(stat("Elapsed", formatElapsed(task.elapsed_s)));
+  if (progress && progress.loss != null) {
+    stats.appendChild(stat("Loss", progress.loss));
+    if (progress.initial_loss != null) {
+      stats.appendChild(stat("Started at", progress.initial_loss));
+    }
+  }
+
+  const gpus = thermal?.gpus || [];
+  gpus.forEach((gpu) => {
+    stats.appendChild(stat("GPU load",
+      gpu.utilisation == null ? "—" : `${gpu.utilisation}%`));
+    stats.appendChild(stat("Temperature", `${gpu.temperature}°C`, `is-${gpu.state}`));
+    if (gpu.power_w != null) stats.appendChild(stat("Power", `${gpu.power_w} W`));
+    if (gpu.fan_percent != null) stats.appendChild(stat("Fan", `${gpu.fan_percent}%`));
+    if (gpu.memory_used_mb != null && gpu.memory_total_mb != null) {
+      stats.appendChild(stat("VRAM",
+        `${(gpu.memory_used_mb / 1024).toFixed(1)} / ${(gpu.memory_total_mb / 1024).toFixed(1)} GB`));
+    }
+  });
+  body.appendChild(stats);
+
+  // Heat headroom, scaled to this card's own stop point.
+  gpus.forEach((gpu) => {
+    const row = el("div", `run-thermal is-${gpu.state}`);
+    row.appendChild(el("span", "run-thermal-name", gpu.name));
+
+    const span = Math.max(1, gpu.stop - 30);
+    const pct = (v) => Math.max(0, Math.min(100, ((v - 30) / span) * 100));
+
+    const track = el("div", "thermal-track");
+    const fill = el("div", "thermal-fill");
+    fill.style.width = `${pct(gpu.temperature)}%`;
+    track.appendChild(fill);
+    const mark = el("div", "thermal-mark");
+    mark.style.left = `${pct(gpu.warn)}%`;
+    mark.title = `Warning from ${gpu.warn}°C`;
+    track.appendChild(mark);
+    row.appendChild(track);
+
+    row.appendChild(el("span", "thermal-limit", `stops at ${gpu.stop}°C`));
+    body.appendChild(row);
+  });
+
+  if (thermal?.reason) {
+    body.appendChild(el("p", `run-warning is-${thermal.state}`, thermal.reason));
+  }
+
+  const logDetails = el("details", "run-log-details");
+  logDetails.open = true;
+  logDetails.appendChild(el("summary", null, "Log"));
   const pre = el("pre", "run-log", (task.logs || []).join("\n"));
-  body.appendChild(pre);
+  logDetails.appendChild(pre);
+  body.appendChild(logDetails);
 
   body.appendChild(el("p", "run-hint",
     "Closing this does not stop the job. Reopen it from Jobs."));
   return { body, pre };
 }
 
-function openOverlay(task) {
+function openOverlay(task, thermal) {
   let overlay = document.getElementById("runOverlay");
   if (!overlay) {
     overlay = el("div", "modal-backdrop run-overlay");
@@ -161,7 +247,7 @@ function openOverlay(task) {
   }
 
   const panel = el("div", "modal-container run-panel");
-  const { body, pre } = buildOverlayBody(task);
+  const { body, pre } = buildOverlayBody(task, thermal);
   panel.appendChild(body);
   overlay.replaceChildren(panel);
   overlay.style.display = "flex";
@@ -182,7 +268,7 @@ export function closeOverlay() {
 export function showRunningJob(taskId) {
   if (!latest.task || latest.task.task_id !== taskId) return false;
   overlayDismissedFor = null;
-  openOverlay(latest.task);
+  openOverlay(latest.task, latest.thermal);
   return true;
 }
 
@@ -233,7 +319,7 @@ export async function pollLiveWork() {
 
     const running = data.task && data.task.status === "running";
     if (running && overlayDismissedFor !== data.task.task_id) {
-      openOverlay(data.task);       // a newly started job opens itself
+      openOverlay(data.task, data.thermal);   // a newly started job opens itself
     } else if (!running) {
       closeOverlay();
       lastLogCount = 0;

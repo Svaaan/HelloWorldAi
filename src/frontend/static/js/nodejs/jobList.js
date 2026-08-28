@@ -15,6 +15,12 @@ const MAX_JOBS = 15;
 
 let pollTimer = null;
 
+// Rows are rebuilt from scratch on every poll. Without this, an expanded row
+// slams shut a few seconds after someone opens it, and the row under their
+// cursor shifts mid-click onto a different job. Remember what is open and
+// restore it after each rebuild.
+const openJobs = new Set();
+
 const STATUS_LABEL = {
   pending: "Queued",
   running: "Running",
@@ -72,6 +78,12 @@ function emptyState(title, detail) {
 // collapsed line carries the whole summary, detail is one click away.
 function buildJobRow(job) {
   const row = el("details", "job-row");
+  row.open = openJobs.has(job.task_id);
+  row.addEventListener("toggle", () => {
+    if (row.open) openJobs.add(job.task_id);
+    else openJobs.delete(job.task_id);
+  });
+
   const summary = el("summary", "job-summary");
 
   summary.appendChild(statusPill(job.status));
@@ -189,6 +201,10 @@ export async function loadJobs() {
     }
 
     updateJobCount(jobs);
+
+    // Drop remembered rows for jobs that have aged out of the list.
+    const present = new Set(jobs.map((job) => job.task_id));
+    [...openJobs].forEach((id) => { if (!present.has(id)) openJobs.delete(id); });
 
     if (jobs.length === 0) {
       container.replaceChildren(emptyState(
