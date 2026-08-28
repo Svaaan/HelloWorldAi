@@ -3,10 +3,6 @@ services:
     build:
       context: ../
       dockerfile: docker/Dockerfile
-      cache_from:
-        - type=local,src=/tmp/.buildx-cache
-      cache_to:
-        - type=local,dest=/tmp/.buildx-cache
     ports:
       - "3000:3000"
     env_file:
@@ -14,6 +10,9 @@ services:
     environment:
       - USE_DOCKER=true
       - ENV=test
+      # The source bind mount means the container would otherwise litter
+      # the host tree with __pycache__ owned by the container.
+      - PYTHONDONTWRITEBYTECODE=1
       - MONGO_URI=mongodb://mongo_test:27017
     depends_on:
       - coordinator
@@ -23,15 +22,15 @@ services:
     restart: always
     volumes:
       - ~/.cache/pip:/root/.cache/pip  # ✅ Optional: pip caching
+      # Live source for local development: edit on the host and restart the
+      # service instead of rebuilding. Only in the test stack -- the
+      # production and node images must ship their own copy of the code.
+      - ../src:/app/src
 
   coordinator:
     build:
       context: ../
       dockerfile: docker/Dockerfile
-      cache_from:
-        - type=local,src=/tmp/.buildx-cache
-      cache_to:
-        - type=local,dest=/tmp/.buildx-cache
     ports:
       - "8100:8100"
     env_file:
@@ -39,6 +38,9 @@ services:
     environment:
       - USE_DOCKER=true
       - ENV=test
+      # The source bind mount means the container would otherwise litter
+      # the host tree with __pycache__ owned by the container.
+      - PYTHONDONTWRITEBYTECODE=1
       - MONGO_URI=mongodb://mongo_test:27017
     depends_on:
       - mongo_test
@@ -46,15 +48,15 @@ services:
     restart: always
     volumes:
       - ~/.cache/pip:/root/.cache/pip  # ✅ Optional: pip caching
+      # Live source for local development: edit on the host and restart the
+      # service instead of rebuilding. Only in the test stack -- the
+      # production and node images must ship their own copy of the code.
+      - ../src:/app/src
 
   node:
     build:
       context: ../
       dockerfile: docker/Dockerfile
-      cache_from:
-        - type=local,src=/tmp/.buildx-cache
-      cache_to:
-        - type=local,dest=/tmp/.buildx-cache
     ports:
       - "9100:9100"
     env_file:
@@ -63,6 +65,9 @@ services:
       - NODE_PORT=9100
       - USE_DOCKER=true
       - ENV=test
+      # The source bind mount means the container would otherwise litter
+      # the host tree with __pycache__ owned by the container.
+      - PYTHONDONTWRITEBYTECODE=1
       - MONGO_URI=mongodb://mongo_test:27017
     depends_on:
       - mongo_test
@@ -71,6 +76,12 @@ services:
     restart: always
     volumes:
       - ~/.cache/pip:/root/.cache/pip  # ✅ Optional: pip caching
+      # Live source for local development: edit on the host and restart the
+      # service instead of rebuilding. Only in the test stack -- the
+      # production and node images must ship their own copy of the code.
+      - ../src:/app/src
+      # Survives `up --force-recreate`, not just restart.
+      - node-session:/app/data
 
   mongo_test:
     image: mongo:latest
@@ -80,3 +91,6 @@ services:
     volumes:
       - ./data/db_test:/data/db
     restart: always
+
+volumes:
+  node-session:

@@ -8,7 +8,12 @@ logger = logging.getLogger(__name__)
 
 async def get_usage():
     try:
-        cpu_usage = cpu_percent(interval=1)
+        # interval=None measures since the previous call instead of sleeping.
+        # interval=1 blocked this coroutine -- and therefore the node's whole
+        # event loop -- for a full second per request, which delayed heartbeats
+        # and task polling whenever the dashboard was open.
+        # The very first call after start-up returns 0.0; every later one is real.
+        cpu_usage = cpu_percent(interval=None)
         memory_usage = virtual_memory().percent
 
         gpu_data = []

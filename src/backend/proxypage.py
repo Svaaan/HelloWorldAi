@@ -163,6 +163,50 @@ async def proxy_execute_task(node_id: str, request: Request):
     except Exception as e:
         return {"error": f"Unexpected error: {str(e)}"}
 
+async def _post_to_node(path: str, body=None):
+    async with httpx.AsyncClient() as client:
+        res = await client.post(f"{NODE_URL}{path}", json=body, timeout=20)
+        if res.status_code >= 400:
+            raise HTTPException(status_code=res.status_code, detail=safe_json(res))
+        return safe_json(res)
+
+
+@router.post("/approve-task/{task_id}")
+async def proxy_approve_task(task_id: str):
+    try:
+        return await _post_to_node(f"/approve-task/{task_id}")
+    except httpx.RequestError as e:
+        return {"error": f"Failed to reach node: {e}"}
+
+
+@router.post("/decline-task/{task_id}")
+async def proxy_decline_task(task_id: str):
+    try:
+        return await _post_to_node(f"/decline-task/{task_id}")
+    except httpx.RequestError as e:
+        return {"error": f"Failed to reach node: {e}"}
+
+
+@router.post("/approval-mode")
+async def proxy_approval_mode(request: Request):
+    try:
+        return await _post_to_node("/approval-mode", await request.json())
+    except httpx.RequestError as e:
+        return {"error": f"Failed to reach node: {e}"}
+
+
+@router.get("/current-task")
+async def proxy_current_task():
+    """Live progress and thermal state from the node."""
+    try:
+        async with httpx.AsyncClient() as client:
+            res = await client.get(f"{NODE_URL}/current-task", timeout=10)
+            res.raise_for_status()
+            return safe_json(res)
+    except httpx.RequestError as e:
+        return {"error": f"Failed to reach node: {e}"}
+
+
 @router.get("/usage")
 async def proxy_usage():
     try:
