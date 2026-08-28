@@ -4,15 +4,19 @@ FROM nvidia/cuda:12.2.0-runtime-ubuntu22.04
 #  Set working directory
 WORKDIR /app
 
-#  Install system-level dependencies
+#  Install system-level dependencies.
+#  One interpreter only. `python` used to point at python3.11 while
+#  python3-pip installed into python3.10, so every package -- torch
+#  included -- landed where `python` could not see it. Services still
+#  started, because uvicorn is a 3.10 console script, but any
+#  `python -m ...` found an empty interpreter.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3.11 \
+    python3 \
     python3-pip \
-    python3.11-venv \
-    python3.11-dev \
+    python3-venv \
+    python3-dev \
     curl \
- && ln -sf /usr/bin/python3.11 /usr/bin/python \
- && ln -sf /usr/bin/pip3 /usr/bin/pip \
+ && ln -sf /usr/bin/python3 /usr/bin/python \
  && rm -rf /var/lib/apt/lists/*
 
 #  Install MongoDB tools (Optional, if you need mongo cli inside container)
@@ -25,8 +29,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY ./requirements.txt ./requirements.txt
 
 #  Install dependencies (cached if requirements.txt is unchanged)
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+RUN python -m pip install --no-cache-dir --upgrade pip && \
+    python -m pip install --no-cache-dir -r requirements.txt
 
 # Copy the rest of the source code (your app files)
 COPY ./src ./src
