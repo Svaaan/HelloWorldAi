@@ -87,6 +87,11 @@ def render_node_page():
     path = os.path.join(TEMPLATE_DIR, "node.html")
     return FileResponse(path) if os.path.exists(path) else HTMLResponse("<h1>404 - node.html not found</h1>", status_code=404)
 
+@dashboard_app.get("/workspace", response_class=HTMLResponse)
+async def workspace_page():
+    path = os.path.join(TEMPLATE_DIR, "workspace.html")
+    return FileResponse(path) if os.path.exists(path) else HTMLResponse("<h1>404 - workspace.html not found</h1>", status_code=404)
+
 @dashboard_app.get("/distribution", response_class=HTMLResponse)
 def render_distribution_page():
     path = os.path.join(TEMPLATE_DIR, "distribution.html")

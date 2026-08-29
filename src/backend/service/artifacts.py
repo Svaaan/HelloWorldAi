@@ -19,6 +19,7 @@ reasoned about on its own. Tensor conversion happens at the call site.
 """
 
 import io
+import json
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -153,23 +154,84 @@ def unpack_dataset(payload: bytes) -> Tuple[np.ndarray, np.ndarray]:
 
 # --- model weights -------------------------------------------------------
 
-def pack_state_dict(state_dict: Dict[str, Any]) -> bytes:
+# A description of the model, carried inside the weights file itself.
+#
+# Without it the download is a bag of arrays named "0.weight", "2.weight",
+# "4.bias" -- reusable only by someone who already knows the exact module list
+# those indices refer to. The submitter has to reverse-engineer the very thing
+# they asked the network to build for them, so the manifest travels with the
+# weights rather than alongside them, where the two could be separated.
+#
+# It is stored as UTF-8 bytes in a uint8 array: the loader refuses anything but
+# plain numeric arrays (no pickles), and that rule is worth more than the
+# convenience of a string dtype.
+MANIFEST_KEY = "__manifest__"
+MAX_MANIFEST_BYTES = 64 * 1024
+
+
+def pack_state_dict(state_dict: Dict[str, Any],
+                    manifest: Optional[Dict[str, Any]] = None) -> bytes:
     """Serialise trained weights. Accepts torch tensors or numpy arrays.
 
     Returned to whoever submitted the job, so it must be loadable without
-    trusting the contributor who produced it.
+    trusting the contributor who produced it. `manifest` describes how to
+    rebuild the model these weights belong to.
     """
     arrays = {}
     for name, value in state_dict.items():
+        if name == MANIFEST_KEY:
+            raise ArtifactError(f"{MANIFEST_KEY!r} is reserved for the model description.")
         if hasattr(value, "detach"):          # a torch tensor
             value = value.detach().cpu().numpy()
         arrays[name] = np.asarray(value)
+
+    if manifest is not None:
+        encoded = json.dumps(manifest, separators=(",", ":"), default=str).encode("utf-8")
+        if len(encoded) > MAX_MANIFEST_BYTES:
+            raise ArtifactError(
+                f"Model description is {len(encoded)} bytes, over the "
+                f"{MAX_MANIFEST_BYTES} limit."
+            )
+        arrays[MANIFEST_KEY] = np.frombuffer(encoded, dtype=np.uint8)
+
     return pack_arrays(arrays)
 
 
 def unpack_state_dict(payload: bytes) -> Dict[str, np.ndarray]:
-    """Load trained weights produced by someone else's machine."""
-    return unpack_arrays(payload)
+    """Load trained weights produced by someone else's machine.
+
+    The manifest is not a weight, so it is not returned here; read it with
+    read_manifest().
+    """
+    arrays = unpack_arrays(payload)
+    arrays.pop(MANIFEST_KEY, None)
+    return arrays
+
+
+def read_manifest(payload: bytes) -> Optional[Dict[str, Any]]:
+    """The model description packed with these weights, if there is one.
+
+    Returns None rather than raising for older files that predate manifests,
+    and for anything that does not decode: a description that cannot be read
+    should not stop someone loading their own weights.
+    """
+    try:
+        arrays = unpack_arrays(payload)
+    except ArtifactError:
+        raise
+
+    raw = arrays.get(MANIFEST_KEY)
+    if raw is None:
+        return None
+
+    try:
+        decoded = bytes(np.asarray(raw, dtype=np.uint8)).decode("utf-8")
+        manifest = json.loads(decoded)
+    except Exception as e:
+        logger.warning(f"Model description could not be read: {e}")
+        return None
+
+    return manifest if isinstance(manifest, dict) else None
 
 
 # --- CSV intake ----------------------------------------------------------

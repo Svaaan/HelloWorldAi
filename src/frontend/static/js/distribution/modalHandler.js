@@ -6,12 +6,8 @@
 // specs come from other people's machines, so treating them as markup would let
 // a malicious node run script in everyone else's dashboard.
 
-const EXAMPLE_JOB = {
-  task_type: "llm_training",
-  model_name: "my-first-model",
-  model_spec: { architecture: "mlp", hidden_dim: 64, depth: 2 },
-  hyperparameters: { steps: 50, batch_size: 64, learning_rate: 0.01 },
-};
+import { submitterHeaders } from "./submitter.js";
+import { buildJobForm } from "./jobForm.js";
 
 function el(tag, className, text) {
   const node = document.createElement(tag);
@@ -80,14 +76,23 @@ export function showNodeModal(node) {
   // --- job spec --------------------------------------------------------
 
   const jobLabel = el("label", "field-label", "Job");
-  jobLabel.htmlFor = "taskDataInput";
   content.appendChild(jobLabel);
 
-  const textarea = document.createElement("textarea");
-  textarea.id = "taskDataInput";
-  textarea.spellcheck = false;
-  textarea.value = JSON.stringify(EXAMPLE_JOB, null, 2);
-  content.appendChild(textarea);
+  const formHost = el("div", "job-form");
+  content.appendChild(formHost);
+
+  // Generated from the coordinator's own schema, so the fields offered here
+  // are exactly the fields it will accept.
+  let jobForm = null;
+  buildJobForm(formHost)
+    .then((form) => { jobForm = form; })
+    .catch((error) => {
+      console.error("Could not load the job form:", error);
+      formHost.replaceChildren(
+        el("p", "error-message",
+           `Could not load the job options. ${error.message}`)
+      );
+    });
 
   const sendButton = el("button", null, "Send job");
   sendButton.id = "sendTaskButton";
@@ -150,11 +155,16 @@ export function showNodeModal(node) {
   });
 
   sendButton.addEventListener("click", async () => {
+    if (!jobForm) {
+      setStatus(responseMessage, "The job options are still loading.", "error");
+      return;
+    }
+
     let payload;
     try {
-      payload = JSON.parse(textarea.value);
-    } catch {
-      setStatus(responseMessage, "That is not valid JSON.", "error");
+      payload = jobForm.read();
+    } catch (error) {
+      setStatus(responseMessage, error.message, "error");
       return;
     }
 
@@ -166,7 +176,9 @@ export function showNodeModal(node) {
     try {
       const res = await fetch(`/submit-task/${encodeURIComponent(node.node_id)}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        // The key identifies this browser as the job's owner, which is what
+        // later lets it collect the trained model.
+        headers: submitterHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify(payload),
       });
 
@@ -186,6 +198,12 @@ export function showNodeModal(node) {
         `Queued as ${result.task_id}. The node picks it up on its next poll.${note}`,
         "success"
       );
+
+      // The job is now out of sight; say where it reappears, and where the
+      // finished model will be waiting.
+      const link = el("a", "modal-followup", "Track it in your workspace →");
+      link.href = "/workspace";
+      responseMessage.appendChild(link);
     } catch (error) {
       console.error("Error sending job:", error);
       setStatus(responseMessage, error.message, "error");

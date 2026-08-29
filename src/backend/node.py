@@ -678,7 +678,7 @@ async def _run_task(task, node_id, headers) -> bool:
     state_dict = outcome.get("state_dict")
     if state_dict:
         try:
-            blob = pack_state_dict(state_dict)
+            blob = pack_state_dict(state_dict, outcome.get("manifest"))
             async with httpx.AsyncClient() as client:
                 res = await client.post(
                     f"{COORDINATOR_URL}/artifacts?kind=weights",
@@ -689,6 +689,8 @@ async def _run_task(task, node_id, headers) -> bool:
                 res.raise_for_status()
             weights_id = (res.json() or {}).get("artifact_id")
             log(f"Uploaded trained weights ({len(blob):,} bytes) as {weights_id}")
+            if outcome.get("manifest"):
+                log("Model description packed with the weights.")
         except Exception as e:
             # The training itself succeeded, so report it rather than losing it.
             log(f"Could not upload trained weights: {e}")

@@ -21,10 +21,24 @@ def safe_json(res):
         return {"error": "Invalid JSON response"}
 
 
-# 🔑 Pass the caller's node session token through to the upstream service
+# 🔑 Pass the caller's credentials through to the upstream service.
+#
+# Two kinds now: a node's bearer token, and the submitter key that identifies
+# whoever sent a job. Dropping either here silently breaks the feature it
+# belongs to -- a job submitted through this proxy without its key arrives
+# with no owner, so nobody can ever collect the model it produces.
 def auth_headers(request: Request) -> dict:
+    headers = {}
+
     token = request.headers.get("authorization")
-    return {"Authorization": token} if token else {}
+    if token:
+        headers["Authorization"] = token
+
+    submitter = request.headers.get("x-submitter-key")
+    if submitter:
+        headers["X-Submitter-Key"] = submitter
+
+    return headers
 
 @router.patch("/toggle-availability/{node_id}")
 async def proxy_toggle_availability(node_id: str, request: Request):
@@ -280,10 +294,14 @@ async def proxy_upload_artifact(request: Request):
 
 
 @router.get("/artifacts/{artifact_id}")
-async def proxy_download_artifact(artifact_id: str):
+async def proxy_download_artifact(artifact_id: str, request: Request):
     try:
         async with httpx.AsyncClient() as client:
-            res = await client.get(f"{COORDINATOR_URL}/artifacts/{artifact_id}", timeout=120)
+            res = await client.get(
+                f"{COORDINATOR_URL}/artifacts/{artifact_id}",
+                headers=auth_headers(request),
+                timeout=120,
+            )
             if res.status_code >= 400:
                 raise HTTPException(status_code=res.status_code, detail="Artifact not available.")
             return Response(content=res.content, media_type="application/octet-stream")
@@ -301,12 +319,46 @@ async def proxy_submit_task(node_id: str, request: Request):
     try:
         task_data = await request.json()
         async with httpx.AsyncClient() as client:
-            res = await client.post(f"{COORDINATOR_URL}/submit-task/{node_id}", json=task_data)
+            res = await client.post(
+                f"{COORDINATOR_URL}/submit-task/{node_id}",
+                json=task_data,
+                headers=auth_headers(request),
+            )
             if res.status_code >= 400:
                 raise HTTPException(status_code=res.status_code, detail=safe_json(res))
             return safe_json(res)
     except httpx.RequestError as e:
         return {"status": "error", "message": f"Failed to reach coordinator: {e}"}
+
+
+@router.get("/job-schema")
+async def proxy_job_schema():
+    """The fields a job may contain, used to build the submit form."""
+    try:
+        async with httpx.AsyncClient() as client:
+            res = await client.get(f"{COORDINATOR_URL}/job-schema", timeout=15)
+            res.raise_for_status()
+            return safe_json(res)
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=502, detail=f"Failed to reach coordinator: {e}")
+
+
+@router.get("/my-tasks")
+async def proxy_my_tasks(request: Request):
+    """The jobs submitted from this browser, for collecting finished models."""
+    try:
+        async with httpx.AsyncClient() as client:
+            res = await client.get(
+                f"{COORDINATOR_URL}/my-tasks",
+                params=dict(request.query_params),
+                headers=auth_headers(request),
+                timeout=30,
+            )
+            if res.status_code >= 400:
+                raise HTTPException(status_code=res.status_code, detail=safe_json(res))
+            return safe_json(res)
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=502, detail=f"Failed to reach coordinator: {e}")
 
 
 @router.get("/tasks")
