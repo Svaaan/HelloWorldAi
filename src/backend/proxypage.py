@@ -236,7 +236,22 @@ async def proxy_run_self_test(request: Request):
 
             # Generous: this trains a real model before it answers.
             res = await client.post(f"{NODE_URL}/self-test", content=body,
-                                    headers=headers, timeout=600)
+                                    params=dict(request.query_params),
+                                    headers=headers, timeout=1200)
+            if res.status_code >= 400:
+                raise HTTPException(status_code=res.status_code, detail=safe_json(res))
+            return safe_json(res)
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=502, detail=f"Failed to reach node: {e}")
+
+
+@router.post("/self-test/stop")
+async def proxy_stop_self_test(request: Request):
+    """Ask a running test to stop."""
+    try:
+        async with httpx.AsyncClient() as client:
+            res = await client.post(f"{NODE_URL}/self-test/stop",
+                                    headers=auth_headers(request), timeout=20)
             if res.status_code >= 400:
                 raise HTTPException(status_code=res.status_code, detail=safe_json(res))
             return safe_json(res)

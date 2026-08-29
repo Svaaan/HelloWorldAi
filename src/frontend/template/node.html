@@ -97,12 +97,19 @@
         <section class="panel selftest-panel">
             <div class="panel-head">
                 <h2>Test this machine</h2>
-                <button id="runSelfTest" type="button" class="btn-ghost">Run a test job</button>
+                <div class="selftest-actions">
+                    <button id="runSelfTest" type="button" class="btn-ghost">Quick test</button>
+                    <button id="runStressTest" type="button" class="btn-ghost">Stress test · 5 min</button>
+                    <button id="stopSelfTest" type="button" class="btn-ghost is-stop" hidden>Stop</button>
+                </div>
             </div>
             <p class="selftest-intro">
-                Trains a small model here, start to finish, through the same code a
-                real job uses. It opens the same live view a real job does, so you
-                can watch the card work before anyone else depends on it.
+                Trains a model here, through the same code a real job uses, and
+                opens the same live view. <strong>Quick</strong> proves the card
+                works and measures what it sustains. <strong>Stress</strong> keeps
+                it loaded for five minutes so you can see how hot it gets and
+                whether your cooling holds &mdash; stop it whenever you like. It
+                stops itself if the card reaches its own limit.
             </p>
 
             <div class="selftest-data">

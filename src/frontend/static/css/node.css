@@ -918,3 +918,58 @@ input:disabled + .slider {
   color: var(--text-faint);
   max-width: 70ch;
 }
+
+.selftest-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.selftest-actions .btn-ghost {
+  font-size: 0.8125rem;
+  padding: 0.45rem 0.9rem;
+}
+
+/* Stopping is the one destructive-looking action here, so it reads as one. */
+.selftest-actions .is-stop {
+  color: var(--danger);
+  border-color: rgba(248, 113, 113, 0.32);
+}
+
+.selftest-actions .is-stop:hover {
+  background-color: var(--danger-wash);
+  color: var(--danger);
+}
+
+.selftest-actions [hidden] {
+  display: none;
+}
+
+/* Stop, in the running panel. Sits beside the close button but reads as an
+   action rather than a dismissal — closing and stopping are different things
+   and the difference matters here. */
+.run-stop {
+  margin-left: auto;
+  margin-right: 0.5rem;
+  padding: 0.3rem 0.75rem;
+  border-radius: var(--r-pill);
+  border: 1px solid rgba(248, 113, 113, 0.32);
+  background-color: var(--danger-wash);
+  color: var(--danger);
+  font-family: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color var(--t-fast) var(--ease);
+}
+
+.run-stop:hover {
+  background-color: rgba(248, 113, 113, 0.2);
+  transform: none;
+  box-shadow: none;
+}
+
+.run-stop:disabled {
+  opacity: 0.7;
+  cursor: default;
+}

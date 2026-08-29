@@ -31,6 +31,12 @@ function notice(text, kind) {
   return el("p", kind ? `selftest-note ${kind}` : "selftest-note", text);
 }
 
+function formatDuration(seconds) {
+  const whole = Math.round(seconds);
+  if (whole < 60) return `${whole}s`;
+  return `${Math.floor(whole / 60)}m ${String(whole % 60).padStart(2, "0")}s`;
+}
+
 function render(result) {
   const target = document.getElementById("selfTestResult");
   if (!target) return;
@@ -41,7 +47,12 @@ function render(result) {
   }
 
   if (result.running) {
-    target.replaceChildren(notice("Training… this takes a few seconds.", "is-running"));
+    target.replaceChildren(notice(
+      result.mode === "stress"
+        ? "Working the card… watch the temperature in the live view."
+        : "Training… this takes a few seconds.",
+      "is-running",
+    ));
     return;
   }
 
@@ -53,6 +64,44 @@ function render(result) {
   }
 
   const grid = el("div", "selftest-stats");
+
+  // A stress run is about heat, not throughput. Lead with what it was for.
+  if (result.mode === "stress") {
+    if (result.peak_temperature != null) {
+      grid.appendChild(stat("Peak temperature", `${result.peak_temperature}°C`,
+        result.ran_hot ? "reached its warning point" : "stayed within limits"));
+    }
+    if (result.peak_power_w != null) {
+      grid.appendChild(stat("Peak power", `${result.peak_power_w} W`));
+    }
+    if (result.peak_utilisation != null) {
+      grid.appendChild(stat("Peak load", `${result.peak_utilisation}%`));
+    }
+    if (result.seconds_run != null) {
+      grid.appendChild(stat("Ran for", formatDuration(result.seconds_run),
+        result.ended_because === "stopped" ? "you stopped it" : null));
+    }
+
+    target.replaceChildren(grid);
+    target.appendChild(
+      result.ran_hot
+        ? notice(
+            "The card reached its warning temperature. It is protected — a real "
+            + "job would pause before any damage — but better airflow would let "
+            + "it work for longer.",
+            "is-warn",
+          )
+        : notice(
+            "The card held up under sustained load without getting close to its "
+            + "limit. This machine can take long jobs.",
+            "is-ok",
+          )
+    );
+    if (Array.isArray(result.devices) && result.devices.length) {
+      target.appendChild(notice(`Ran on: ${result.devices.join(", ")}`));
+    }
+    return;
+  }
 
   // A small model on somebody's own rows finishes almost instantly, so its
   // throughput measures start-up cost rather than the card. Reporting it as
@@ -135,9 +184,12 @@ export function initSelfTest() {
   const button = document.getElementById("runSelfTest");
   if (!button) return;
 
+  const stressButton = document.getElementById("runStressTest");
+  const stopButton = document.getElementById("stopSelfTest");
+  const csvInput = document.getElementById("selfTestCsv");
+
   loadExisting();
 
-  const csvInput = document.getElementById("selfTestCsv");
   if (csvInput) {
     csvInput.addEventListener("change", () => {
       const file = csvInput.files?.[0];
@@ -147,22 +199,45 @@ export function initSelfTest() {
     });
   }
 
-  button.addEventListener("click", async () => {
-    button.disabled = true;
-    button.textContent = "Testing…";
-    render({ running: true });
+  function setRunning(running, mode) {
+    button.disabled = running;
+    if (stressButton) stressButton.disabled = running;
+    if (stopButton) stopButton.hidden = !running;
 
-    // The node presents this as its current task, so the live view picks it up
-    // on its next poll -- the same overlay a real job opens.
+    button.textContent = running && mode === "quick" ? "Testing…" : "Quick test";
+    if (stressButton) {
+      stressButton.textContent = running && mode === "stress"
+        ? "Working the card…" : "Stress test · 5 min";
+    }
+  }
+
+  if (stopButton) {
+    stopButton.addEventListener("click", async () => {
+      stopButton.disabled = true;
+      stopButton.textContent = "Stopping…";
+      try {
+        await fetch("/self-test/stop", { method: "POST" });
+      } catch (error) {
+        console.error("Could not stop the test:", error);
+      } finally {
+        // The run itself reports back; this button only asks.
+        stopButton.textContent = "Stop";
+        stopButton.disabled = false;
+      }
+    });
+  }
+
+  async function run(mode) {
+    setRunning(true, mode);
+    render({ running: true, mode });
+
     const file = csvInput?.files?.[0];
 
-    // The request holds open for the whole job, so nothing else is needed to
-    // know when it finished.
     try {
-      const res = await fetch("/self-test", {
+      const res = await fetch(`/self-test?mode=${encodeURIComponent(mode)}`, {
         method: "POST",
-        headers: file ? { "Content-Type": "text/csv" } : {},
-        body: file ? await file.text() : undefined,
+        headers: file && mode === "quick" ? { "Content-Type": "text/csv" } : {},
+        body: file && mode === "quick" ? await file.text() : undefined,
       });
       const data = await res.json().catch(() => null);
 
@@ -176,8 +251,12 @@ export function initSelfTest() {
       console.error("Self test failed:", error);
       render({ status: "failed", result: error.message });
     } finally {
-      button.disabled = false;
-      button.textContent = "Run a test job";
+      setRunning(false, mode);
     }
-  });
+  }
+
+  // The node presents either run as its current task, so the live view picks
+  // it up on its next poll -- the same overlay a real job opens.
+  button.addEventListener("click", () => run("quick"));
+  if (stressButton) stressButton.addEventListener("click", () => run("stress"));
 }

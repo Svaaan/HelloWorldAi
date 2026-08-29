@@ -27,7 +27,7 @@ from backend.utils.config import COORDINATOR_URL
 from backend.service.taskExecutor import JobCancelled, execute_task
 from backend.service.gpuBenchmark import benchmark_all
 from backend.service.poolPlanner import pool_summary
-from backend.service.thermalPolicy import STATE_STOP, thermal_status
+from backend.service.thermalPolicy import STATE_OK, STATE_STOP, thermal_status
 from backend.service.artifacts import (
     ArtifactError, pack_state_dict, parse_csv_dataset, unpack_dataset,
 )
@@ -486,6 +486,34 @@ SELF_TEST_CSV_TASK = {
     "hyperparameters": {"steps": 200, "batch_size": 32, "learning_rate": 0.01},
 }
 
+# The long test. A quick run finishes before a card has warmed up, so it says
+# nothing about whether a machine can hold a real job: fans spin up over
+# minutes, and a case with poor airflow only shows itself once the heat has
+# nowhere left to go. This runs until the owner stops it or the time is up,
+# and reports how hot it got.
+#
+# Bigger than the quick test so the card is genuinely loaded rather than
+# waiting on Python between steps. The step count is deliberately far more
+# than can finish in the time: the clock ends the run, not the steps.
+SELF_TEST_STRESS_TASK = {
+    "task_type": "llm_training",
+    "model_name": "self-test",
+    "model_spec": {
+        "architecture": "transformer",
+        "vocab_size": 8192,
+        "d_model": 512,
+        "n_head": 8,
+        "n_layer": 6,
+        "seq_len": 256,
+    },
+    "hyperparameters": {"steps": 1_000_000, "batch_size": 24, "learning_rate": 0.0003},
+}
+
+STRESS_SECONDS = int(os.getenv("SELF_TEST_STRESS_SECONDS", 300))
+
+# NVML is cheap but not free, and the progress hook fires many times a second.
+THERMAL_SAMPLE_SECONDS = 1.0
+
 self_test: Dict[str, Any] = {}
 
 
@@ -495,8 +523,20 @@ async def get_self_test():
     return {"result": self_test or None, "running": bool(self_test.get("running"))}
 
 
+@app.post("/self-test/stop")
+async def stop_self_test():
+    """Ask a running test to stop at its next step."""
+    if not self_test.get("running"):
+        raise HTTPException(status_code=409, detail="No test is running.")
+
+    self_test["stop_requested"] = True
+    self_test["ended_because"] = "stopped"
+    logger.info("Self test stop requested by the owner.")
+    return {"status": "success", "stopping": True}
+
+
 @app.post("/self-test")
-async def run_self_test(request: Request):
+async def run_self_test(request: Request, mode: str = "quick"):
     """Train a small model here and now, and report what the card managed.
 
     An optional CSV body trains on the owner's own data instead of synthetic
@@ -517,8 +557,10 @@ async def run_self_test(request: Request):
         logs.append(str(message))
 
     # --- the owner's data, if they supplied any --------------------------
+    stress = mode == "stress"
+
     dataset = None
-    task_data = dict(SELF_TEST_TASK)
+    task_data = dict(SELF_TEST_STRESS_TASK if stress else SELF_TEST_TASK)
 
     body = await request.body()
     if body and body.strip():
@@ -537,8 +579,23 @@ async def run_self_test(request: Request):
             log(f"Labels: {', '.join(class_names[:8])}")
 
     self_test.clear()
-    self_test.update({"running": True, "started_at": datetime.utcnow().isoformat(),
-                      "logs": logs, "used_dataset": dataset is not None})
+    self_test.update({
+        "running": True,
+        "mode": mode,
+        "started_at": datetime.utcnow().isoformat(),
+        "logs": logs,
+        "used_dataset": dataset is not None,
+        "stop_requested": False,
+        "ended_because": None,
+        "peak_temperature": None,
+        "peak_power_w": None,
+        "peak_utilisation": None,
+        "ran_hot": False,
+    })
+
+    if stress:
+        log(f"Working the card for up to {STRESS_SECONDS // 60} minutes. "
+            f"Stop it whenever you like.")
 
     # Presented exactly like a real job, so the owner watches it in the same
     # live view -- progress, loss, temperature -- rather than staring at a
@@ -555,8 +612,63 @@ async def run_self_test(request: Request):
         "self_test": True,
     })
 
+    started = time.time()
+    last_sample = [0.0]
+
     def on_progress(update):
+        elapsed = time.time() - started
+
+        # A stress run is bounded by the clock, not the step count -- that is
+        # set absurdly high on purpose. Reporting steps would leave the bar at
+        # 0% for the whole five minutes, so it counts down the time instead.
+        if stress:
+            remaining = max(0, STRESS_SECONDS - int(elapsed))
+            update = {
+                **update,
+                "step": min(int(elapsed), STRESS_SECONDS),
+                "steps": STRESS_SECONDS,
+                "label": f"{int(elapsed) // 60}:{int(elapsed) % 60:02d}"
+                         f" of {STRESS_SECONDS // 60}:{STRESS_SECONDS % 60:02d}"
+                         f" — {remaining // 60}:{remaining % 60:02d} left",
+            }
+
         current_task["progress"] = update
+
+        # Sampled rather than read every step: the hook fires many times a
+        # second and NVML is not free.
+        if elapsed - last_sample[0] >= THERMAL_SAMPLE_SECONDS:
+            last_sample[0] = elapsed
+            try:
+                status = thermal_status()
+            except Exception:
+                status = None
+
+            if status and status.get("gpus"):
+                hottest = status["hottest"] or status["gpus"][0]
+                for key, value in (
+                    ("peak_temperature", hottest.get("temperature")),
+                    ("peak_power_w", hottest.get("power_w")),
+                    ("peak_utilisation", hottest.get("utilisation")),
+                ):
+                    if value is not None and (self_test.get(key) is None
+                                              or value > self_test[key]):
+                        self_test[key] = value
+
+                if status.get("state") != STATE_OK:
+                    self_test["ran_hot"] = True
+
+                current_task["thermal_peak"] = {
+                    "temperature": self_test.get("peak_temperature"),
+                    "power_w": self_test.get("peak_power_w"),
+                }
+
+        if self_test.get("stop_requested"):
+            raise JobCancelled("Stopped by the owner.")
+
+        # The clock ends a stress run, not the step count.
+        if stress and elapsed >= STRESS_SECONDS:
+            self_test["ended_because"] = "finished"
+            raise JobCancelled("Ran for the full time.")
 
     # Tell the coordinator now rather than at the next scheduled heartbeat: a
     # test is over in seconds, so a minute's delay would report it as idle for
@@ -580,7 +692,8 @@ async def run_self_test(request: Request):
     metrics = outcome.get("metrics") or {}
 
     current_task.update({
-        "status": outcome.get("status", "completed"),
+        "status": "completed" if (stress and outcome.get("status") == "cancelled")
+                  else outcome.get("status", "completed"),
         "result": outcome.get("result"),
         "metrics": metrics,
         "finished_at": datetime.utcnow().isoformat(),
@@ -588,10 +701,25 @@ async def run_self_test(request: Request):
 
     # The two figures answer different questions, so both are reported rather
     # than one being quietly replaced by the other.
+    # A stress run that hits its time limit, or that the owner stops, comes
+    # back as "cancelled" from the executor -- which is accurate for a job but
+    # wrong for a test that did exactly what was asked of it.
+    status = outcome.get("status")
+    ended = self_test.get("ended_because")
+    if status == "cancelled" and stress:
+        status = "completed"
+
     result = {
         "running": False,
+        "mode": mode,
         "used_dataset": dataset is not None,
-        "status": outcome.get("status"),
+        "ended_because": ended or ("finished" if status == "completed" else None),
+        "seconds_run": round(time.time() - started, 1),
+        "peak_temperature": self_test.get("peak_temperature"),
+        "peak_power_w": self_test.get("peak_power_w"),
+        "peak_utilisation": self_test.get("peak_utilisation"),
+        "ran_hot": bool(self_test.get("ran_hot")),
+        "status": status,
         "result": outcome.get("result"),
         "finished_at": datetime.utcnow().isoformat(),
         "sustained_tflops": metrics.get("achieved_tflops"),
@@ -610,6 +738,10 @@ async def run_self_test(request: Request):
     result["learned"] = bool(
         first is not None and last is not None and last < first
     )
+    if stress:
+        # Nothing is returned by a run that was interrupted, and a heat test
+        # was never about the loss.
+        result["learned"] = True
 
     self_test.clear()
     self_test.update(result)

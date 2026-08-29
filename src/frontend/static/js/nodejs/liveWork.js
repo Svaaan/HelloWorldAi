@@ -169,6 +169,8 @@ function shapeOf(task, thermal) {
     task.task_id,
     task.status,
     p.steps ? "progress" : "",
+    p.label ? "labelled" : "",
+    task.self_test ? "selftest" : "",
     p.loss != null ? "loss" : "",
     p.initial_loss != null ? "initial" : "",
     thermal?.reason ? "warning" : "",
@@ -182,7 +184,8 @@ function updateOverlayBody(body, task, thermal) {
 
   if (progress && progress.steps) {
     const pct = Math.min(100, (progress.step / progress.steps) * 100);
-    setText(body, "progress-step", `Step ${progress.step} of ${progress.steps}`);
+    setText(body, "progress-step",
+      progress.label || `Step ${progress.step} of ${progress.steps}`);
     setText(body, "progress-pct", `${Math.round(pct)}%`);
     setWidth(body.querySelector(".usage-bar-fill"), pct);
   }
@@ -247,6 +250,28 @@ function buildOverlayBody(task, thermal) {
     task.status === "running" ? "Running" : (task.status || "")));
   head.appendChild(el("span", "run-name", task.model_name || task.task_id || "job"));
 
+  // Your own test is the one thing here you are entitled to end, so the
+  // control belongs in front of you rather than behind the panel you are
+  // looking at.
+  if (task.self_test && task.status === "running") {
+    const stop = el("button", "run-stop", "Stop test");
+    stop.type = "button";
+    stop.addEventListener("click", async () => {
+      stop.disabled = true;
+      stop.textContent = "Stopping…";
+      try {
+        const res = await fetch("/self-test/stop", { method: "POST" });
+        if (!res.ok) throw new Error(`Server returned ${res.status}`);
+      } catch (error) {
+        console.error("Could not stop the test:", error);
+        stop.textContent = "Stop test";
+        stop.disabled = false;
+      }
+      // It stops at its next step; the poll that follows reports it.
+    });
+    head.appendChild(stop);
+  }
+
   const close = el("button", "modal-close", "×");
   close.setAttribute("aria-label", "Close");
   close.addEventListener("click", () => {
@@ -260,7 +285,9 @@ function buildOverlayBody(task, thermal) {
   if (progress && progress.steps) {
     const wrap = el("div", "run-progress");
     const line = el("div", "run-progress-head");
-    const stepText = el("span", null, `Step ${progress.step} of ${progress.steps}`);
+    // A run bounded by time labels itself; step counts are for the rest.
+    const stepText = el("span", null,
+      progress.label || `Step ${progress.step} of ${progress.steps}`);
     stepText.dataset.f = "progress-step";
     line.appendChild(stepText);
 
@@ -334,8 +361,12 @@ function buildOverlayBody(task, thermal) {
   logDetails.appendChild(pre);
   body.appendChild(logDetails);
 
+  // A test never becomes a queued job, so it cannot be reopened from Jobs --
+  // which is what this used to tell people to do.
   body.appendChild(el("p", "run-hint",
-    "Closing this does not stop the job. Reopen it from Jobs."));
+    task.self_test
+      ? "Closing this does not stop the test. Reopen it from Test this machine."
+      : "Closing this does not stop the job. Reopen it from Jobs."));
   return { body, pre };
 }
 
