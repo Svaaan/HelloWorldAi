@@ -13,6 +13,9 @@ from backend.service.authNodeService import verify_signature
 from backend.service.tokenService import issue_node_token, read_node_token, NODE_TOKEN_TTL
 from backend.service.submitterService import read_submitter_key
 from backend.service.jobSpec import JobSpecError, job_schema, validate_job
+from backend.service.nodePicker import (
+    BUSY_STATUSES, NoNodeAvailable, pick_node, summarise_choice,
+)
 import logging
 from motor.motor_asyncio import (
     AsyncIOMotorClient,
@@ -24,6 +27,7 @@ from pymongo import ReturnDocument
 from bson import ObjectId
 from fastapi.responses import Response
 from backend.service.artifacts import MAX_ARTIFACT_BYTES
+from backend.service import artifactCrypto
 
 import pynvml
 import os  # ✅ Import os for env vars
@@ -50,6 +54,11 @@ MAX_TASK_ATTEMPTS = int(os.getenv("MAX_TASK_ATTEMPTS", 3))
 # Fraction of a submitted dataset withheld from the node so its returned
 # model can be scored on data it never saw.
 HOLDOUT_FRACTION = float(os.getenv("HOLDOUT_FRACTION", 0.2))
+
+# How long a finished job's dataset is kept before it is deleted. Long enough
+# for verification to run and for a retry to reuse the same split; short enough
+# that submitted data does not accumulate indefinitely.
+DATASET_RETENTION_MINUTES = int(os.getenv("DATASET_RETENTION_MINUTES", 60))
 
 # Database connection class
 class Database:
@@ -185,6 +194,7 @@ async def startup_event():
     asyncio.create_task(sync_nodes_with_db())
     asyncio.create_task(cleanup_expired_challenges())  # ✅ Start cleanup task
     asyncio.create_task(requeue_stale_tasks())
+    asyncio.create_task(forget_finished_datasets())
 
 
 @app.on_event("shutdown")
@@ -485,14 +495,23 @@ async def node_heartbeat(
         if "gpu_benchmark" in status:
             node.gpu_benchmark = status["gpu_benchmark"]
         
-        # Update only essential info in database
-        await db.nodes_collection.update_one(
-            {"_id": node_id},
-            {"$set": {
-                "last_heartbeat": node.last_heartbeat,
-                "isConnected": True,
-            }}
-        )
+        # Persist what outlives this process. Throughput used to be kept in
+        # memory alone, so a coordinator restart reported every node as 0
+        # TFLOPS until its next heartbeat -- long enough for the dashboard to
+        # look wrong and for job placement to have nothing to rank on.
+        persisted = {
+            "last_heartbeat": node.last_heartbeat,
+            "isConnected": True,
+        }
+
+        capabilities = status.get("capabilities")
+        if isinstance(capabilities, dict):
+            persisted["capabilities"] = capabilities
+            tflops = capabilities.get("total_gpu_tflops")
+            if tflops is not None:
+                persisted["total_gpu_tflops"] = tflops
+
+        await db.nodes_collection.update_one({"_id": node_id}, {"$set": persisted})
         
         return {"status": "success", "timestamp": node.last_heartbeat}
     except HTTPException:
@@ -631,8 +650,14 @@ async def get_available_nodes(db: Database = Depends(get_db)):
             node["node_id"] = node_id
 
             live_node = connected_nodes.get(node_id)
-            if live_node:
-                node["total_gpu_tflops"] = live_node.capabilities.get("total_gpu_tflops", 0)
+            live_tflops = (live_node.capabilities.get("total_gpu_tflops")
+                           if live_node else None)
+            # The stored value is the fallback while a restarted coordinator
+            # waits for the next heartbeat.
+            node["total_gpu_tflops"] = (
+                live_tflops if live_tflops is not None
+                else node.get("total_gpu_tflops", 0)
+            )
 
             nodes.append(node)
 
@@ -657,6 +682,131 @@ async def get_connected_nodes_count():
         logger.error(f"Error counting connected nodes: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to count connected nodes: {str(e)}")
 
+async def _node_loads(db) -> Dict[str, int]:
+    """How many jobs are queued or running on each node."""
+    pipeline = [
+        {"$match": {"status": {"$in": list(BUSY_STATUSES)}}},
+        {"$group": {"_id": "$node_id", "count": {"$sum": 1}}},
+    ]
+    return {
+        row["_id"]: row["count"]
+        async for row in db.tasks_collection.aggregate(pipeline)
+    }
+
+
+async def _queue_task(db, node_id, task_data, submitter, client_host,
+                      placement="chosen"):
+    """Validate a job and put it on a node's queue.
+
+    Shared by both submit paths so a change to validation, dataset splitting or
+    the stored shape cannot apply to one and not the other.
+    """
+    # Optional: a dataset the node should download before training. It is split
+    # here so the node only ever receives the training half.
+    #
+    # Taken out before validation: it is not part of the model description, and
+    # validate_job returns only the fields it knows about.
+    dataset_id = task_data.pop("dataset_id", None)
+
+    # Check the job before it is queued. Without this a typo was accepted,
+    # waited out the approval window, was claimed by a contributor, span up
+    # their GPU and only then failed -- and a value that would not parse was
+    # silently replaced by a default, so the job "succeeded" undertrained.
+    try:
+        task_data, spec_notes = validate_job(task_data)
+    except JobSpecError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    holdout_id = None
+    if dataset_id:
+        try:
+            dataset_id, holdout_id = await prepare_dataset_split(
+                db, dataset_id, seed=int(task_data.get("holdout_seed", 0) or 0)
+            )
+        except Exception as e:
+            logger.error(f"Could not split dataset {dataset_id}: {e}")
+            raise HTTPException(status_code=400, detail=f"Dataset could not be prepared: {e}")
+
+    task = {
+        "_id": f"task_{uuid.uuid4()}",
+        "node_id": node_id,
+        "task_data": task_data,
+        "dataset_id": dataset_id,
+        "holdout_artifact_id": holdout_id,
+        "status": "pending",
+        "attempts": 0,
+        "submitted_at": datetime.utcnow(),
+        "submitted_from": client_host,
+        # Only the digest of the submitter's key. Without this a finished job
+        # had no owner, so there was nobody to hand the trained model back to.
+        "submitter_id": submitter,
+        # Whether the submitter named this machine or the coordinator chose it.
+        # A declined job may be moved on only when nobody picked the node.
+        "placement": placement,
+        "declined_by": [],
+    }
+
+    await db.tasks_collection.insert_one(task)
+    logger.info(f"Queued task {task['_id']} for node {node_id}")
+
+    if not submitter:
+        logger.info(f"Task {task['_id']} was submitted without a key; nobody can claim its result.")
+
+    return {
+        "status": "success",
+        "task_id": task["_id"],
+        "task_status": "pending",
+        "node_id": node_id,
+        "verifiable": bool(holdout_id),
+        "claimable": bool(submitter),
+        "notes": spec_notes,
+    }
+
+
+@app.post("/submit-task")
+async def submit_task_anywhere(
+    task_data: dict = Body(...),
+    request: Request = None,
+    db: Database = Depends(get_db),
+    submitter: Optional[str] = Depends(optional_submitter),
+):
+    """Queue work without naming a node; the coordinator picks one.
+
+    Naming a machine by hand meant queueing behind whatever it was already
+    doing, and failing outright if it went offline between the page loading and
+    the job being sent -- while other GPUs sat idle.
+    """
+    nodes = []
+    async for node in db.nodes_collection.find({"isConnected": True}):
+        node["node_id"] = node.pop("_id", None)
+        live = connected_nodes.get(node["node_id"])
+        live_tflops = live.capabilities.get("total_gpu_tflops") if live else None
+        if live_tflops is not None:
+            node["total_gpu_tflops"] = live_tflops
+        nodes.append(node)
+
+    try:
+        choice = pick_node(nodes, await _node_loads(db))
+    except NoNodeAvailable as e:
+        # 503, not 400: the request was fine, the network just has nothing to
+        # run it on right now.
+        raise HTTPException(status_code=503, detail=str(e))
+
+    result = await _queue_task(
+        db, choice["node_id"], task_data, submitter,
+        request.client.host if request else None,
+        placement="auto",
+    )
+    result["chosen"] = {
+        "reason": choice["reason"],
+        "considered": choice["considered"],
+        "idle": choice["idle"],
+        "queued_ahead": choice["queued_ahead"],
+        "summary": summarise_choice(choice),
+    }
+    return result
+
+
 @app.post("/submit-task/{node_id}")
 async def submit_task(
     node_id: str,
@@ -680,60 +830,135 @@ async def submit_task(
     if not node.get("isAvailable"):
         raise HTTPException(status_code=409, detail="Node is not accepting work.")
 
-    # Optional: a dataset the node should download before training. It is split
-    # here so the node only ever receives the training half.
-    #
-    # Taken out before validation: it is not part of the model description, and
-    # validate_job returns only the fields it knows about.
-    dataset_id = task_data.pop("dataset_id", None)
+    return await _queue_task(
+        db, node_id, task_data, submitter,
+        request.client.host if request else None,
+    )
 
-    # Check the job before it is queued. Without this a typo was accepted,
-    # waited out the approval window, was claimed by a contributor, span up
-    # their GPU and only then failed -- and a value that would not parse was
-    # silently replaced by a default, so the job "succeeded" undertrained.
-    try:
-        task_data, spec_notes = validate_job(task_data)
-    except JobSpecError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    holdout_id = None
 
-    if dataset_id:
-        try:
-            dataset_id, holdout_id = await prepare_dataset_split(
-                db, dataset_id, seed=int(task_data.get("holdout_seed", 0) or 0)
-            )
-        except Exception as e:
-            logger.error(f"Could not split dataset {dataset_id}: {e}")
-            raise HTTPException(status_code=400, detail=f"Dataset could not be prepared: {e}")
+# Terminal states: nothing more will happen to a task in one of these.
+FINISHED_STATES = ("completed", "failed", "rejected", "cancelled")
 
-    task = {
+
+async def _owned_task(db, task_id: str, submitter: Optional[str]):
+    """The task, if this submitter owns it. Raises otherwise."""
+    if not submitter:
+        raise HTTPException(
+            status_code=401,
+            detail="Send your submitter key in the X-Submitter-Key header.",
+        )
+
+    task = await db.tasks_collection.find_one({"_id": task_id})
+
+    # A task owned by someone else is reported as missing: whether a given id
+    # exists is not something a stranger should be able to probe.
+    if not task or task.get("submitter_id") != submitter:
+        raise HTTPException(status_code=404, detail="Task not found.")
+
+    return task
+
+
+@app.post("/cancel-task/{task_id}")
+async def cancel_task(
+    task_id: str,
+    db: Database = Depends(get_db),
+    submitter: Optional[str] = Depends(optional_submitter),
+):
+    """Stop a job you submitted.
+
+    A queued job is dropped outright. A running one cannot be killed from here
+    -- the work is happening inside someone else's machine -- so the request is
+    recorded and the node stops at its next step and reports back. That keeps
+    one authority over the task's state instead of the coordinator and the node
+    disagreeing about whether it is still running.
+    """
+    task = await _owned_task(db, task_id, submitter)
+    status = task.get("status")
+
+    if status in FINISHED_STATES:
+        raise HTTPException(status_code=409, detail=f"That job already {status}.")
+
+    if status == "pending":
+        await db.tasks_collection.update_one(
+            {"_id": task_id, "status": "pending"},
+            {"$set": {"status": "cancelled",
+                      "result": "Cancelled before any node picked it up.",
+                      "finished_at": datetime.utcnow()}},
+        )
+        logger.info(f"Task {task_id} cancelled while queued.")
+        return {"status": "success", "task_status": "cancelled", "stopped": True}
+
+    await db.tasks_collection.update_one(
+        {"_id": task_id}, {"$set": {"cancel_requested": True}}
+    )
+    logger.info(f"Cancellation requested for running task {task_id}.")
+    return {"status": "success", "task_status": "running", "stopped": False}
+
+
+@app.get("/task-cancelled/{task_id}")
+async def task_cancelled(
+    task_id: str,
+    db: Database = Depends(get_db),
+    caller: str = Depends(authenticated_node),
+):
+    """Whether the node running this task has been asked to stop."""
+    task = await db.tasks_collection.find_one(
+        {"_id": task_id, "node_id": caller}, {"cancel_requested": 1}
+    )
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found.")
+
+    return {"cancel_requested": bool(task.get("cancel_requested"))}
+
+
+@app.post("/retry-task/{task_id}")
+async def retry_task(
+    task_id: str,
+    db: Database = Depends(get_db),
+    submitter: Optional[str] = Depends(optional_submitter),
+):
+    """Queue the same job again, on the same node.
+
+    The dataset split is reused rather than rebuilt, so a retry is scored
+    against the same held-back rows as the original and the two runs can
+    honestly be compared.
+    """
+    task = await _owned_task(db, task_id, submitter)
+
+    if task.get("status") not in FINISHED_STATES:
+        raise HTTPException(
+            status_code=409,
+            detail="That job has not finished yet. Cancel it first if you want to start over.",
+        )
+
+    node = await db.nodes_collection.find_one({"_id": task.get("node_id")})
+    if not node or not node.get("isConnected"):
+        raise HTTPException(status_code=409, detail="That node is no longer connected.")
+    if not node.get("isAvailable"):
+        raise HTTPException(status_code=409, detail="That node is not accepting work.")
+
+    retry = {
         "_id": f"task_{uuid.uuid4()}",
-        "node_id": node_id,
-        "task_data": task_data,
-        "dataset_id": dataset_id,
-        "holdout_artifact_id": holdout_id,
+        "node_id": task["node_id"],
+        "task_data": task.get("task_data"),
+        "dataset_id": task.get("dataset_id"),
+        "holdout_artifact_id": task.get("holdout_artifact_id"),
         "status": "pending",
         "attempts": 0,
         "submitted_at": datetime.utcnow(),
-        "submitted_from": request.client.host if request else None,
-        # Only the digest of the submitter's key. Without this a finished job
-        # had no owner, so there was nobody to hand the trained model back to.
         "submitter_id": submitter,
+        "retry_of": task_id,
+        "placement": task.get("placement", "chosen"),
+        "declined_by": [],
     }
-
-    await db.tasks_collection.insert_one(task)
-    logger.info(f"Queued task {task['_id']} for node {node_id}")
-
-    if not submitter:
-        logger.info(f"Task {task['_id']} was submitted without a key; nobody can claim its result.")
+    await db.tasks_collection.insert_one(retry)
+    logger.info(f"Task {retry['_id']} queued as a retry of {task_id}.")
 
     return {
         "status": "success",
-        "task_id": task["_id"],
+        "task_id": retry["_id"],
         "task_status": "pending",
-        "verifiable": bool(holdout_id),
-        "claimable": bool(submitter),
-        "notes": spec_notes,
+        "verifiable": bool(retry["holdout_artifact_id"]),
     }
 
 
@@ -821,8 +1046,20 @@ async def submit_task_result(
         raise HTTPException(status_code=403, detail="This task belongs to another node.")
 
     status = payload.get("status", "completed")
-    if status not in ("completed", "failed", "rejected"):
+    if status not in ("completed", "failed", "rejected", "cancelled"):
         raise HTTPException(status_code=400, detail=f"Invalid task status: {status}")
+
+    # A declined job is not necessarily finished: if the coordinator placed it,
+    # another node may still want it.
+    if status == "rejected":
+        moved_to = await _redispatch(db, task, caller)
+        if moved_to:
+            return {
+                "status": "success",
+                "task_id": task_id,
+                "task_status": "pending",
+                "redispatched_to": moved_to,
+            }
 
     await db.tasks_collection.update_one(
         {"_id": task_id},
@@ -834,6 +1071,7 @@ async def submit_task_result(
             "weights_id": payload.get("weights_id"),
             "finished_at": datetime.utcnow(),
             "received_at": datetime.utcnow(),
+            "declined_by": sorted(set(task.get("declined_by") or []) | ({caller} if status == "rejected" else set())),
         }},
     )
 
@@ -844,6 +1082,55 @@ async def submit_task_result(
         asyncio.create_task(_verify_quietly(task_id))
 
     return {"status": "success", "task_id": task_id, "task_status": status}
+
+
+async def _redispatch(db, task: dict, declined_by: str) -> Optional[str]:
+    """Offer a declined job to a different node.
+
+    A decline used to end the job: the task went to "rejected" and the
+    submitter had to notice and resubmit by hand, even though the network might
+    have twenty other machines happy to run it.
+
+    Only jobs the coordinator placed are moved. If the submitter named a
+    machine, sending their work somewhere else would quietly override a choice
+    they made deliberately -- they may have picked it for a reason.
+    """
+    if task.get("placement") != "auto":
+        return None
+
+    refused = set(task.get("declined_by") or []) | {declined_by}
+
+    nodes = []
+    async for node in db.nodes_collection.find({"isConnected": True}):
+        node["node_id"] = node.pop("_id", None)
+        if node["node_id"] in refused:
+            continue            # already said no to this job
+        live = connected_nodes.get(node["node_id"])
+        live_tflops = live.capabilities.get("total_gpu_tflops") if live else None
+        if live_tflops is not None:
+            node["total_gpu_tflops"] = live_tflops
+        nodes.append(node)
+
+    try:
+        choice = pick_node(nodes, await _node_loads(db))
+    except NoNodeAvailable:
+        return None
+
+    await db.tasks_collection.update_one(
+        {"_id": task["_id"]},
+        {
+            "$set": {
+                "node_id": choice["node_id"],
+                "status": "pending",
+                "declined_by": sorted(refused),
+            },
+            "$unset": {"started_at": "", "result": "", "finished_at": ""},
+        },
+    )
+    logger.info(
+        f"Task {task['_id']} declined by {declined_by}; offered to {choice['node_id']}."
+    )
+    return choice["node_id"]
 
 
 async def _verify_quietly(task_id: str):
@@ -923,6 +1210,111 @@ async def list_my_tasks(
         task["task_id"] = task.pop("_id")
 
     return [public_task(t) for t in tasks]
+
+
+async def _forget_dataset(db, task: dict) -> int:
+    """Delete the dataset copies a finished job no longer needs.
+
+    Submitted data used to live in the database for ever: the training split,
+    the holdout, and the original upload that prepare_dataset_split replaced.
+    Keeping someone's data after the job it was for has finished is a liability
+    with no purpose, so a completed task drops them.
+
+    The trained weights are kept -- that is the thing the submitter came for.
+    """
+    bucket = AsyncIOMotorGridFSBucket(db.db, bucket_name="artifacts")
+    removed = 0
+
+    for key in ("dataset_id", "holdout_artifact_id"):
+        artifact_id = task.get(key)
+        if not artifact_id:
+            continue
+        try:
+            await bucket.delete(ObjectId(artifact_id))
+            removed += 1
+        except Exception as e:
+            logger.debug(f"Could not delete {key} {artifact_id}: {e}")
+
+    if removed:
+        await db.tasks_collection.update_one(
+            {"_id": task["_id"]},
+            {"$set": {"dataset_forgotten_at": datetime.utcnow()},
+             "$unset": {"dataset_id": "", "holdout_artifact_id": ""}},
+        )
+        logger.info(f"Deleted {removed} dataset artifact(s) for finished task {task['_id']}.")
+
+    return removed
+
+
+async def _forget_orphaned_datasets(db, older_than: datetime) -> int:
+    """Delete uploaded datasets that no task ever referenced.
+
+    prepare_dataset_split writes a training half and a holdout and the task
+    points at those, leaving the original upload referenced by nothing. A
+    dataset that was uploaded and then abandoned -- the submitter changed their
+    mind, or the job was refused -- was in the same position. Either way it sat
+    in storage for ever with nothing pointing at it and nobody to delete it.
+    """
+    bucket = AsyncIOMotorGridFSBucket(db.db, bucket_name="artifacts")
+
+    # Every artifact id any task still depends on.
+    referenced = set()
+    async for task in db.tasks_collection.find(
+        {}, {"dataset_id": 1, "holdout_artifact_id": 1, "weights_id": 1}
+    ):
+        for key in ("dataset_id", "holdout_artifact_id", "weights_id"):
+            if task.get(key):
+                referenced.add(str(task[key]))
+
+    removed = 0
+    async for stored in db.db["artifacts.files"].find(
+        {"metadata.kind": {"$in": ["dataset", "holdout"]},
+         "metadata.uploaded_at": {"$lt": older_than}}
+    ):
+        if str(stored["_id"]) in referenced:
+            continue
+        try:
+            await bucket.delete(stored["_id"])
+            removed += 1
+        except Exception as e:
+            logger.debug(f"Could not delete orphaned artifact {stored['_id']}: {e}")
+
+    if removed:
+        logger.info(f"Deleted {removed} dataset artifact(s) no task referenced.")
+
+    return removed
+
+
+async def forget_finished_datasets():
+    """Drop the data behind jobs that have finished and been verified.
+
+    Runs on a delay rather than the instant a job completes: verification reads
+    the holdout after the result lands, and a retry reuses the same split.
+    """
+    grace = timedelta(minutes=DATASET_RETENTION_MINUTES)
+
+    while True:
+        try:
+            cutoff = datetime.utcnow() - grace
+            finished = await Database.tasks_collection.find({
+                "status": {"$in": list(FINISHED_STATES)},
+                "finished_at": {"$lt": cutoff},
+                "dataset_forgotten_at": {"$exists": False},
+                "$or": [{"dataset_id": {"$ne": None}},
+                        {"holdout_artifact_id": {"$ne": None}}],
+            }).to_list(length=100)
+
+            for task in finished:
+                await _forget_dataset(Database, task)
+
+            # Uploads that never became a job, and the pre-split originals the
+            # split replaced, are nobody's data to keep.
+            await _forget_orphaned_datasets(Database, cutoff)
+
+        except Exception as e:
+            logger.error(f"Error clearing finished datasets: {e}")
+
+        await asyncio.sleep(300)
 
 
 async def requeue_stale_tasks():
@@ -1010,12 +1402,10 @@ async def upload_artifact(request: Request, db: Database = Depends(get_db)):
             f"{summary['classes']} classes"
         )
 
-    bucket = AsyncIOMotorGridFSBucket(db.db, bucket_name="artifacts")
-    artifact_id = await bucket.upload_from_stream(
-        kind,
-        payload,
-        metadata={"kind": kind, "uploaded_at": datetime.utcnow(), "bytes": len(payload)},
-    )
+    # Through _write_artifact rather than its own upload: this path had its own
+    # copy of the write, so encryption reached the split halves but not the
+    # original upload the submitter sent.
+    artifact_id = await _write_artifact(db, payload, kind)
 
     logger.info(f"Stored {kind} artifact {artifact_id} ({len(payload)} bytes)")
     return {
@@ -1096,21 +1486,36 @@ async def download_artifact(
         # 404 rather than 403: whether an id exists is itself worth not leaking.
         raise HTTPException(status_code=404, detail="Artifact not found.")
 
-    payload = await stream.read()
+    try:
+        payload = artifactCrypto.decrypt(await stream.read())
+    except RuntimeError as e:
+        logger.error(f"Artifact {artifact_id} could not be decrypted: {e}")
+        raise HTTPException(status_code=500, detail="Artifact could not be read.")
+
     return Response(content=payload, media_type="application/octet-stream")
 
 
 async def _read_artifact(db, artifact_id: str) -> bytes:
     bucket = AsyncIOMotorGridFSBucket(db.db, bucket_name="artifacts")
     stream = await bucket.open_download_stream(ObjectId(artifact_id))
-    return await stream.read()
+    return artifactCrypto.decrypt(await stream.read())
 
 
 async def _write_artifact(db, payload: bytes, kind: str) -> str:
     bucket = AsyncIOMotorGridFSBucket(db.db, bucket_name="artifacts")
+
+    # Encrypted before it reaches storage, so a database dump does not hand
+    # over every submitter's training data.
+    stored = artifactCrypto.encrypt(payload)
+
     artifact_id = await bucket.upload_from_stream(
-        kind, payload,
-        metadata={"kind": kind, "uploaded_at": datetime.utcnow(), "bytes": len(payload)},
+        kind, stored,
+        metadata={
+            "kind": kind,
+            "uploaded_at": datetime.utcnow(),
+            "bytes": len(payload),
+            "encrypted": artifactCrypto.is_enabled(),
+        },
     )
     return str(artifact_id)
 

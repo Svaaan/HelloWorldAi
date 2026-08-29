@@ -178,3 +178,51 @@
   gap: 0.5rem;
   margin-top: 0.6rem;
 }
+
+/* --- what the contributor can see --- */
+
+.data-privacy {
+  margin-top: 0.6rem;
+  border: 1px solid rgba(251, 191, 36, 0.22);
+  border-radius: var(--r-md);
+  background-color: var(--warning-wash);
+  overflow: hidden;
+}
+
+.data-privacy > summary {
+  padding: 0.6rem 0.85rem;
+  cursor: pointer;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--warning);
+  list-style: none;
+}
+
+.data-privacy > summary::-webkit-details-marker { display: none; }
+
+.data-privacy-body {
+  padding: 0 0.85rem 0.85rem;
+}
+
+.data-privacy-warning {
+  margin: 0 0 0.6rem !important;
+  padding: 0 !important;
+  border: none !important;
+  display: block !important;
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  color: var(--text);
+}
+
+.data-privacy-body ul {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.data-privacy-body li {
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+}

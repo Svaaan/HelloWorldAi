@@ -19,6 +19,14 @@ from backend.service.poolPlanner import plan_batch_split, pool_summary
 
 logger = logging.getLogger(__name__)
 
+
+class JobCancelled(RuntimeError):
+    """Raised to stop a running job because the submitter asked it to stop.
+
+    Distinct from a failure: nothing went wrong, so it must not be reported as
+    a fault of the node or of the job.
+    """
+
 DEFAULT_BATCH_SIZE = 64
 
 
@@ -167,6 +175,13 @@ def execute_task(task_data: Dict[str, Any], log: Callable[[str], None],
         if _accepts_progress(handler):
             return handler(task_data, log, dataset, on_progress)
         return handler(task_data, log, dataset)
+    except JobCancelled as e:
+        logger.info(f"Task cancelled while running: {e}")
+        return {
+            "status": "cancelled",
+            "result": str(e) or "Cancelled by the submitter.",
+            "metrics": {"cancelled": True},
+        }
     except ThermalAbort as e:
         # Not a fault in the job — the contributor's hardware got too hot.
         logger.warning(f"Task stopped on temperature: {e}")

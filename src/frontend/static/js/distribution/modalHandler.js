@@ -31,7 +31,11 @@ function describeGpus(node) {
   return gpus?.name || "None";
 }
 
+// `node` is null when the submitter did not choose a machine: the coordinator
+// picks one at submit time. Everything below that touches a specific node is
+// guarded on it.
 export function showNodeModal(node) {
+  const auto = !node;
   const modal = document.getElementById("nodeModal");
   const content =
     document.getElementById("nodeModalDetails") ||
@@ -39,16 +43,24 @@ export function showNodeModal(node) {
 
   content.replaceChildren();
 
-  content.appendChild(el("h3", null, node.node_id));
+  if (auto) {
+    content.appendChild(el("h3", null, "Send to the best available node"));
+    content.appendChild(el("p", "field-hint",
+      "The coordinator picks whichever machine can start soonest, preferring "
+      + "idle GPUs over fast but busy ones. Pick a node yourself from the list "
+      + "if you would rather choose."));
+  } else {
+    content.appendChild(el("h3", null, node.node_id));
 
-  const cpu = node.capabilities?.cpu || {};
-  content.appendChild(specRow("CPU", `${cpu.brand || "Unknown"} (${cpu.cores ?? "-"} cores)`));
-  content.appendChild(specRow("GPU", describeGpus(node)));
+    const cpu = node.capabilities?.cpu || {};
+    content.appendChild(specRow("CPU", `${cpu.brand || "Unknown"} (${cpu.cores ?? "-"} cores)`));
+    content.appendChild(specRow("GPU", describeGpus(node)));
 
-  const tflops = node.total_gpu_tflops;
-  if (tflops) content.appendChild(specRow("Pooled compute", `${Number(tflops).toFixed(2)} TFLOPS`));
+    const tflops = node.total_gpu_tflops;
+    if (tflops) content.appendChild(specRow("Pooled compute", `${Number(tflops).toFixed(2)} TFLOPS`));
 
-  content.appendChild(specRow("Status", node.isAvailable ? "Available" : "Unavailable"));
+    content.appendChild(specRow("Status", node.isAvailable ? "Available" : "Unavailable"));
+  }
 
   // --- dataset ---------------------------------------------------------
 
@@ -72,6 +84,29 @@ export function showNodeModal(node) {
 
   const datasetStatus = el("div", "field-status");
   content.appendChild(datasetStatus);
+
+  const privacy = el("details", "data-privacy");
+  privacy.appendChild(el("summary", null, "Who can see this data"));
+
+  const privacyBody = el("div", "data-privacy-body");
+  privacyBody.appendChild(el("p", "data-privacy-warning",
+    "The contributor running your job can read the numbers in this file. "
+    + "Training needs the data in the clear on their GPU, so there is no way "
+    + "around it. Do not send anything you would not hand to a stranger."));
+
+  const facts = el("ul");
+  [
+    "Column names are not sent. The node receives unlabelled numbers, not "
+      + "\u201csalary\u201d or \u201cdiagnosis\u201d.",
+    "It is stored encrypted here, so a database dump does not expose it.",
+    "The node keeps it in memory only and never writes it to disk.",
+    "Both copies are deleted once your job has finished and been checked.",
+    "Part of it is held back from the node and used to verify the result.",
+  ].forEach((text) => facts.appendChild(el("li", null, text)));
+  privacyBody.appendChild(facts);
+
+  privacy.appendChild(privacyBody);
+  content.appendChild(privacy);
 
   // --- job spec --------------------------------------------------------
 
@@ -174,7 +209,11 @@ export function showNodeModal(node) {
     setStatus(responseMessage, "Sending…");
 
     try {
-      const res = await fetch(`/submit-task/${encodeURIComponent(node.node_id)}`, {
+      const url = auto
+        ? "/submit-task"
+        : `/submit-task/${encodeURIComponent(node.node_id)}`;
+
+      const res = await fetch(url, {
         method: "POST",
         // The key identifies this browser as the job's owner, which is what
         // later lets it collect the trained model.
@@ -193,9 +232,16 @@ export function showNodeModal(node) {
         ? " Results will be checked against data the node never sees."
         : " No dataset attached, so the result cannot be verified.";
 
+      // When the coordinator chose the machine, say which one and why --
+      // otherwise the job vanishes into the network with no account of where.
+      const placement = result.chosen?.summary
+        ? `${result.chosen.summary} `
+        : "";
+
       setStatus(
         responseMessage,
-        `Queued as ${result.task_id}. The node picks it up on its next poll.${note}`,
+        `${placement}Queued as ${result.task_id}. `
+        + `The node picks it up on its next poll.${note}`,
         "success"
       );
 
