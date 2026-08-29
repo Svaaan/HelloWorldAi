@@ -91,3 +91,90 @@
   font-size: 0.8125rem;
   line-height: 1.5;
 }
+
+/* Where the job went, shown after it is queued. */
+.modal-followup {
+  display: inline-block;
+  margin-top: 0.6rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+/* --- the job form --- */
+
+.job-form {
+  display: grid;
+  gap: 0.9rem;
+  margin-top: 0.5rem;
+}
+
+.job-field {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.job-field-label {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.job-field-hint {
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  display: block !important;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--text-faint);
+}
+
+/* Two across, so the panel does not become a long column of single inputs. */
+.job-field-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.75rem;
+}
+
+.job-section-title {
+  margin: 0.4rem 0 0;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+/* What the node fills in from the dataset, so nobody hunts for the input. */
+.job-derived-note:not(:empty) {
+  margin: 0;
+  padding: 0.5rem 0.7rem;
+  border-radius: var(--r-sm);
+  background-color: var(--surface-2);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.job-advanced {
+  border-top: 1px solid var(--border);
+  padding-top: 0.7rem;
+}
+
+.job-advanced > summary {
+  cursor: pointer;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-faint);
+  list-style: none;
+}
+
+.job-advanced > summary::-webkit-details-marker { display: none; }
+
+.job-advanced > summary:hover { color: var(--text-muted); }
+
+.job-advanced-body {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 0.6rem;
+}

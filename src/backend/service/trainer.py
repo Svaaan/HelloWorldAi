@@ -30,6 +30,9 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+# Pure data, no torch, so importing it here costs nothing.
+from backend.service.modelManifest import build_manifest
+
 logger = logging.getLogger(__name__)
 
 # How often to look at GPU temperature while training. A read costs about a
@@ -503,4 +506,13 @@ def train(task_data: Dict[str, Any], log: Callable[[str], None],
         "stopped_early": stopped_early,
     }
 
-    return {"metrics": metrics, "state_dict": state_dict}
+    # Packed with the weights so the submitter can rebuild and run the model
+    # without knowing anything about this codebase.
+    manifest = build_manifest(
+        spec,
+        state_dict,
+        model_name=task_data.get("model_name"),
+        metrics=metrics,
+    )
+
+    return {"metrics": metrics, "state_dict": state_dict, "manifest": manifest}

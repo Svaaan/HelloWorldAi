@@ -85,11 +85,16 @@ class FakeTasks:
         self.tasks = tasks
 
     async def find_one(self, query, projection=None):
-        node_id = query.get("node_id")
-        wanted = {c[k] for c in query.get("$or", []) for k in c}
         for task in self.tasks:
-            if task.get("node_id") != node_id:
+            if "submitter_id" in query:
+                if (task.get("submitter_id") == query["submitter_id"]
+                        and task.get("weights_id") == query.get("weights_id")):
+                    return {"_id": task["_id"]}
                 continue
+
+            if task.get("node_id") != query.get("node_id"):
+                continue
+            wanted = {c[k] for c in query.get("$or", []) for k in c}
             if task.get("dataset_id") in wanted or task.get("weights_id") in wanted:
                 return {"_id": task["_id"]}
         return None
@@ -99,7 +104,7 @@ def run(coro):
     return asyncio.get_event_loop().run_until_complete(coro)
 
 
-def download(artifact_id, caller, metadata, tasks):
+def download(artifact_id, caller, metadata, tasks, submitter=None):
     """Call the real endpoint with the storage layer faked out."""
     from fastapi import HTTPException
     import backend.coordinator as coordinator
@@ -122,7 +127,8 @@ def download(artifact_id, caller, metadata, tasks):
     coordinator.AsyncIOMotorGridFSBucket = FakeBucket
     coordinator.ObjectId = lambda v: v          # ids here are plain strings
     try:
-        return run(coordinator.download_artifact(artifact_id, FakeDb, caller)), None
+        return run(coordinator.download_artifact(
+            artifact_id, FakeDb, caller, submitter)), None
     except HTTPException as e:
         return None, e
     finally:
@@ -130,7 +136,8 @@ def download(artifact_id, caller, metadata, tasks):
         coordinator.ObjectId = original_oid
 
 
-OWN_TASK = [{"_id": "t1", "node_id": "node_a", "dataset_id": "train_1", "weights_id": "w_1"}]
+OWN_TASK = [{"_id": "t1", "node_id": "node_a", "dataset_id": "train_1",
+             "weights_id": "w_1", "submitter_id": "sub_a"}]
 
 
 def test_a_node_cannot_download_the_holdout_it_is_scored_against():
@@ -183,16 +190,49 @@ def test_an_artifact_without_metadata_is_still_ownership_checked():
     assert response is None and error.status_code == 404
 
 
+# --- the submitter collecting their model ---------------------------------
+
+def test_the_submitter_can_download_the_model_they_paid_for():
+    """The point of the whole pipeline: the data owner gets the result."""
+    response, error = download("w_1", None, {"kind": "weights"}, OWN_TASK, submitter="sub_a")
+    assert error is None, error
+    assert response.body == b"data"
+
+
+def test_another_submitter_cannot_download_that_model():
+    response, error = download("w_1", None, {"kind": "weights"}, OWN_TASK, submitter="sub_b")
+    assert response is None and error.status_code == 404
+
+
+def test_a_submitter_cannot_read_the_dataset_by_id():
+    # They already hold their own data; serving it back only widens exposure.
+    response, error = download("train_1", None, {"kind": "dataset"}, OWN_TASK, submitter="sub_a")
+    assert response is None and error.status_code == 404
+
+
+def test_a_submitter_cannot_read_the_holdout_either():
+    response, error = download("hold_1", None, {"kind": "holdout"}, OWN_TASK, submitter="sub_a")
+    assert response is None and error.status_code == 403
+
+
+def test_no_credential_at_all_is_rejected_before_anything_is_read():
+    response, error = download("w_1", None, {"kind": "weights"}, OWN_TASK, submitter=None)
+    assert response is None and error.status_code == 401
+
+
 # --- the endpoints that must demand a token -------------------------------
 
 def test_download_and_legacy_result_sink_require_a_node_token():
     import inspect
     from backend.coordinator import download_artifact, receive_task_result
 
-    for fn in (download_artifact, receive_task_result):
-        params = inspect.signature(fn).parameters
-        assert "caller" in params, f"{fn.__name__} takes no authenticated caller"
-        assert "authenticated_node" in str(params["caller"].default), fn.__name__
+    params = inspect.signature(receive_task_result).parameters
+    assert "authenticated_node" in str(params["caller"].default)
+
+    # The download accepts either party, so it checks for both in its body
+    # rather than through a raising dependency.
+    params = inspect.signature(download_artifact).parameters
+    assert "caller" in params and "submitter" in params
 
 
 # --- standalone runner ---------------------------------------------------
