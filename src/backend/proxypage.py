@@ -350,6 +350,26 @@ async def proxy_upload_artifact(request: Request):
         return {"status": "error", "message": f"Failed to reach coordinator: {e}"}
 
 
+@router.post("/artifacts/{artifact_id}/append")
+async def proxy_append_artifact(artifact_id: str, request: Request):
+    """Add another file to a dataset that was already uploaded."""
+    body = await request.body()
+    try:
+        async with httpx.AsyncClient() as client:
+            res = await client.post(
+                f"{COORDINATOR_URL}/artifacts/{artifact_id}/append",
+                params=dict(request.query_params),
+                content=body,
+                headers={"Content-Type": "application/octet-stream"},
+                timeout=ARTIFACT_UPLOAD_TIMEOUT,
+            )
+            if res.status_code >= 400:
+                raise HTTPException(status_code=res.status_code, detail=safe_json(res))
+            return safe_json(res)
+    except httpx.RequestError as e:
+        return {"status": "error", "message": f"Failed to reach coordinator: {e}"}
+
+
 @router.get("/artifacts/{artifact_id}")
 async def proxy_download_artifact(artifact_id: str, request: Request):
     try:

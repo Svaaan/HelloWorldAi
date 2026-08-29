@@ -92,6 +92,10 @@ export function showNodeModal(node) {
   fileInput.type = "file";
   fileInput.id = "datasetFile";
   fileInput.accept = ".csv,.txt,.md,text/csv,text/plain";
+  // More than one, and more than once. How much data you bring is the
+  // strongest thing you control here, and bringing more used to mean joining
+  // the files by hand before uploading.
+  fileInput.multiple = true;
   content.appendChild(fileInput);
 
   const datasetStatus = el("div", "field-status");
@@ -102,6 +106,11 @@ export function showNodeModal(node) {
   // moment this helps anyone is now.
   const datasetAdvice = el("p", "field-advice");
   content.appendChild(datasetAdvice);
+
+  const addMore = el("p", "field-hint add-more",
+    "Found more? Choose another file and it is added to this one.");
+  addMore.hidden = true;
+  content.appendChild(addMore);
 
   const privacy = el("details", "data-privacy");
   privacy.appendChild(el("summary", null, "Who can see this data"));
@@ -190,47 +199,67 @@ export function showNodeModal(node) {
     return /\.(txt|md|text)$/i.test(name || "") ? "text" : "csv";
   }
 
-  fileInput.addEventListener("change", async () => {
-    datasetId = null;
-    setReady(false);
+  // What a dataset looks like once the coordinator has read it.
+  function describe(data, format) {
+    const number = (value) => value?.toLocaleString?.() ?? value;
 
-    datasetAdvice.textContent = "";
-
-    const file = fileInput.files?.[0];
-    if (!file) {
-      setStatus(datasetStatus, "");
-      return;
+    if (format === "text") {
+      return [
+        `${number(data.tokens)} characters`,
+        `${number(data.rows)} sequences of ${data.seq_len}`,
+      ];
     }
 
+    const parts = [`${number(data.rows)} rows`];
+    if (data.features) parts.push(`${data.features} features`);
+    if (data.classes) parts.push(`${data.classes} classes`);
+    if (data.class_names?.length) parts.push(`(${data.class_names.join(", ")})`);
+    return parts;
+  }
+
+  // The first file becomes the dataset; every one after is added to it.
+  async function send(file) {
     const format = formatFor(file.name);
-    setStatus(datasetStatus, `Uploading ${file.name}…`);
+    const url = datasetId
+      ? `/artifacts/${encodeURIComponent(datasetId)}/append?format=${format}`
+      : `/artifacts?kind=dataset&format=${format}`;
 
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain" },
+      body: await file.text(),
+    });
+
+    const data = await res.json();
+    if (!res.ok || !data.artifact_id) {
+      const detail = data?.detail?.detail || data?.detail || data?.message;
+      throw new Error(detail || `Upload failed (${res.status})`);
+    }
+
+    // Adding returns a *new* id: the dataset already uploaded may be attached
+    // to a queued job, so it is never edited in place.
+    datasetId = data.artifact_id;
+    return data;
+  }
+
+  fileInput.addEventListener("change", async () => {
+    const files = [...(fileInput.files || [])];
+    if (!files.length) return;
+
+    const format = formatFor(files[0].name);
+    setReady(false);
+
+    let data = null;
     try {
-      const res = await fetch(`/artifacts?kind=dataset&format=${format}`, {
-        method: "POST",
-        headers: { "Content-Type": "text/plain" },
-        body: await file.text(),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok || !data.artifact_id) {
-        const detail = data?.detail?.detail || data?.detail || data?.message;
-        throw new Error(detail || `Upload failed (${res.status})`);
+      for (const [index, file] of files.entries()) {
+        setStatus(datasetStatus, files.length > 1
+          ? `Reading ${file.name} (${index + 1} of ${files.length})…`
+          : `Reading ${file.name}…`);
+        data = await send(file);
       }
 
-      datasetId = data.artifact_id;
-
-      const parts = [];
-      if (format === "text") {
-        parts.push(`${data.tokens?.toLocaleString?.() ?? data.tokens} characters`);
-        parts.push(`${data.rows?.toLocaleString?.() ?? data.rows} sequences of ${data.seq_len}`);
-      } else {
-        parts.push(`${data.rows?.toLocaleString?.() ?? data.rows} rows`);
-        if (data.features) parts.push(`${data.features} features`);
-        if (data.classes) parts.push(`${data.classes} classes`);
-        if (data.class_names?.length) parts.push(`(${data.class_names.join(", ")})`);
-      }
+      const parts = describe(data, format);
+      if (data.parts > 1) parts.push(`from ${data.parts} files`);
 
       setStatus(datasetStatus, `Ready: ${parts.join(", ")}`, "success");
       datasetAdvice.textContent = data.advice || "";
@@ -238,10 +267,17 @@ export function showNodeModal(node) {
       // before the job is sent rather than in the reply after it.
       if (jobForm?.suggest) jobForm.suggest(format, { rows: data.rows });
       setReady(true);
+
+      // Cleared so the control is ready for the next file rather than showing
+      // the last one as though it were the whole dataset.
+      fileInput.value = "";
+      addMore.hidden = false;
     } catch (error) {
       console.error("Dataset upload failed:", error);
       setStatus(datasetStatus, error.message, "error");
       fileInput.value = "";
+      // A refused file leaves whatever was already accepted intact.
+      setReady(Boolean(datasetId));
     }
   });
 

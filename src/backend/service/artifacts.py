@@ -337,6 +337,86 @@ def parse_csv_dataset(text: str) -> Tuple[np.ndarray, np.ndarray, Optional[List[
     return x, labels, class_names
 
 
+# --- growing a dataset ---------------------------------------------------
+
+def merge_datasets(first: Tuple[Any, Any, Dict[str, Any]],
+                   second: Tuple[Any, Any, Dict[str, Any]]
+                   ) -> Tuple[np.ndarray, np.ndarray, Dict[str, Any]]:
+    """Combine two datasets into one, or say exactly why they do not fit.
+
+    Data size is the strongest single predictor of a usable model on this
+    service -- 41%, 62% and 77% held-back accuracy at 71 KB, 310 KB and 25 MB
+    of text. Someone whose corpus is too small has one useful move, which is to
+    find more of it, and until now there was no way to hand that over except by
+    concatenating files by hand before uploading.
+
+    Merged as arrays rather than as raw text on purpose. For a language model
+    the rows are independent windows, so joining the row sets is exactly right;
+    joining the source text instead would splice the end of one file onto the
+    start of the next and teach the model a transition that never happened.
+    """
+    x1, y1, info1 = first
+    x2, y2, info2 = second
+
+    kind1 = (info1 or {}).get("format")
+    kind2 = (info2 or {}).get("format")
+    if kind1 and kind2 and kind1 != kind2:
+        raise ArtifactError(
+            f"This dataset is {kind1} and the file you added is {kind2}. "
+            f"A dataset can only grow with more of the same kind."
+        )
+
+    x1, y1 = np.asarray(x1), np.asarray(y1)
+    x2, y2 = np.asarray(x2), np.asarray(y2)
+
+    if x1.ndim != x2.ndim or x1.shape[1:] != x2.shape[1:]:
+        raise ArtifactError(
+            f"The file you added has rows of {x2.shape[1:]} where this dataset "
+            f"has {x1.shape[1:]}. They have to match to be trained together."
+        )
+    if y1.shape[1:] != y2.shape[1:]:
+        raise ArtifactError("The two label sets are different shapes.")
+
+    info = dict(info1 or {})
+
+    # Class names are the hard part. Two spreadsheets sorted their own labels
+    # independently, so index 0 means something different in each -- appending
+    # the numbers as they stand would silently relabel half the data.
+    names1 = (info1 or {}).get("class_names")
+    names2 = (info2 or {}).get("class_names")
+
+    if kind1 == "csv" and bool(names1) != bool(names2):
+        raise ArtifactError(
+            "One of these files has named labels and the other has numbers. "
+            "Use the same kind of label in both."
+        )
+
+    if names1 and names2:
+        merged_names = list(names1)
+        for name in names2:
+            if name not in merged_names:
+                merged_names.append(name)
+
+        # Only the added file is remapped; the existing rows keep the indices
+        # they already have, so anything already trained against them still
+        # means what it meant.
+        lookup = {name: merged_names.index(name) for name in names2}
+        remap = np.array([lookup[name] for name in names2], dtype=np.int64)
+        y2 = remap[np.asarray(y2, dtype=np.int64)]
+        info["class_names"] = merged_names
+
+    x = np.concatenate([x1, x2.astype(x1.dtype, copy=False)], axis=0)
+    y = np.concatenate([y1, y2.astype(y1.dtype, copy=False)], axis=0)
+
+    info["rows"] = int(x.shape[0])
+    for key in ("tokens", "source_bytes"):
+        if key in info and key in (info2 or {}):
+            info[key] = int(info[key]) + int(info2[key])
+    info["parts"] = int(info.get("parts", 1)) + 1
+
+    return x, y, info
+
+
 # --- text intake ---------------------------------------------------------
 
 # Bytes, not words. A word or sub-word tokeniser needs a vocabulary file built

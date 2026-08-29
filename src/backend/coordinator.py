@@ -1084,10 +1084,31 @@ async def retry_task(
         # Through the same validator as a first submission, so a retry cannot
         # smuggle in a value the form would have refused.
         dataset_info = task_data.pop("dataset_info", None)
+
+        # The shape this coordinator wrote into the spec when the job was first
+        # queued -- sequence length and vocabulary, read from the data. Taken
+        # out before validation and put back after, for two reasons.
+        #
+        # validate_job drops fields the form does not offer, so leaving them in
+        # meant a re-run came back without them and the node re-derived the
+        # vocabulary from whichever bytes its half of the data happened to
+        # contain. The re-run then had a different, smaller alphabet than the
+        # original, which is both a worse model and not a comparison.
+        #
+        # And it warned "vocab_size is taken from your dataset; the value you
+        # gave was ignored" at somebody who had typed no such thing.
+        spec = task_data.get("model_spec") or {}
+        derived = {key: spec[key] for key in ("seq_len", "vocab_size") if key in spec}
+        if derived:
+            task_data["model_spec"] = {k: v for k, v in spec.items() if k not in derived}
+
         try:
             task_data, notes = validate_job(task_data)
         except JobSpecError as e:
             raise HTTPException(status_code=400, detail=str(e))
+
+        task_data["model_spec"].update(derived)
+
         if dataset_info:
             task_data["dataset_info"] = dataset_info
             notes = list(notes) + advise(task_data, dataset_info)
@@ -1542,6 +1563,168 @@ async def requeue_stale_tasks():
         await asyncio.sleep(60)
 
 
+def _object_id(artifact_id: str) -> ObjectId:
+    """An artifact id, or a 400 rather than a 500 on a malformed one."""
+    try:
+        return ObjectId(artifact_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Malformed artifact id.")
+
+
+def _convert_upload(payload: bytes, fmt: str, seq_len: int):
+    """Turn an uploaded CSV or text file into (x, y, info).
+
+    Shared by the upload and the append, so a file added to a dataset is read
+    exactly the way the first one was.
+    """
+    from backend.service.artifacts import (
+        ArtifactError, parse_csv_dataset, parse_text_dataset,
+    )
+
+    try:
+        if fmt == "csv":
+            features, labels, class_names = parse_csv_dataset(payload)
+            info = {"format": "csv", "rows": int(features.shape[0])}
+            if class_names:
+                info["class_names"] = class_names
+            return features, labels, info
+
+        if fmt == "text":
+            features, labels, info = parse_text_dataset(payload, seq_len=seq_len)
+            info["format"] = "text"
+            return features, labels, info
+
+    except ArtifactError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    raise HTTPException(
+        status_code=400,
+        detail=f"Unknown upload format {fmt!r}. Supported: csv, text, "
+               f"or omit it to upload a packed .npz.",
+    )
+
+
+def _describe_dataset(features, labels, info: dict) -> dict:
+    """The numbers worth showing about a dataset, for whichever page asked."""
+    from backend.service.artifacts import text_size_advice
+
+    if info.get("format") == "text":
+        summary = {
+            "rows": int(features.shape[0]),
+            "seq_len": info.get("seq_len"),
+            "tokens": info.get("tokens"),
+            "vocab_size": info.get("vocab_size"),
+            "tokenizer": info.get("tokenizer"),
+        }
+        advice = text_size_advice(int(info.get("source_bytes") or 0))
+        if advice:
+            summary["advice"] = advice
+        return summary
+
+    return {
+        "rows": int(features.shape[0]),
+        "features": int(features.shape[1]) if features.ndim > 1 else 1,
+        "classes": len(set(np.asarray(labels).reshape(-1).tolist())),
+        "class_names": info.get("class_names"),
+    }
+
+
+@app.post("/artifacts/{artifact_id}/append")
+async def append_to_artifact(artifact_id: str, request: Request,
+                             db: Database = Depends(get_db)):
+    """Add another file to a dataset, returning a new, larger one.
+
+    More data is the strongest thing a submitter can do for their result, and
+    the only way to do it was to concatenate files by hand before uploading.
+
+    A new artifact rather than a change to the old one: a queued job may
+    already point at it, and a dataset that changes under a job that is
+    training on it is not a dataset.
+    """
+    from backend.service.artifacts import (
+        ArtifactError, merge_datasets, pack_dataset, unpack_dataset,
+    )
+
+    payload = await request.body()
+    if not payload:
+        raise HTTPException(status_code=400, detail="Artifact body is empty.")
+    if len(payload) > MAX_ARTIFACT_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Artifact is {len(payload)} bytes; the limit is {MAX_ARTIFACT_BYTES}.",
+        )
+
+    stored = await db.db["artifacts.files"].find_one(
+        {"_id": _object_id(artifact_id)}, {"metadata": 1}
+    )
+    if not stored:
+        raise HTTPException(status_code=404, detail="No such dataset.")
+    if (stored.get("metadata") or {}).get("kind") != "dataset":
+        raise HTTPException(status_code=400, detail="That artifact is not a dataset.")
+
+    existing_info = (stored.get("metadata") or {}).get("info") or {}
+    fmt = existing_info.get("format")
+    if not fmt:
+        raise HTTPException(
+            status_code=400,
+            detail="This dataset was uploaded as a packed .npz, so the "
+                   "coordinator cannot tell what to add to it. Combine the "
+                   "arrays yourself and upload the result.",
+        )
+
+    try:
+        existing_x, existing_y = unpack_dataset(await _read_artifact(db, artifact_id))
+    except ArtifactError as e:
+        raise HTTPException(status_code=400, detail=f"Could not read that dataset: {e}")
+
+    # A caller that knows what it picked says so, and a mismatch is refused
+    # here. Without this, adding a spreadsheet to a text dataset read the CSV
+    # as raw bytes -- which succeeds, and trains the model on commas.
+    claimed = (request.query_params.get("format") or "").lower()
+    if claimed and claimed != fmt:
+        wanted = {"csv": "a CSV", "text": "a text file"}
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"This dataset was built from {wanted.get(fmt, fmt)} and you "
+                f"added {wanted.get(claimed, claimed)}. A dataset can only "
+                f"grow with more of the same kind."
+            ),
+        )
+
+    # Read the new file exactly as the first one was: same format, and for text
+    # the same window length, or the rows would not line up.
+    added_x, added_y, added_info = _convert_upload(
+        payload, fmt, int(existing_info.get("seq_len") or 64)
+    )
+
+    try:
+        features, labels, info = merge_datasets(
+            (existing_x, existing_y, existing_info),
+            (added_x, added_y, added_info),
+        )
+    except ArtifactError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    combined = pack_dataset(features, labels)
+    new_id = await _write_artifact(db, combined, "dataset", info)
+
+    logger.info(
+        f"Appended to dataset {artifact_id}: "
+        f"{existing_x.shape[0]} + {added_x.shape[0]} = {features.shape[0]} rows "
+        f"-> {new_id}"
+    )
+
+    return {
+        "status": "success",
+        "artifact_id": str(new_id),
+        "bytes": len(combined),
+        "added_rows": int(added_x.shape[0]),
+        "parts": info.get("parts"),
+        **_describe_dataset(features, labels, info),
+    }
+
+
 @app.post("/artifacts")
 async def upload_artifact(request: Request, db: Database = Depends(get_db)):
     """Store a blob (a dataset, or trained weights) and return its id.
@@ -1687,10 +1870,7 @@ async def download_artifact(
             detail="Send a node session token or a submitter key.",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    try:
-        object_id = ObjectId(artifact_id)
-    except Exception:
-        raise HTTPException(status_code=400, detail="Malformed artifact id.")
+    object_id = _object_id(artifact_id)
 
     bucket = AsyncIOMotorGridFSBucket(db.db, bucket_name="artifacts")
 

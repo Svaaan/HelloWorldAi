@@ -23,6 +23,17 @@ let onJobs = null;
 // few seconds after it is opened, taking the download button with it.
 const openJobs = new Set();
 
+// Jobs with an open "Adjust and run" panel.
+//
+// The list refreshes every ten seconds by rebuilding every row, which is fine
+// for a status view and fatal for a form: the panel and everything typed into
+// it disappeared mid-sentence. Nobody fills in four fields in ten seconds.
+//
+// A row being *open* survives a rebuild through openJobs above, because that
+// is one boolean. Half-typed input is not something to rebuild -- so while
+// somebody is editing, the refresh waits.
+const editingJobs = new Set();
+
 const STATUS_LABEL = {
   pending: "Queued",
   running: "Running",
@@ -272,6 +283,12 @@ function buildTuner(job, onClose) {
 
   const status = el("div", "field-status");
 
+  editingJobs.add(job.task_id);
+  const done = () => {
+    editingJobs.delete(job.task_id);
+    if (onClose) onClose();
+  };
+
   const send = el("button", "btn", "Run with these settings");
   send.type = "button";
   send.addEventListener("click", async () => {
@@ -309,8 +326,13 @@ function buildTuner(job, onClose) {
         `Queued as ${data.task_id}. It will appear above when it finishes.`));
       (data.notes || []).forEach((text) =>
         status.appendChild(el("p", "field-advice", text)));
-      // The list refreshes on its own; reload now so the new run is immediate.
-      await loadMyJobs();
+
+      // Let the panel stand long enough to read what it just said, then let
+      // the list come back and show the new run.
+      setTimeout(() => {
+        editingJobs.delete(job.task_id);
+        loadMyJobs();
+      }, 4000);
     } catch (error) {
       console.error("Could not queue the adjusted run:", error);
       status.replaceChildren(el("span", "error-message", error.message));
@@ -322,7 +344,8 @@ function buildTuner(job, onClose) {
   cancel.type = "button";
   cancel.addEventListener("click", () => {
     box.remove();
-    if (onClose) onClose();
+    done();
+    loadMyJobs();      // catch up on anything the pause missed
   });
 
   const row = el("div", "job-actions");
@@ -493,6 +516,10 @@ export function setJobsListener(fn) {
 export async function loadMyJobs() {
   const container = document.getElementById("myJobsList");
   if (!container) return;
+
+  // Somebody is filling in a form inside one of these rows. Rebuilding the
+  // list would delete it out from under them.
+  if (editingJobs.size) return;
 
   // Asking for the key here would mint one for a visitor who has never sent
   // anything, and the panel would claim they have jobs to look at.
