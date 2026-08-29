@@ -125,6 +125,64 @@ def job_schema() -> Dict[str, Any]:
     }
 
 
+# How many times a run will go over the whole dataset. Past roughly this many
+# passes a language model stops generalising and starts memorising: it reports
+# a beautiful training loss and does no better on anything it has not already
+# seen.
+#
+# Deliberately not applied to the classifier. Measured on this service: 240
+# rows of well-separated data, 53 passes, and the result scored 100% on the
+# holdout -- many epochs over a small table is normal practice, not a mistake.
+# Warning there would be noise, and overfitting a table shows up in the
+# strength grade afterwards, where it is measured rather than guessed.
+MAX_COMFORTABLE_PASSES = 12
+
+# And the other end -- a run that does not finish one pass has not shown the
+# model most of the data it was given.
+MIN_USEFUL_PASSES = 1.0
+
+
+def advise(job: Dict[str, Any], dataset_info: Optional[Dict[str, Any]] = None) -> List[str]:
+    """Things worth saying about a job that is nonetheless valid.
+
+    Separate from validation on purpose: none of this makes a job wrong, so
+    none of it should refuse one. It is the arithmetic the submitter cannot do
+    in their head, said before a contributor's GPU spends an hour on it.
+    """
+    notes: List[str] = []
+
+    rows = (dataset_info or {}).get("rows")
+    if not rows:
+        return notes
+
+    architecture = str((job.get("model_spec") or {}).get("architecture", "mlp")).lower()
+    if (ARCHITECTURES.get(architecture) or {}).get("accepts") != "text":
+        return notes
+
+    hyper = job.get("hyperparameters") or {}
+    steps = int(hyper.get("steps") or 0)
+    batch = int(hyper.get("batch_size") or 0)
+    if steps <= 0 or batch <= 0:
+        return notes
+
+    passes = (steps * batch) / float(rows)
+
+    if passes > MAX_COMFORTABLE_PASSES:
+        notes.append(
+            f"This run goes over your {int(rows):,} rows about {passes:.0f} times. "
+            f"Past roughly {MAX_COMFORTABLE_PASSES} the model tends to memorise "
+            f"rather than learn — the training loss keeps falling while the "
+            f"result gets no better. Fewer steps, or more data, would help."
+        )
+    elif passes < MIN_USEFUL_PASSES:
+        notes.append(
+            f"This run sees only about {passes * 100:.0f}% of your "
+            f"{int(rows):,} rows. More steps would let it read the rest."
+        )
+
+    return notes
+
+
 def _validate_fields(fields, supplied, where, overrides=None) -> Dict[str, Any]:
     """Check each field, falling back to the architecture's default then the
     shared one. The bounds never move -- only what a blank box means."""

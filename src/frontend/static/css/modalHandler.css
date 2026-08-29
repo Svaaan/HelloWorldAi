@@ -136,6 +136,26 @@
   text-align: center;
 }
 
+/* Something true about the data that is worth knowing before the job runs,
+   but is not an error -- the upload succeeded. Toned as counsel, not alarm. */
+.field-advice:empty {
+  display: none !important;
+}
+
+.field-advice {
+  display: block !important;
+  margin: 0.5rem 0 0 !important;
+  padding: 0.55rem 0.7rem !important;
+  border: 1px solid var(--warning) !important;
+  border-left-width: 3px !important;
+  border-radius: var(--r-xs);
+  background-color: var(--warning-wash);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+  text-align: left;
+}
+
 #taskDataInput {
   min-height: 190px;
 }

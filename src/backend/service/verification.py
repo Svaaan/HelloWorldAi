@@ -65,6 +65,47 @@ VERDICT_ACCEPTED = "accepted"
 VERDICT_SUSPICIOUS = "suspicious"
 VERDICT_REJECTED = "rejected"
 
+# A verdict answers "is this a real trained model, or fabricated". It says
+# nothing about whether the model is any good, and people read it as though it
+# does: a text model that produced word-shaped nonsense came back marked
+# accepted, which was true and deeply misleading.
+#
+# So alongside the verdict, how far above guessing it got. Not raw accuracy --
+# 40% is poor over 3 classes and remarkable over 256 -- but the share of the
+# available headroom it captured:
+#
+#     captured = (accuracy - floor) / (1 - floor)
+#
+# where floor is whatever a model that learned nothing would score. That is
+# comparable across problems of different difficulty, which raw accuracy is
+# not.
+STRENGTH_WEAK = "weak"
+STRENGTH_CLEAR = "clear"
+STRENGTH_STRONG = "strong"
+
+# Boundaries drawn from measured runs rather than taste. On this service a
+# byte-level text model that captured 0.30 produced unreadable output; one that
+# captured 0.51 produced plausible lines; a three-class table classifier
+# captured 0.96 and was correct on essentially everything.
+WEAK_BELOW = 0.35
+STRONG_FROM = 0.75
+
+
+def learned_fraction(accuracy: float, floor: float) -> float:
+    """The share of the possible improvement over guessing that was achieved."""
+    headroom = 1.0 - floor
+    if headroom <= 0:
+        return 0.0
+    return max(0.0, min(1.0, (accuracy - floor) / headroom))
+
+
+def strength_of(captured: float) -> str:
+    if captured < WEAK_BELOW:
+        return STRENGTH_WEAK
+    if captured < STRONG_FROM:
+        return STRENGTH_CLEAR
+    return STRENGTH_STRONG
+
 
 def _torch():
     try:
@@ -284,6 +325,10 @@ def verify_training_result(
         floor = untrained["accuracy"]
         floor_name = "an untrained model of the same architecture"
 
+    captured = learned_fraction(holdout["accuracy"], floor)
+    measured["learned_fraction"] = round(captured, 5)
+    measured["floor_accuracy"] = round(floor, 5)
+
     beats_baseline = holdout["accuracy"] >= floor + MIN_ACCURACY_MARGIN
     checks.append(_check(
         "beats_baseline", beats_baseline,
@@ -324,7 +369,14 @@ def verify_training_result(
     else:
         verdict = VERDICT_ACCEPTED
 
-    return {"verdict": verdict, "checks": checks, "measured": measured}
+    report = {"verdict": verdict, "checks": checks, "measured": measured}
+
+    # Only meaningful for a result we believe is genuine. Grading something we
+    # already suspect is fabricated would dress up the wrong question.
+    if verdict == VERDICT_ACCEPTED:
+        report["strength"] = strength_of(captured)
+
+    return report
 
 
 def summarise(report: Dict[str, Any]) -> str:
@@ -332,6 +384,8 @@ def summarise(report: Dict[str, Any]) -> str:
     failed = [c["name"] for c in report.get("checks", []) if not c["passed"]]
     if report.get("verdict") == VERDICT_ACCEPTED:
         measured = report.get("measured", {})
-        return (f"accepted (holdout accuracy {measured.get('holdout_accuracy')} "
-                f"vs baseline {measured.get('baseline_accuracy')})")
+        return (f"accepted, {report.get('strength', 'unknown')} "
+                f"(holdout accuracy {measured.get('holdout_accuracy')} "
+                f"vs {measured.get('floor_accuracy')} for a model that learned "
+                f"nothing)")
     return f"{report.get('verdict')} - failed: {', '.join(failed) or 'none'}"

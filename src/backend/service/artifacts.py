@@ -361,6 +361,50 @@ MIN_SEQ_LEN, MAX_SEQ_LEN = 8, 2048
 # alone learn from.
 MIN_TEXT_WINDOWS = 16
 
+# How much text is enough, measured rather than guessed. Two runs of this
+# service on the same hardware, same architecture family:
+#
+#     71 KB  -> 41% next-byte accuracy on held-back text, output is
+#               word-shaped nonsense: it learned spelling and nothing else
+#    310 KB  -> 62% accuracy, output is syntactically plausible lines
+#
+# Both passed verification. Both were real training. Only one produced
+# something a person would keep, and the difference was the size of the file.
+# Saying so at upload costs nothing; finding out afterwards costs a
+# contributor's GPU time and the submitter's afternoon.
+TEXT_THIN_BYTES = 256 * 1024
+TEXT_COMFORTABLE_BYTES = 1024 * 1024
+
+
+def text_size_advice(source_bytes: int) -> Optional[str]:
+    """Plain warning about a text corpus that is too small to learn from.
+
+    Returns None when there is nothing useful to say -- silence is the right
+    output for a file that is big enough.
+    """
+    if source_bytes >= TEXT_COMFORTABLE_BYTES:
+        return None
+
+    def size(value):
+        # "1024 KB" is a true answer to a question nobody asked.
+        if value >= 1024 * 1024:
+            return f"{value / (1024 * 1024):.0f} MB"
+        return f"{value // 1024} KB"
+
+    if source_bytes < TEXT_THIN_BYTES:
+        return (
+            f"{size(source_bytes)} is a small corpus. This will train, and it "
+            f"will pass verification, but expect output that looks like words "
+            f"without meaning any. Around {size(TEXT_COMFORTABLE_BYTES)} is "
+            f"where sentences start to hold together."
+        )
+
+    return (
+        f"{size(source_bytes)} is on the thin side. Expect recognisable "
+        f"phrasing but loose meaning; around {size(TEXT_COMFORTABLE_BYTES)} "
+        f"reads better."
+    )
+
 
 def parse_text_dataset(text: Any, seq_len: int = 64) -> Tuple[np.ndarray, np.ndarray, Dict[str, Any]]:
     """Turn a text file into (x, y) windows for a causal language model.

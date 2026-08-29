@@ -42,6 +42,39 @@ const VERDICT_LABEL = {
   rejected: "Failed verification",
 };
 
+// "Verified" answers whether the model is genuine, and people read it as
+// whether the model is good. A text model that produced word-shaped nonsense
+// came back marked Verified, which was true and gave entirely the wrong
+// impression. The grade is shown beside the badge so the two questions stay
+// separate and both get answered.
+const STRENGTH_LABEL = {
+  weak: "barely learned",
+  clear: "learned",
+  strong: "learned well",
+};
+
+function strengthNote(verification) {
+  const measured = verification?.measured || {};
+  const captured = measured.learned_fraction;
+  const accuracy = measured.holdout_accuracy;
+  const floor = measured.floor_accuracy ?? measured.baseline_accuracy;
+
+  if (captured == null || accuracy == null || floor == null) return null;
+
+  const pct = (value) => `${(value * 100).toFixed(1)}%`;
+  const advice = {
+    weak: "It found a real pattern, but a small one. For text that usually "
+      + "means more data; for a table it can mean the columns do not carry "
+      + "the answer.",
+    clear: "A solid result. More data or more steps would still help.",
+    strong: "Close to as good as this data allows.",
+  }[verification.strength] || "";
+
+  return `On data the node never saw it got ${pct(accuracy)} right, against `
+    + `${pct(floor)} for a model that learned nothing — closing `
+    + `${pct(captured)} of the gap. ${advice}`;
+}
+
 function el(tag, className, text) {
   const node = document.createElement(tag);
   if (className) node.className = className;
@@ -176,9 +209,18 @@ function buildUsage(job) {
   // values printed here would be a guess, and a command that fails is worse
   // than one that explains itself. The first line reports what the model
   // expects, read from the file.
+  //
+  // The second line has to match what was actually trained: --input is for a
+  // classifier, and printing it under a language model told people to run a
+  // command that model refuses.
+  const architecture = job.task_data?.model_spec?.architecture || "mlp";
+  const isClassifier = ["mlp", "feedforward"].includes(architecture);
+
   const code = el("pre", "job-usage-code",
     `python load_model.py ${filename}\n`
-    + `python load_model.py ${filename} --input <one value per feature>`);
+    + (isClassifier
+        ? `python load_model.py ${filename} --input <one value per feature>`
+        : `python load_model.py ${filename} --prompt "some text to continue"`));
   body.appendChild(code);
 
   body.appendChild(el("p", "job-usage-hint",
@@ -210,6 +252,12 @@ function buildJobRow(job) {
   if (verdict) {
     summary.appendChild(el("span", `job-verdict job-verdict-${verdict}`,
       VERDICT_LABEL[verdict] || verdict));
+
+    const strength = job.verification?.strength;
+    if (strength) {
+      summary.appendChild(el("span", `job-strength job-strength-${strength}`,
+        STRENGTH_LABEL[strength] || strength));
+    }
   }
 
   // The thing the owner is actually waiting for.
@@ -236,6 +284,9 @@ function buildJobRow(job) {
   }
 
   if (job.result) body.appendChild(el("p", "job-result", job.result));
+
+  const grading = strengthNote(job.verification);
+  if (grading) body.appendChild(el("p", "job-grade", grading));
 
   const actions = el("div", "job-actions");
 

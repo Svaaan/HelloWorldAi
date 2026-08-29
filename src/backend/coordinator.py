@@ -13,7 +13,7 @@ from backend.service.authNodeService import verify_signature
 from backend.service.tokenService import issue_node_token, read_node_token, NODE_TOKEN_TTL
 from backend.service.submitterService import read_submitter_key
 from backend.service.jobSpec import (
-    ARCHITECTURES, JobSpecError, job_schema, validate_job,
+    ARCHITECTURES, JobSpecError, advise, job_schema, validate_job,
 )
 from backend.service.nodePicker import (
     BUSY_STATUSES, NoNodeAvailable, pick_node, summarise_choice,
@@ -829,6 +829,18 @@ async def _queue_task(db, node_id, task_data, submitter, client_host,
         "declined_by": [],
     }
 
+    # Valid, but perhaps not wise. Advice never refuses a job -- it is shown
+    # alongside the confirmation so the submitter can decide.
+    #
+    # Counted against the training half rather than the upload: the holdout
+    # never reaches the node, so it is not what the model goes over.
+    advice_info = dict(dataset_info)
+    if advice_info.get("rows"):
+        advice_info["rows"] = max(
+            1, int(round(advice_info["rows"] * (1 - HOLDOUT_FRACTION)))
+        )
+    spec_notes = list(spec_notes) + advise(task_data, advice_info)
+
     await db.tasks_collection.insert_one(task)
     logger.info(f"Queued task {task['_id']} for node {node_id}")
 
@@ -1485,6 +1497,7 @@ async def upload_artifact(request: Request, db: Database = Depends(get_db)):
             "class_names": class_names,
         }
         info["format"] = "csv"
+        info["rows"] = int(features.shape[0])
         if class_names:
             info["class_names"] = class_names
         logger.info(
@@ -1497,7 +1510,9 @@ async def upload_artifact(request: Request, db: Database = Depends(get_db)):
         # on. Doing it here rather than on the node keeps the dataset the same
         # shape as every other one, so the holdout split that verifies the
         # returned model needs no special case.
-        from backend.service.artifacts import ArtifactError, pack_dataset, parse_text_dataset
+        from backend.service.artifacts import (
+            ArtifactError, pack_dataset, parse_text_dataset, text_size_advice,
+        )
         try:
             seq_len = int(request.query_params.get("seq_len", 64))
         except (TypeError, ValueError):
@@ -1518,6 +1533,13 @@ async def upload_artifact(request: Request, db: Database = Depends(get_db)):
             "vocab_size": info["vocab_size"],
             "tokenizer": info["tokenizer"],
         }
+
+        # Said here rather than after the job, because after the job it costs a
+        # contributor's GPU time to have learned it.
+        advice = text_size_advice(info["source_bytes"])
+        if advice:
+            summary["advice"] = advice
+            logger.info(f"Small text upload ({info['source_bytes']} bytes): {advice}")
         logger.info(
             f"Converted text upload: {info['source_bytes']:,} bytes into "
             f"{info['rows']:,} sequences of {info['seq_len']} tokens"

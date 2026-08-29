@@ -97,6 +97,12 @@ export function showNodeModal(node) {
   const datasetStatus = el("div", "field-status");
   content.appendChild(datasetStatus);
 
+  // Said before the job is sent, not after it comes back. A corpus too small
+  // to learn from still trains and still passes verification, so the only
+  // moment this helps anyone is now.
+  const datasetAdvice = el("p", "field-advice");
+  content.appendChild(datasetAdvice);
+
   const privacy = el("details", "data-privacy");
   privacy.appendChild(el("summary", null, "Who can see this data"));
 
@@ -188,6 +194,8 @@ export function showNodeModal(node) {
     datasetId = null;
     setReady(false);
 
+    datasetAdvice.textContent = "";
+
     const file = fileInput.files?.[0];
     if (!file) {
       setStatus(datasetStatus, "");
@@ -225,6 +233,7 @@ export function showNodeModal(node) {
       }
 
       setStatus(datasetStatus, `Ready: ${parts.join(", ")}`, "success");
+      datasetAdvice.textContent = data.advice || "";
       if (jobForm?.suggest) jobForm.suggest(format);
       setReady(true);
     } catch (error) {
@@ -288,6 +297,12 @@ export function showNodeModal(node) {
         + `The node picks it up on its next poll.${note}`,
         "success"
       );
+
+      // Anything the coordinator thought worth mentioning about the shape of
+      // the run -- too many passes over too little data, most often.
+      (result.notes || []).forEach((text) => {
+        responseMessage.appendChild(el("p", "field-advice", text));
+      });
 
       // The job is now out of sight; say where it reappears, and where the
       // finished model will be waiting.

@@ -131,6 +131,36 @@
 .job-verdict-suspicious { color: var(--warning); background-color: var(--warning-wash); border-color: rgba(251,191,36,.22); }
 .job-verdict-rejected   { color: var(--danger);  background-color: var(--danger-wash);  border-color: rgba(248,113,113,.22); }
 
+/* How well it learned, beside whether we believe it. Deliberately quieter
+   than the verdict pill: it is a grade, not a warning, and a weak result is
+   still a real one. */
+.job-strength {
+  flex-shrink: 0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.18rem 0.55rem;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  background-color: var(--surface-2);
+  white-space: nowrap;
+}
+
+.job-strength-weak   { color: var(--warning); border-color: rgba(251,191,36,.22); }
+.job-strength-strong { color: var(--success); border-color: rgba(52,211,153,.22); }
+
+/* The same grade in words, once the row is open. */
+.job-grade {
+  margin: 0;
+  padding: 0.6rem 0.75rem;
+  border-left: 3px solid var(--border-strong);
+  border-radius: var(--r-xs);
+  background-color: var(--surface-2);
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+
 /* --- expanded detail --- */
 
 .job-body {
