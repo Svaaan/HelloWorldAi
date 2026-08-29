@@ -497,7 +497,7 @@ async def get_task_results(node_id: Optional[str] = None, db: Database = Depends
             if 'nodeId' in result and 'node_id' not in result:
                 result['node_id'] = result['nodeId']
 
-        return results
+        return [public_task(r) for r in results]
     except Exception as e:
         logger.error(f"Error retrieving task results: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to retrieve task results: {str(e)}")
@@ -506,14 +506,29 @@ async def get_task_results(node_id: Optional[str] = None, db: Database = Depends
 
 
 @app.post("/receive-task-result")
-async def receive_task_result(result: dict, db: Database = Depends(get_db)):
+async def receive_task_result(
+    result: dict,
+    db: Database = Depends(get_db),
+    caller: str = Depends(authenticated_node),
+):
+    """Legacy result sink from the old push-based flow.
+
+    Live nodes report through /task-result/{task_id}, which checks that the
+    reporting node actually owns the task. This one took an unauthenticated
+    body and inserted it straight into the tasks collection, so anyone could
+    write arbitrary documents into the dashboard's view of the network.
+    Requiring a node token is the least it should do; the node_id is now taken
+    from the token rather than the body, so a caller cannot report as someone
+    else.
+    """
     try:
+        # Taken from the token, never the body, so the old `nodeId` fallback
+        # that used to sit here can no longer apply.
+        result["node_id"] = caller
+        result.pop("nodeId", None)
+
         logger.info(f"Task result received with status: {result.get('status', 'unknown')}")
 
-        # Correct node ID handling
-        if 'nodeId' in result and 'node_id' not in result:
-            result['node_id'] = result.pop('nodeId')  # Rename 'nodeId' to 'node_id'
-        
         # Every result needs its own primary key. This previously used node_id,
         # so a node's second result collided with its first.
         result["_id"] = result.get("task_id") or str(uuid.uuid4())
@@ -788,6 +803,20 @@ async def _verify_quietly(task_id: str):
         logger.warning(f"Verification of {task_id} did not complete: {e}")
 
 
+# The id of a holdout must not leave this service. Anyone holding it could ask
+# for the rows their work is scored against; publishing it in a task listing
+# was how that became possible in the first place.
+INTERNAL_TASK_FIELDS = ("holdout_artifact_id",)
+
+
+def public_task(task: dict) -> dict:
+    """A task document safe to hand to a caller."""
+    clean = {k: v for k, v in task.items() if k not in INTERNAL_TASK_FIELDS}
+    # Keep the fact of a dataset, which the dashboard shows, without the id.
+    clean["has_holdout"] = bool(task.get("holdout_artifact_id"))
+    return clean
+
+
 @app.get("/tasks")
 async def list_tasks(
     node_id: Optional[str] = None,
@@ -809,7 +838,7 @@ async def list_tasks(
     for task in tasks:
         task["task_id"] = task.pop("_id")
 
-    return tasks
+    return [public_task(t) for t in tasks]
 
 
 async def requeue_stale_tasks():
@@ -914,8 +943,27 @@ async def upload_artifact(request: Request, db: Database = Depends(get_db)):
 
 
 @app.get("/artifacts/{artifact_id}")
-async def download_artifact(artifact_id: str, db: Database = Depends(get_db)):
-    """Return a stored blob verbatim."""
+async def download_artifact(
+    artifact_id: str,
+    db: Database = Depends(get_db),
+    caller: str = Depends(authenticated_node),
+):
+    """Return a stored blob to the node entitled to it.
+
+    This endpoint used to be open. Combined with the task listings, which
+    published every dataset, holdout and weights id, that meant anyone able to
+    reach the coordinator could read a submitter's private training data -- and
+    a node could fetch the exact holdout its own work was about to be scored
+    against, which quietly defeats verification altogether.
+
+    Two rules close that:
+
+      * a holdout is never served over HTTP to anybody, whatever token they
+        hold. Verification reads it in-process via _read_artifact; nothing
+        outside this service has any reason to see it.
+      * every other blob is served only to a node with a task of its own that
+        references it, so one node cannot read another's dataset or weights.
+    """
     try:
         object_id = ObjectId(artifact_id)
     except Exception:
@@ -925,11 +973,34 @@ async def download_artifact(artifact_id: str, db: Database = Depends(get_db)):
 
     try:
         stream = await bucket.open_download_stream(object_id)
-        payload = await stream.read()
     except Exception as e:
-        logger.warning(f"Artifact {artifact_id} could not be read: {e}")
+        logger.warning(f"Artifact {artifact_id} could not be opened: {e}")
         raise HTTPException(status_code=404, detail="Artifact not found.")
 
+    kind = (getattr(stream, "metadata", None) or {}).get("kind")
+
+    if kind == "holdout":
+        logger.warning(
+            f"Node {caller} asked for holdout {artifact_id}; refused. "
+            f"A holdout is only ever read inside the coordinator."
+        )
+        raise HTTPException(status_code=403, detail="Artifact not available.")
+
+    # The caller must own a task that references this blob.
+    owns = await db.tasks_collection.find_one(
+        {
+            "node_id": caller,
+            "$or": [{"dataset_id": artifact_id}, {"weights_id": artifact_id}],
+        },
+        {"_id": 1},
+    )
+
+    if not owns:
+        logger.warning(f"Node {caller} asked for artifact {artifact_id}, which is not theirs.")
+        # 404 rather than 403: whether an id exists is itself worth not leaking.
+        raise HTTPException(status_code=404, detail="Artifact not found.")
+
+    payload = await stream.read()
     return Response(content=payload, media_type="application/octet-stream")
 
 
