@@ -6,25 +6,23 @@
   padding: 0 1.5rem;
 }
 
-.back-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  color: var(--text-muted);
-  font-size: 0.9rem;
-  font-weight: 550;
-  margin-bottom: 1.25rem;
-  padding: 0.4rem 0.75rem;
-  border-radius: var(--r-pill);
-  transition:
-    background-color var(--t-fast) var(--ease),
-    color var(--t-fast) var(--ease);
+.page-intro {
+  margin-bottom: 1.5rem;
 }
 
-.back-link:hover {
-  color: var(--text);
-  background-color: var(--surface-2);
-  text-decoration: none;
+.page-intro h1 {
+  margin: 0 0 0.4rem;
+  font-size: 1.5rem;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.page-intro p {
+  margin: 0;
+  max-width: 60ch;
+  color: var(--text-muted);
+  font-size: 0.9375rem;
+  line-height: 1.6;
 }
 
 .distribution-panel {
@@ -49,6 +47,19 @@
   border: none;
   font-size: 1.2rem;
   font-weight: 600;
+}
+
+.panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.panel-count {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 /* --- node cards --- */
@@ -81,6 +92,43 @@
 
 .node-item:active {
   transform: translateY(-1px);
+}
+
+.node-item:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--ring);
+}
+
+/* The headline figure: what this machine actually contributes. */
+.node-compute {
+  display: block;
+  margin-bottom: 0.9rem;
+  color: var(--accent);
+  font-size: 0.875rem;
+  letter-spacing: -0.01em;
+}
+
+.node-compute strong {
+  font-size: 1.45rem;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.node-cta {
+  display: block;
+  margin-top: 1rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+  font-weight: 550;
+  transition: color var(--t-fast) var(--ease);
+}
+
+.node-item:hover .node-cta,
+.node-item:focus-visible .node-cta {
+  color: var(--accent);
 }
 
 .node-header {
@@ -145,8 +193,41 @@
   border-radius: var(--r-lg);
 }
 
+.empty-message strong {
+  display: block;
+  color: var(--text);
+  font-size: 0.9375rem;
+  margin-bottom: 0.3rem;
+}
+
 .empty-message p {
   margin: 0;
+  font-size: 0.875rem;
+}
+
+.empty-message.is-error {
+  border-style: solid;
+  border-color: rgba(248, 113, 113, 0.28);
+  background-color: var(--danger-wash);
+}
+
+.empty-message.is-error strong {
+  color: var(--danger);
+}
+
+/* A quiet pulse while the first request is in flight. */
+.empty-message.is-loading {
+  animation: node-list-pulse 1.4s var(--ease) infinite;
+}
+
+@keyframes node-list-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.55; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .empty-message.is-loading { animation: none; }
+  .node-item:hover { transform: none; }
 }
 
 /* --- task form inside the node modal --- */

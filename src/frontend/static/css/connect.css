@@ -7,46 +7,7 @@
   min-height: 100vh;
 }
 
-/* --- header --- */
-
-.site-header {
-  padding: 1.1rem 1.5rem;
-  border-bottom: 1px solid var(--border);
-  background-color: rgba(11, 14, 19, 0.72);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-}
-
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 0.65rem;
-  font-size: 1rem;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  color: var(--text);
-}
-
-.node-icon {
-  width: 22px;
-  height: 22px;
-  border: 2px solid var(--accent);
-  border-radius: 50%;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  position: relative;
-  flex-shrink: 0;
-}
-
-.node-icon::after {
-  content: "";
-  position: absolute;
-  width: 55%;
-  height: 55%;
-  border-radius: 50%;
-  background-color: var(--accent);
-}
+/* The header is the shared one from header.css, injected on load. */
 
 /* --- centred card --- */
 

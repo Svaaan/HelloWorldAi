@@ -1,11 +1,15 @@
-/* Shared site header, injected into #header-placeholder. */
+/* Shared site header, injected into #header-placeholder.
+
+   Every page carries this, so it is the only navigation in the app. It used to
+   be a bare title bar, which left each page to invent its own one-way "back"
+   link -- there was no way to reach /node from /setup without a detour. */
 
 .header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 1rem;
-  padding: 1rem 1.5rem;
+  padding: 0.85rem 1.5rem;
   background-color: rgba(11, 14, 19, 0.72);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
@@ -23,14 +27,22 @@
   font-weight: 600;
   color: var(--text);
   letter-spacing: -0.01em;
+  flex-shrink: 0;
+  border-radius: var(--r-sm);
+  transition: opacity var(--t-fast) var(--ease);
+}
+
+.header-logo:hover {
+  opacity: 0.8;
+  text-decoration: none;
 }
 
 .header-logo .node-icon {
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   border: 2px solid var(--accent);
   border-radius: 50%;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   position: relative;
@@ -46,11 +58,52 @@
   background-color: var(--accent);
 }
 
+/* --- navigation --- */
+
+.header-nav {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+  margin-right: auto;
+  margin-left: 1.5rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.header-nav::-webkit-scrollbar {
+  display: none;
+}
+
+.header-nav a {
+  padding: 0.42rem 0.85rem;
+  border-radius: var(--r-pill);
+  font-size: 0.875rem;
+  font-weight: 550;
+  color: var(--text-muted);
+  white-space: nowrap;
+  transition:
+    color var(--t-fast) var(--ease),
+    background-color var(--t-fast) var(--ease);
+}
+
+.header-nav a:hover {
+  color: var(--text);
+  background-color: var(--surface-2);
+  text-decoration: none;
+}
+
+/* The page you are on, so the header answers "where am I" as well as
+   "where can I go". */
+.header-nav a[aria-current="page"] {
+  color: var(--accent);
+  background-color: var(--accent-wash);
+}
+
 .header-details {
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  text-align: right;
+  flex-shrink: 0;
 }
 
 /* Node counter reads as a quiet chip rather than loose text. */
@@ -71,15 +124,29 @@
   font-variant-numeric: tabular-nums;
 }
 
-@media (max-width: 600px) {
+/* A count that failed to load should look inert, not like a live zero. */
+.header-details .info span.is-stale {
+  color: var(--text-faint);
+  font-weight: 500;
+}
+
+/* --- responsive --- */
+
+@media (max-width: 860px) {
   .header {
-    flex-direction: column;
-    align-items: stretch;
-    padding: 0.85rem 1rem;
+    flex-wrap: wrap;
+    padding: 0.75rem 1rem;
+    row-gap: 0.6rem;
+  }
+
+  .header-nav {
+    order: 3;
+    width: 100%;
+    margin: 0;
+    padding-bottom: 0.1rem;
   }
 
   .header-details {
-    justify-content: center;
-    flex-wrap: wrap;
+    margin-left: auto;
   }
 }
