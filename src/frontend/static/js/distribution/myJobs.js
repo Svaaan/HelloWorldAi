@@ -51,7 +51,12 @@ function el(tag, className, text) {
 
 function relativeTime(value) {
   if (!value) return "";
-  const then = new Date(value).getTime();
+  // The coordinator stamps times with datetime.utcnow(), which serialises
+  // without a zone -- and a zoneless date-time is parsed as *local* time here.
+  // On a machine two hours ahead of UTC that made a job sent a moment ago read
+  // "2h ago". Say UTC when nothing else says otherwise.
+  const stamped = /(Z|[+-]\d{2}:?\d{2})$/.test(value) ? value : `${value}Z`;
+  const then = new Date(stamped).getTime();
   if (Number.isNaN(then)) return "";
   const seconds = Math.max(0, Math.round((Date.now() - then) / 1000));
   if (seconds < 60) return `${seconds}s ago`;

@@ -103,6 +103,13 @@ export async function buildJobForm(container, { modelName } = {}) {
   const derivedNote = el("p", "job-derived-note");
   container.appendChild(derivedNote);
 
+  // --- training -----------------------------------------------------------
+  container.appendChild(el("h4", "job-section-title", "Training"));
+
+  const hyperGrid = el("div", "job-field-grid");
+  const hyperInputs = new Map();
+  container.appendChild(hyperGrid);
+
   function renderArchitecture() {
     const definition = schema.architectures[archSelect.value];
     archSummary.textContent = definition.summary || "";
@@ -119,22 +126,26 @@ export async function buildJobForm(container, { modelName } = {}) {
     // Saying what is filled in automatically stops people hunting for an
     // input that deliberately is not there.
     derivedNote.textContent = definition.derived_note || "";
+
+    // A learning rate that suits a small classifier will not train a
+    // transformer at all, so the starting values follow the model rather than
+    // being one set shared by both.
+    const overrides = definition.hyperparameter_defaults || {};
+
+    hyperGrid.replaceChildren();
+    hyperInputs.clear();
+    schema.hyperparameters.forEach((spec) => {
+      const withDefault = spec.name in overrides
+        ? { ...spec, default: overrides[spec.name] }
+        : spec;
+      const { wrap, input } = field(withDefault);
+      hyperInputs.set(spec.name, { input, spec: withDefault });
+      hyperGrid.appendChild(wrap);
+    });
   }
 
   archSelect.addEventListener("change", renderArchitecture);
   renderArchitecture();
-
-  // --- training -----------------------------------------------------------
-  container.appendChild(el("h4", "job-section-title", "Training"));
-
-  const hyperGrid = el("div", "job-field-grid");
-  const hyperInputs = new Map();
-  schema.hyperparameters.forEach((spec) => {
-    const { wrap, input } = field(spec);
-    hyperInputs.set(spec.name, { input, spec });
-    hyperGrid.appendChild(wrap);
-  });
-  container.appendChild(hyperGrid);
 
   // --- raw JSON escape hatch ---------------------------------------------
   const advanced = el("details", "job-advanced");
@@ -191,6 +202,23 @@ export async function buildJobForm(container, { modelName } = {}) {
   });
 
   return {
+    /** Point the form at the model that matches the file just uploaded.
+     *
+     * The two architectures take incompatible data -- rows of numbers against
+     * a stream of characters -- so uploading a .txt with the classifier still
+     * selected can only end in a refusal. Switching here means the person
+     * chooses by picking a file, which is the choice they were already making.
+     */
+    suggest(format) {
+      const match = Object.entries(schema.architectures)
+        .find(([, definition]) => definition.accepts === format);
+
+      if (!match || archSelect.value === match[0]) return;
+
+      archSelect.value = match[0];
+      renderArchitecture();
+    },
+
     /** The job to submit. Throws if the JSON view holds something unparseable. */
     read() {
       if (!advanced.open) return readForm();

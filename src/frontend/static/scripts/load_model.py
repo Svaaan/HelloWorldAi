@@ -3,6 +3,7 @@
 
     python load_model.py my-model.npz
     python load_model.py my-model.npz --input 1.2 3.4 5.6
+    python load_model.py my-model.npz --prompt "Once upon a"
 
 The .npz you downloaded carries a description of itself, so this script
 rebuilds the network and loads the weights without needing anything from the
@@ -121,6 +122,55 @@ def load_model(path):
     return model, manifest
 
 
+def encode(manifest, text):
+    """Turn text into the token ids this model was trained on."""
+    kind = (manifest.get("tokenizer") or {}).get("kind")
+    if kind != "bytes":
+        raise SystemExit(
+            f"This model's tokeniser is {kind!r}; this script only knows 'bytes'."
+        )
+    return list(text.encode("utf-8"))
+
+
+def decode(manifest, ids):
+    """And back again. 'replace' because a partial character is normal here:
+    working one byte at a time, the model can stop part-way through a
+    multi-byte one."""
+    return bytes(int(i) & 0xFF for i in ids).decode("utf-8", "replace")
+
+
+def generate(model, manifest, prompt, length=200, temperature=0.8, seed=None):
+    """Continue the prompt one token at a time.
+
+    Sampled rather than argmax: always taking the most likely token makes a
+    small model repeat itself within a sentence or two. Temperature flattens
+    the distribution -- lower is more predictable, higher more erratic.
+    """
+    import torch
+
+    if seed is not None:
+        torch.manual_seed(seed)
+
+    seq_len = int(manifest["spec"].get("seq_len", 64))
+    ids = encode(manifest, prompt) or [ord(" ")]
+
+    with torch.no_grad():
+        for _ in range(length):
+            # The position embedding only goes up to seq_len, so the model can
+            # only ever look back that far -- over its own output as well as
+            # the prompt.
+            window = ids[-seq_len:]
+            logits = model(torch.tensor([window], dtype=torch.long))[0, -1]
+
+            if temperature <= 0:
+                ids.append(int(torch.argmax(logits)))
+            else:
+                probabilities = torch.softmax(logits / temperature, dim=-1)
+                ids.append(int(torch.multinomial(probabilities, 1)))
+
+    return decode(manifest, ids)
+
+
 def describe(manifest):
     print(f"  model        {manifest.get('model_name', '(unnamed)')}")
     print(f"  architecture {manifest.get('architecture')}")
@@ -135,12 +185,24 @@ def describe(manifest):
     if manifest.get("class_names"):
         print(f"  classes      {', '.join(manifest['class_names'])}")
 
+    tokenizer = manifest.get("tokenizer")
+    if tokenizer:
+        print(f"  tokeniser    {tokenizer.get('kind')} "
+              f"({tokenizer.get('vocab_size')} ids)")
+
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("model", help="the .npz you downloaded")
     parser.add_argument("--input", nargs="*", type=float,
                         help="one row of features to run through the model")
+    parser.add_argument("--prompt",
+                        help="text for a language model to continue")
+    parser.add_argument("--length", type=int, default=200,
+                        help="how many tokens to generate after --prompt")
+    parser.add_argument("--temperature", type=float, default=0.8,
+                        help="0 is the most likely token every time; "
+                             "higher is more varied")
     args = parser.parse_args()
 
     import torch
@@ -152,12 +214,26 @@ def main():
     total = sum(p.numel() for p in model.parameters())
     print(f"  parameters   {total:,}")
 
-    if args.input is None:
-        print("\nPass --input <numbers> to run a prediction.")
+    architecture = manifest.get("architecture", "mlp")
+    is_classifier = architecture in ("mlp", "feedforward")
+
+    if args.prompt is not None:
+        if is_classifier:
+            print("\n--prompt only makes sense for a language model; "
+                  "this one classifies rows of numbers.")
+            return 1
+        print()
+        print(generate(model, manifest, args.prompt,
+                       length=args.length, temperature=args.temperature))
         return 0
 
-    architecture = manifest.get("architecture", "mlp")
-    if architecture not in ("mlp", "feedforward"):
+    if args.input is None:
+        print("\nPass --input <numbers> to run a prediction."
+              if is_classifier else
+              "\nPass --prompt \"some text\" to continue it.")
+        return 0
+
+    if not is_classifier:
         print("\n--input only makes sense for the mlp architecture.")
         return 1
 

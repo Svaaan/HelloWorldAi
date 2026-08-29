@@ -57,6 +57,7 @@ ARCHITECTURES: Dict[str, Dict[str, Any]] = {
     "mlp": {
         "label": "Feedforward network (MLP)",
         "summary": "Classifies rows of numbers. Use this for CSV data.",
+        "accepts": "csv",
         "fields": [
             {"name": "hidden_dim", "label": "Hidden width", "type": "int",
              "default": 64, "min": 1, "max": 16384,
@@ -70,21 +71,35 @@ ARCHITECTURES: Dict[str, Dict[str, Any]] = {
     },
     "transformer": {
         "label": "Small transformer",
-        "summary": "A causal language model over token ids.",
+        "summary": "Learns to continue text. Use this for a .txt file.",
+        "accepts": "text",
         "fields": [
             {"name": "d_model", "label": "Model width", "type": "int",
              "default": 256, "min": 8, "max": 8192,
-             "hint": "Embedding size. Must divide evenly by the head count."},
+             "hint": "Must divide evenly by the head count."},
             {"name": "n_head", "label": "Attention heads", "type": "int",
              "default": 4, "min": 1, "max": 128},
             {"name": "n_layer", "label": "Layers", "type": "int",
              "default": 2, "min": 1, "max": 96},
-            {"name": "seq_len", "label": "Sequence length", "type": "int",
-             "default": 64, "min": 2, "max": 8192},
-            {"name": "vocab_size", "label": "Vocabulary size", "type": "int",
-             "default": 1024, "min": 2, "max": 1_000_000},
         ],
-        "derived": [],
+        # Sequence length and vocabulary are properties of the uploaded text,
+        # not choices: the position embedding has to be exactly as long as the
+        # sequences and the token embedding has to cover every id in them. The
+        # form used to ask for both, and whatever was typed was contradicted by
+        # the data on the node.
+        "derived": ["seq_len", "vocab_size"],
+        "derived_note": "Sequence length and vocabulary are read from your text.",
+        # A transformer wants a far smaller step than a two-layer classifier:
+        # at 0.01 the attention weights blow up in the first dozen steps and
+        # the loss never comes back. The defaults below were shared by both
+        # models, which was harmless while this one only ever ran on synthetic
+        # data -- and is a job that cannot work now that it trains on real
+        # text. It also needs more steps, because it is learning a language
+        # rather than a decision boundary.
+        "hyperparameter_defaults": {
+            "learning_rate": 0.0005,
+            "steps": 1000,
+        },
     },
 }
 
@@ -110,16 +125,21 @@ def job_schema() -> Dict[str, Any]:
     }
 
 
-def _validate_fields(fields, supplied, where) -> Dict[str, Any]:
+def _validate_fields(fields, supplied, where, overrides=None) -> Dict[str, Any]:
+    """Check each field, falling back to the architecture's default then the
+    shared one. The bounds never move -- only what a blank box means."""
+    overrides = overrides or {}
+
     clean = {}
     for field in fields:
+        fallback = overrides.get(field["name"], field["default"])
         clean[field["name"]] = _number(
             f"{where}.{field['name']}",
-            supplied.get(field["name"], field["default"]),
+            supplied.get(field["name"], fallback),
             minimum=field["min"],
             maximum=field["max"],
             integer=field["type"] == "int",
-            default=field["default"],
+            default=fallback,
         )
     return clean
 
@@ -189,7 +209,10 @@ def validate_job(task_data: Any) -> Tuple[Dict[str, Any], List[str]]:
     if not isinstance(hyper, dict):
         raise JobSpecError("hyperparameters must be a JSON object.")
 
-    clean_hyper = _validate_fields(HYPERPARAMETERS, hyper, "hyperparameters")
+    clean_hyper = _validate_fields(
+        HYPERPARAMETERS, hyper, "hyperparameters",
+        definition.get("hyperparameter_defaults"),
+    )
 
     cleaned = {
         "task_type": task_type,

@@ -64,22 +64,34 @@ export function showNodeModal(node) {
 
   // --- dataset ---------------------------------------------------------
 
-  const datasetLabel = el("label", "field-label", "Training data (CSV, optional)");
+  const datasetLabel = el("label", "field-label", "Your training data");
   datasetLabel.htmlFor = "datasetFile";
   content.appendChild(datasetLabel);
 
-  const hint = el(
-    "p",
-    "field-hint",
-    "Every column is a feature except the last, which is the label. " +
-      "Without a file the node trains on synthetic data, which only proves it works."
-  );
-  content.appendChild(hint);
+  // What each kind of file gives you, rather than a paragraph describing both
+  // at once. The choice of file *is* the choice of model, so the two are shown
+  // together.
+  const kinds = el("ul", "data-kinds");
+  [
+    [".csv", "Rows of numbers", "Every column is a feature except the last, "
+      + "which is the label. You get a classifier."],
+    [".txt", "Any plain text", "Books, notes, transcripts, code. You get a "
+      + "model that continues text."],
+  ].forEach(([extension, title, detail]) => {
+    const item = el("li");
+    item.appendChild(el("code", "data-kind-ext", extension));
+    const body = el("div");
+    body.appendChild(el("strong", null, title));
+    body.appendChild(el("span", null, detail));
+    item.appendChild(body);
+    kinds.appendChild(item);
+  });
+  content.appendChild(kinds);
 
   const fileInput = document.createElement("input");
   fileInput.type = "file";
   fileInput.id = "datasetFile";
-  fileInput.accept = ".csv,text/csv";
+  fileInput.accept = ".csv,.txt,.md,text/csv,text/plain";
   content.appendChild(fileInput);
 
   const datasetStatus = el("div", "field-status");
@@ -132,7 +144,16 @@ export function showNodeModal(node) {
   const sendButton = el("button", null, "Send job");
   sendButton.id = "sendTaskButton";
   sendButton.type = "button";
+  // Nothing to send until there is data to train on. A job used to be
+  // sendable with no file, which ran the model on made-up numbers and proved
+  // only that the plumbing worked -- and a contributor now answers that
+  // question for themselves, on their own machine, from their node page.
+  sendButton.disabled = true;
   content.appendChild(sendButton);
+
+  const sendHint = el("p", "field-hint send-hint",
+    "Choose a file above to send this job.");
+  content.appendChild(sendHint);
 
   const responseMessage = el("div");
   responseMessage.id = "taskResponseMessage";
@@ -144,26 +165,42 @@ export function showNodeModal(node) {
 
   let datasetId = null;
 
+  function setReady(ready) {
+    sendButton.disabled = !ready;
+    sendHint.textContent = ready ? "" : "Choose a file above to send this job.";
+  }
+
   function setStatus(target, message, kind) {
     target.replaceChildren();
     if (!message) return;
     target.appendChild(el("span", kind ? `${kind}-message` : null, message));
   }
 
+  // Which converter the coordinator should run. A .csv is rows of numbers; a
+  // .txt is a stream of characters. They become completely different datasets,
+  // so this is decided by the file rather than left to a setting somebody has
+  // to remember to change.
+  function formatFor(name) {
+    return /\.(txt|md|text)$/i.test(name || "") ? "text" : "csv";
+  }
+
   fileInput.addEventListener("change", async () => {
     datasetId = null;
+    setReady(false);
+
     const file = fileInput.files?.[0];
     if (!file) {
       setStatus(datasetStatus, "");
       return;
     }
 
+    const format = formatFor(file.name);
     setStatus(datasetStatus, `Uploading ${file.name}…`);
 
     try {
-      const res = await fetch("/artifacts?kind=dataset&format=csv", {
+      const res = await fetch(`/artifacts?kind=dataset&format=${format}`, {
         method: "POST",
-        headers: { "Content-Type": "text/csv" },
+        headers: { "Content-Type": "text/plain" },
         body: await file.text(),
       });
 
@@ -176,12 +213,20 @@ export function showNodeModal(node) {
 
       datasetId = data.artifact_id;
 
-      const parts = [`${data.rows?.toLocaleString?.() ?? data.rows} rows`];
-      if (data.features) parts.push(`${data.features} features`);
-      if (data.classes) parts.push(`${data.classes} classes`);
-      if (data.class_names?.length) parts.push(`(${data.class_names.join(", ")})`);
+      const parts = [];
+      if (format === "text") {
+        parts.push(`${data.tokens?.toLocaleString?.() ?? data.tokens} characters`);
+        parts.push(`${data.rows?.toLocaleString?.() ?? data.rows} sequences of ${data.seq_len}`);
+      } else {
+        parts.push(`${data.rows?.toLocaleString?.() ?? data.rows} rows`);
+        if (data.features) parts.push(`${data.features} features`);
+        if (data.classes) parts.push(`${data.classes} classes`);
+        if (data.class_names?.length) parts.push(`(${data.class_names.join(", ")})`);
+      }
 
       setStatus(datasetStatus, `Ready: ${parts.join(", ")}`, "success");
+      if (jobForm?.suggest) jobForm.suggest(format);
+      setReady(true);
     } catch (error) {
       console.error("Dataset upload failed:", error);
       setStatus(datasetStatus, error.message, "error");
@@ -228,9 +273,8 @@ export function showNodeModal(node) {
         throw new Error(detail || "The coordinator refused the job.");
       }
 
-      const note = result.verifiable
-        ? " Results will be checked against data the node never sees."
-        : " No dataset attached, so the result cannot be verified.";
+      // Always true now that a job cannot be sent without data.
+      const note = " Part of your data is held back to check the result.";
 
       // When the coordinator chose the machine, say which one and why --
       // otherwise the job vanishes into the network with no account of where.
@@ -254,7 +298,7 @@ export function showNodeModal(node) {
       console.error("Error sending job:", error);
       setStatus(responseMessage, error.message, "error");
     } finally {
-      sendButton.disabled = false;
+      setReady(Boolean(datasetId));
     }
   });
 }

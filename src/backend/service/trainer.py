@@ -195,9 +195,22 @@ def dataset_sampler(features, labels, spec: Dict[str, Any]):
 
     architecture = str(spec.get("architecture", "mlp")).lower()
     if architecture in ("mlp", "feedforward"):
+        # One label per row: a class index.
         x = x.float()
         y = y.long()
     else:
+        # One label per *position*: the token that follows it. This used to
+        # cast a 1-D label array to long and hand it over, which meant the
+        # model produced seq_len predictions per row against a single target
+        # and cross_entropy refused the batch -- so the transformer could only
+        # ever run on the synthetic data it generated for itself.
+        if x.dim() != 2 or y.shape != x.shape:
+            raise ValueError(
+                f"{architecture} training expects x and y to both be "
+                f"(rows, sequence length) token ids; got x{tuple(x.shape)} "
+                f"and y{tuple(y.shape)}. Upload a .txt file and the targets "
+                f"are built for you."
+            )
         x = x.long()
         y = y.long()
 
@@ -229,6 +242,45 @@ def infer_spec_from_dataset(features, labels, spec: Dict[str, Any]) -> Dict[str,
             )
         classes = int(labels.max()) + 1 if labels.size else 1
         resolved["output_dim"] = max(int(resolved.get("output_dim", classes)), classes)
+
+    else:
+        # A language model's shape is a property of the data, not a choice:
+        # the position embedding has to be exactly as long as the sequences,
+        # and the token embedding has to cover every id that appears. Getting
+        # either wrong is not a bad result, it is an index error part-way
+        # through somebody else's GPU job -- or, on CUDA, a device-side assert
+        # that takes the whole process with it.
+        if features.ndim != 2 or labels.shape != features.shape:
+            raise ValueError(
+                f"{architecture} training expects x and y to both be 2-D "
+                f"(rows, sequence length) token ids; got x{features.shape} "
+                f"and y{labels.shape}."
+            )
+        if features.dtype.kind not in ("i", "u") or labels.dtype.kind not in ("i", "u"):
+            raise ValueError(
+                f"{architecture} training expects whole-number token ids; got "
+                f"x as {features.dtype} and y as {labels.dtype}."
+            )
+
+        seq_len = int(features.shape[1])
+        resolved.setdefault("seq_len", seq_len)
+        if int(resolved["seq_len"]) != seq_len:
+            raise ValueError(
+                f"model seq_len {resolved['seq_len']} does not match the "
+                f"dataset's sequence length of {seq_len}"
+            )
+
+        lowest = min(int(features.min()), int(labels.min())) if features.size else 0
+        if lowest < 0:
+            raise ValueError(f"Token ids cannot be negative; found {lowest}.")
+
+        highest = max(int(features.max()), int(labels.max())) if features.size else 0
+        # A vocabulary larger than what appears in the data is legitimate -- a
+        # tokeniser has ids this sample happens not to use -- so take whichever
+        # is bigger rather than overwriting the submitter's value.
+        resolved["vocab_size"] = max(
+            int(resolved.get("vocab_size", 0) or 0), highest + 1
+        )
 
     return resolved
 
@@ -404,7 +456,13 @@ def train(task_data: Dict[str, Any], log: Callable[[str], None],
     if dataset is not None:
         features, labels = dataset
         sampler, dataset_rows = dataset_sampler(features, labels, spec)
-        log(f"Training on the submitted dataset: {dataset_rows:,} rows")
+        if str(spec.get("architecture", "mlp")).lower() in ("mlp", "feedforward"):
+            log(f"Training on the submitted dataset: {dataset_rows:,} rows")
+        else:
+            log(f"Training on the submitted dataset: {dataset_rows:,} sequences "
+                f"of {int(spec.get('seq_len', 0))} tokens "
+                f"({dataset_rows * int(spec.get('seq_len', 0)):,} tokens), "
+                f"vocabulary {int(spec.get('vocab_size', 0))}")
     else:
         log("No dataset supplied - training on synthetic data (benchmark only).")
 
@@ -508,10 +566,18 @@ def train(task_data: Dict[str, Any], log: Callable[[str], None],
 
     # Packed with the weights so the submitter can rebuild and run the model
     # without knowing anything about this codebase.
+    # What the numbers in the dataset stood for -- class names for a
+    # classifier, the tokeniser for a language model. Without it the download
+    # answers "2" and its owner has to remember what 2 was, or hands back token
+    # ids with no way to turn them into text.
+    dataset_info = task_data.get("dataset_info") or {}
+
     manifest = build_manifest(
         spec,
         state_dict,
         model_name=task_data.get("model_name"),
+        class_names=dataset_info.get("class_names"),
+        tokenizer=dataset_info.get("tokenizer"),
         metrics=metrics,
     )
 

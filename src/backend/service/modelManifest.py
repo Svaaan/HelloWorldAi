@@ -47,6 +47,7 @@ def build_manifest(
     *,
     model_name: Optional[str] = None,
     class_names: Optional[List[str]] = None,
+    tokenizer: Optional[str] = None,
     metrics: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Describe a trained model well enough to rebuild and run it."""
@@ -100,6 +101,21 @@ def build_manifest(
     # a classifier returns "2" and the owner has to remember what 2 was.
     if class_names:
         manifest["class_names"] = list(class_names)
+
+    # And what the token ids meant. A language model that cannot say how to
+    # turn text into ids -- and its answer back into text -- is a lookup table
+    # for a code nobody wrote down.
+    if tokenizer:
+        manifest["tokenizer"] = {
+            "kind": str(tokenizer),
+            "vocab_size": int(spec.get("vocab_size", 256)),
+        }
+        if str(tokenizer) == "bytes":
+            manifest["tokenizer"]["encoding"] = "utf-8"
+            manifest["tokenizer"]["note"] = (
+                "One id per byte: encode with text.encode('utf-8'), decode with "
+                "bytes(ids).decode('utf-8', 'replace')."
+            )
 
     if metrics:
         manifest["training"] = {

@@ -77,6 +77,65 @@
   font-size: 0.8125rem;
 }
 
+/* What each kind of file gives you. The choice of file is the choice of
+   model, so the two are shown as one decision rather than a paragraph
+   describing both and a dropdown further down repeating it. */
+
+.data-kinds {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0 0 0.75rem;
+  padding: 0;
+  list-style: none;
+}
+
+.data-kinds li {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: start;
+  gap: 0.7rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--r-xs);
+  background-color: var(--surface-2);
+}
+
+.data-kind-ext {
+  padding: 0.15rem 0.4rem;
+  border-radius: var(--r-xs);
+  background-color: var(--surface-3);
+  color: var(--accent);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.data-kinds li div {
+  display: grid;
+  gap: 0.15rem;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+}
+
+.data-kinds strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.data-kinds span {
+  color: var(--text-muted);
+}
+
+/* Says why the button below it is not available yet, so a disabled control
+   is never a dead end. */
+.send-hint:empty {
+  display: none !important;
+}
+
+.send-hint {
+  margin-top: 0.4rem !important;
+  text-align: center;
+}
+
 #taskDataInput {
   min-height: 190px;
 }

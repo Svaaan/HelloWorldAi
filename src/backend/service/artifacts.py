@@ -335,3 +335,90 @@ def parse_csv_dataset(text: str) -> Tuple[np.ndarray, np.ndarray, Optional[List[
         )
 
     return x, labels, class_names
+
+
+# --- text intake ---------------------------------------------------------
+
+# Bytes, not words. A word or sub-word tokeniser needs a vocabulary file built
+# from a corpus, and that file then has to travel with the model for anything
+# it produces to be readable again. Bytes need nothing: every file in every
+# language already is a sequence of them, the vocabulary is fixed at 256, and
+# decoding is `bytes(ids)`. The model has to learn spelling as well as
+# language, which costs it capacity -- but a small model that works on any
+# .txt beats a larger one that only works next to the vocabulary it was
+# built with.
+TEXT_VOCAB_SIZE = 256
+
+# Text expands: every byte becomes an int32 in both x and y, so the packed
+# archive is far larger than the file uploaded. Compression claws most of it
+# back for natural language, but the limit is on the input where the person
+# uploading can see it.
+MAX_TEXT_BYTES = 16 * 1024 * 1024
+
+MIN_SEQ_LEN, MAX_SEQ_LEN = 8, 2048
+
+# Fewer than this and there is nothing to hold back for verification, let
+# alone learn from.
+MIN_TEXT_WINDOWS = 16
+
+
+def parse_text_dataset(text: Any, seq_len: int = 64) -> Tuple[np.ndarray, np.ndarray, Dict[str, Any]]:
+    """Turn a text file into (x, y) windows for a causal language model.
+
+    A language model is trained to predict the next token, so the labels are
+    the input shifted by one. Cutting the stream into fixed windows here rather
+    than on the node keeps the dataset the same shape as every other one: rows
+    that can be shuffled and split, so the holdout that verifies the returned
+    model works unchanged.
+
+    Windows do not overlap. Overlapping them multiplies the data by the stride
+    for no new information, and -- worse -- puts the same text in both the
+    training half and the holdout, which would quietly turn verification into a
+    memory test.
+
+    This is byte counting, not parsing: nothing here evaluates or imports
+    anything, so an uploaded file cannot execute code.
+    """
+    seq_len = int(seq_len)
+    if seq_len < MIN_SEQ_LEN or seq_len > MAX_SEQ_LEN:
+        raise ArtifactError(
+            f"Sequence length must be between {MIN_SEQ_LEN} and {MAX_SEQ_LEN}; got {seq_len}."
+        )
+
+    raw = text.encode("utf-8") if isinstance(text, str) else bytes(text)
+
+    # A UTF-8 BOM is not part of the text and would be learned as if it were.
+    if raw[:3] == b'\xef\xbb\xbf':
+        raw = raw[3:]
+
+    if len(raw) > MAX_TEXT_BYTES:
+        raise ArtifactError(
+            f"Text is {len(raw):,} bytes, over the {MAX_TEXT_BYTES:,} limit."
+        )
+
+    data = np.frombuffer(raw, dtype=np.uint8)
+
+    # Each row needs one byte of lookahead for its last target.
+    rows = (len(data) - 1) // seq_len if len(data) else 0
+    if rows < MIN_TEXT_WINDOWS:
+        needed = (MIN_TEXT_WINDOWS * seq_len) + 1
+        raise ArtifactError(
+            f"Text is too short: {len(raw):,} bytes makes {rows} training "
+            f"sequence(s) of {seq_len}. At least {needed:,} bytes are needed."
+        )
+
+    span = rows * seq_len
+    # int32 rather than int64: the ids only go up to 255, and this halves what
+    # crosses the network. The trainer casts to long when it builds the batch.
+    x = data[:span].reshape(rows, seq_len).astype(np.int32)
+    y = data[1:span + 1].reshape(rows, seq_len).astype(np.int32)
+
+    info = {
+        "tokenizer": "bytes",
+        "vocab_size": TEXT_VOCAB_SIZE,
+        "seq_len": seq_len,
+        "rows": int(rows),
+        "tokens": int(span),
+        "source_bytes": len(raw),
+    }
+    return x, y, info

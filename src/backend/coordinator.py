@@ -12,7 +12,9 @@ from backend.database.nodedb import db
 from backend.service.authNodeService import verify_signature 
 from backend.service.tokenService import issue_node_token, read_node_token, NODE_TOKEN_TTL
 from backend.service.submitterService import read_submitter_key
-from backend.service.jobSpec import JobSpecError, job_schema, validate_job
+from backend.service.jobSpec import (
+    ARCHITECTURES, JobSpecError, job_schema, validate_job,
+)
 from backend.service.nodePicker import (
     BUSY_STATUSES, NoNodeAvailable, pick_node, summarise_choice,
 )
@@ -729,6 +731,11 @@ async def _queue_task(db, node_id, task_data, submitter, client_host,
     # validate_job returns only the fields it knows about.
     dataset_id = task_data.pop("dataset_id", None)
 
+    # Removed for the same reason, and one more: this is the coordinator's
+    # description of the uploaded data. Left in, a submitter could send their
+    # own and have the node pack it into the manifest as fact.
+    task_data.pop("dataset_info", None)
+
     # Check the job before it is queued. Without this a typo was accepted,
     # waited out the approval window, was claimed by a contributor, span up
     # their GPU and only then failed -- and a value that would not parse was
@@ -738,15 +745,70 @@ async def _queue_task(db, node_id, task_data, submitter, client_host,
     except JobSpecError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+    # A job with no data trained on random numbers. It burned a contributor's
+    # GPU and their electricity, could not be verified -- there was nothing to
+    # hold back -- and produced a model of nothing. It existed as a way to
+    # prove the plumbing worked, which a contributor now does for themselves
+    # from their own node page, without involving anyone else's machine.
+    if not dataset_id:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "A job needs data to train on. Attach a CSV or a text file. "
+                "To check that a machine works, run a test from its own node "
+                "page instead."
+            ),
+        )
+
     holdout_id = None
-    if dataset_id:
-        try:
-            dataset_id, holdout_id = await prepare_dataset_split(
-                db, dataset_id, seed=int(task_data.get("holdout_seed", 0) or 0)
+    try:
+        # Read before the split: prepare_dataset_split writes new artifacts
+        # and returns the training half's id, so asking afterwards would
+        # describe the copy rather than what was uploaded.
+        dataset_info = await _artifact_info(db, dataset_id)
+        dataset_id, holdout_id = await prepare_dataset_split(
+            db, dataset_id, seed=int(task_data.get("holdout_seed", 0) or 0)
+        )
+    except Exception as e:
+        logger.error(f"Could not split dataset {dataset_id}: {e}")
+        raise HTTPException(status_code=400, detail=f"Dataset could not be prepared: {e}")
+
+    # Travels inside the task so the node can put it in the manifest it
+    # packs with the weights, where the submitter will actually find it.
+    if dataset_info:
+        task_data["dataset_info"] = dataset_info
+
+        # Shape that came from the data rather than the form. Written into
+        # the spec here so the stored task says what will actually be
+        # built, and so the node and the verifier read the same numbers.
+        #
+        # Vocabulary matters more than it looks: inferring it from the
+        # sample gives the size of the alphabet this text happens to use,
+        # so a model trained on lowercase English would fail on a prompt
+        # containing a capital letter. The tokeniser's own size is the
+        # right answer.
+        spec = task_data.setdefault("model_spec", {})
+        for key in ("seq_len", "vocab_size"):
+            if key in dataset_info:
+                spec[key] = dataset_info[key]
+
+        # A spreadsheet is rows of features with one label each; text is a
+        # stream of tokens each predicting the next. Neither model can read
+        # the other's shape, and the failure is an unreadable tensor error
+        # part-way through somebody else's job.
+        architecture = str(spec.get("architecture", "mlp")).lower()
+        accepts = (ARCHITECTURES.get(architecture) or {}).get("accepts")
+        uploaded = dataset_info.get("format")
+        if accepts and uploaded and accepts != uploaded:
+            wanted = {"csv": "a CSV", "text": "a text file"}
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"{ARCHITECTURES[architecture]['label']} trains on "
+                    f"{wanted.get(accepts, accepts)}, but you uploaded "
+                    f"{wanted.get(uploaded, uploaded)}."
+                ),
             )
-        except Exception as e:
-            logger.error(f"Could not split dataset {dataset_id}: {e}")
-            raise HTTPException(status_code=400, detail=f"Dataset could not be prepared: {e}")
 
     task = {
         "_id": f"task_{uuid.uuid4()}",
@@ -1401,10 +1463,14 @@ async def upload_artifact(request: Request, db: Database = Depends(get_db)):
         raise HTTPException(status_code=400, detail=f"Unknown artifact kind: {kind}")
 
     summary = {}
+    info = {}
 
-    # A browser cannot easily produce .npz, so CSV is converted here. Parsing is
-    # plain text handling -- an uploaded file still cannot execute anything.
-    if request.query_params.get("format", "").lower() == "csv":
+    # A browser cannot easily produce .npz, so the formats people actually have
+    # are converted here. Both are plain text handling -- an uploaded file
+    # still cannot execute anything.
+    fmt = request.query_params.get("format", "").lower()
+
+    if fmt == "csv":
         from backend.service.artifacts import ArtifactError, pack_dataset, parse_csv_dataset
         try:
             features, labels, class_names = parse_csv_dataset(payload)
@@ -1418,15 +1484,56 @@ async def upload_artifact(request: Request, db: Database = Depends(get_db)):
             "classes": len(set(labels.tolist())),
             "class_names": class_names,
         }
+        info["format"] = "csv"
+        if class_names:
+            info["class_names"] = class_names
         logger.info(
             f"Converted CSV upload: {summary['rows']} rows x {summary['features']} features, "
             f"{summary['classes']} classes"
         )
 
+    elif fmt == "text":
+        # Plain text, cut into the next-token windows a language model trains
+        # on. Doing it here rather than on the node keeps the dataset the same
+        # shape as every other one, so the holdout split that verifies the
+        # returned model needs no special case.
+        from backend.service.artifacts import ArtifactError, pack_dataset, parse_text_dataset
+        try:
+            seq_len = int(request.query_params.get("seq_len", 64))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="seq_len must be a whole number.")
+
+        try:
+            features, labels, info = parse_text_dataset(payload, seq_len=seq_len)
+            payload = pack_dataset(features, labels)
+        except ArtifactError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+        info["format"] = "text"
+
+        summary = {
+            "rows": info["rows"],
+            "seq_len": info["seq_len"],
+            "tokens": info["tokens"],
+            "vocab_size": info["vocab_size"],
+            "tokenizer": info["tokenizer"],
+        }
+        logger.info(
+            f"Converted text upload: {info['source_bytes']:,} bytes into "
+            f"{info['rows']:,} sequences of {info['seq_len']} tokens"
+        )
+
+    elif fmt:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown upload format {fmt!r}. Supported: csv, text, "
+                   f"or omit it to upload a packed .npz.",
+        )
+
     # Through _write_artifact rather than its own upload: this path had its own
     # copy of the write, so encryption reached the split halves but not the
     # original upload the submitter sent.
-    artifact_id = await _write_artifact(db, payload, kind)
+    artifact_id = await _write_artifact(db, payload, kind, info)
 
     logger.info(f"Stored {kind} artifact {artifact_id} ({len(payload)} bytes)")
     return {
@@ -1522,23 +1629,40 @@ async def _read_artifact(db, artifact_id: str) -> bytes:
     return artifactCrypto.decrypt(await stream.read())
 
 
-async def _write_artifact(db, payload: bytes, kind: str) -> str:
+async def _write_artifact(db, payload: bytes, kind: str,
+                          info: Optional[dict] = None) -> str:
     bucket = AsyncIOMotorGridFSBucket(db.db, bucket_name="artifacts")
 
     # Encrypted before it reaches storage, so a database dump does not hand
     # over every submitter's training data.
     stored = artifactCrypto.encrypt(payload)
 
-    artifact_id = await bucket.upload_from_stream(
-        kind, stored,
-        metadata={
-            "kind": kind,
-            "uploaded_at": datetime.utcnow(),
-            "bytes": len(payload),
-            "encrypted": artifactCrypto.is_enabled(),
-        },
-    )
+    metadata = {
+        "kind": kind,
+        "uploaded_at": datetime.utcnow(),
+        "bytes": len(payload),
+        "encrypted": artifactCrypto.is_enabled(),
+    }
+    # What the numbers in this dataset stood for: the class names behind the
+    # label column, or the tokeniser behind the ids. Small, non-secret, and
+    # useless without the artifact itself -- but without it the trained model
+    # comes back as bare indices.
+    if info:
+        metadata["info"] = dict(info)
+
+    artifact_id = await bucket.upload_from_stream(kind, stored, metadata=metadata)
     return str(artifact_id)
+
+
+async def _artifact_info(db, artifact_id: str) -> dict:
+    """The stored description of a dataset, or {} if it has none."""
+    try:
+        stored = await db.db["artifacts.files"].find_one(
+            {"_id": ObjectId(artifact_id)}, {"metadata.info": 1}
+        )
+    except Exception:
+        return {}
+    return ((stored or {}).get("metadata") or {}).get("info") or {}
 
 
 async def prepare_dataset_split(db, dataset_id: str, seed: int):
@@ -1554,12 +1678,20 @@ async def prepare_dataset_split(db, dataset_id: str, seed: int):
     raw = await _read_artifact(db, dataset_id)
     x, y = unpack_dataset(raw)          # safe loader: refuses anything executable
 
+    # Carried onto both halves. The upload this replaces is deleted once the
+    # job finishes, so a description left only on it would not survive.
+    info = await _artifact_info(db, dataset_id)
+
     train_x, train_y, holdout_x, holdout_y = split_holdout(
         x, y, holdout_fraction=HOLDOUT_FRACTION, seed=seed
     )
 
-    train_id = await _write_artifact(db, pack_dataset(train_x, train_y), "dataset")
-    holdout_id = await _write_artifact(db, pack_dataset(holdout_x, holdout_y), "holdout")
+    train_id = await _write_artifact(
+        db, pack_dataset(train_x, train_y), "dataset", info
+    )
+    holdout_id = await _write_artifact(
+        db, pack_dataset(holdout_x, holdout_y), "holdout", info
+    )
 
     logger.info(
         f"Split dataset {dataset_id}: {train_x.shape[0]} train rows to the node, "
