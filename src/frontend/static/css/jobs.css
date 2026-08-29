@@ -1,0 +1,301 @@
+/* The job list.
+
+   Shared by two pages that show the same rows for different reasons: /node is
+   the contributor's view of work their GPU ran, /distribution is the data
+   owner's view of work they sent out. These rules lived in node.css, so the
+   second page rendered them unstyled.
+*/
+
+/* --- jobs ------------------------------------------------------- */
+
+.panel-count {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Rows in a shared frame, separated by hairlines, rather than a stack of
+   cards stretched across the full panel width. */
+.job-list {
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  background-color: var(--surface-2);
+}
+
+.job-row + .job-row { border-top: 1px solid var(--border); }
+
+.job-summary {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0.8rem 1rem;
+  cursor: pointer;
+  list-style: none;
+  transition: background-color var(--t-fast) var(--ease);
+}
+
+.job-summary::-webkit-details-marker { display: none; }
+
+.job-summary:hover { background-color: var(--surface-3); }
+
+.job-row[open] .job-summary {
+  background-color: var(--surface-3);
+  border-bottom: 1px solid var(--border);
+}
+
+/* Chevron, rotated when the row is open. */
+.job-summary::after {
+  content: "›";
+  margin-left: 0.15rem;
+  font-size: 1.1rem;
+  line-height: 1;
+  color: var(--text-faint);
+  transition: transform var(--t) var(--ease);
+}
+
+.job-row[open] .job-summary::after { transform: rotate(90deg); }
+
+.job-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  flex: 1;                       /* takes the slack, so nothing floats apart */
+}
+
+.job-name {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.job-headline {
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.job-time {
+  font-size: 0.8125rem;
+  color: var(--text-faint);
+  white-space: nowrap;
+  min-width: 62px;
+  text-align: right;
+}
+
+.job-status {
+  flex-shrink: 0;
+  min-width: 84px;
+  text-align: center;
+  padding: 0.2rem 0.6rem;
+  border-radius: var(--r-pill);
+  font-size: 0.72rem;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.job-status-pending   { color: var(--text-muted); background-color: var(--surface-3); }
+.job-status-running   { color: var(--accent);     background-color: var(--accent-wash); }
+.job-status-completed { color: var(--success);    background-color: var(--success-wash); }
+.job-status-failed,
+.job-status-rejected  { color: var(--danger);     background-color: var(--danger-wash); }
+
+.job-badge {
+  flex-shrink: 0;
+  font-size: 0.65rem;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--accent);
+  background-color: var(--accent-wash);
+  border-radius: var(--r-pill);
+  padding: 0.12rem 0.45rem;
+}
+
+.job-verdict {
+  flex-shrink: 0;
+  font-size: 0.72rem;
+  font-weight: 650;
+  padding: 0.18rem 0.6rem;
+  border-radius: var(--r-pill);
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.job-verdict-accepted   { color: var(--success); background-color: var(--success-wash); border-color: rgba(52,211,153,.22); }
+.job-verdict-suspicious { color: var(--warning); background-color: var(--warning-wash); border-color: rgba(251,191,36,.22); }
+.job-verdict-rejected   { color: var(--danger);  background-color: var(--danger-wash);  border-color: rgba(248,113,113,.22); }
+
+/* --- expanded detail --- */
+
+.job-body {
+  display: grid;
+  gap: 0.85rem;
+  padding: 1rem 1.1rem 1.15rem;
+  background-color: var(--bg-elevated);
+}
+
+.job-id {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--text-faint);
+  overflow-wrap: anywhere;
+}
+
+.job-verdict-detail {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--warning);
+}
+
+.job-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 0.75rem 1rem;
+}
+
+.job-metric {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.job-metric-label {
+  color: var(--text-faint);
+  font-size: 0.65rem;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+}
+
+.job-metric-value {
+  color: var(--text);
+  font-size: 0.9rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.job-result {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  line-height: 1.55;
+}
+
+.job-logs summary {
+  cursor: pointer;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  transition: color var(--t-fast) var(--ease);
+}
+
+.job-logs summary:hover { color: var(--text); }
+
+.job-logs pre {
+  margin-top: 0.5rem;
+  max-height: 240px;
+  overflow: auto;
+  font-size: 0.72rem;
+  line-height: 1.7;
+  color: var(--text-muted);
+  white-space: pre-wrap;
+}
+
+/* Compact empty state instead of a large dashed rectangle. */
+.job-empty {
+  display: grid;
+  gap: 0.2rem;
+  justify-items: center;
+  padding: 2rem 1rem;
+  text-align: center;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+.job-empty strong {
+  color: var(--text);
+  font-size: 0.9rem;
+  font-weight: 620;
+}
+
+/* Explains why a finished job has, or has not, been verified. */
+.job-note {
+  margin: 0.75rem 0 0;
+  font-size: 0.8125rem;
+  color: var(--text-faint);
+  line-height: 1.5;
+}
+
+.job-body .btn {
+  margin-top: 0.9rem;
+}
+
+/* --- what to do with a downloaded model --- */
+
+.job-usage {
+  margin-top: 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background-color: var(--surface-2);
+  overflow: hidden;
+}
+
+.job-usage > summary {
+  padding: 0.6rem 0.85rem;
+  cursor: pointer;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  list-style: none;
+  transition: color var(--t-fast) var(--ease);
+}
+
+.job-usage > summary::-webkit-details-marker { display: none; }
+
+.job-usage > summary:hover { color: var(--text); }
+
+.job-usage-body {
+  padding: 0 0.85rem 0.85rem;
+  display: grid;
+  gap: 0.6rem;
+}
+
+.job-usage-body p {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+
+.job-usage-link {
+  justify-self: start;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.job-usage-code {
+  margin: 0;
+  padding: 0.7rem 0.8rem;
+  border-radius: var(--r-sm);
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  line-height: 1.6;
+  color: var(--text);
+  overflow-x: auto;
+  white-space: pre;
+}
+
+.job-usage-hint {
+  margin: 0 !important;
+  font-size: 0.75rem !important;
+  color: var(--text-faint) !important;
+}
