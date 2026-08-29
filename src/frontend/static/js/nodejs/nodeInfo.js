@@ -275,7 +275,12 @@ export function initNodeInfoManager() {
     }
 
     function showTemporaryUnavailable() {
-        showNotice("Node unavailable", "Retrying…", true);
+        // The offer to reconnect matters when the saved node is gone for good
+        // (deleted, or a database that has since been reset): the header hides
+        // its Connect link once a node id is stored, so without this there is
+        // no obvious way out of a node that will never come back.
+        showNotice("Node unavailable", "Retrying…", true,
+                   { label: "Connect a different node", href: "/connect" });
 
         const toggle = document.getElementById("availabilityToggle");
         if (toggle) toggle.disabled = true;
