@@ -6,6 +6,10 @@
 
 const COUNT_INTERVAL_MS = 60000;
 
+// Set by the connect flow (see connect/nodeSession.js) once a node has proved
+// ownership. Its presence is what "this browser has a node" means everywhere.
+const NODE_ID_KEY = "currentNodeId";
+
 let countTimer = null;
 
 export async function loadHeader() {
@@ -26,21 +30,65 @@ export async function loadHeader() {
     return;
   }
 
-  markCurrentPage();
+  refreshNav();
   startCountPolling();
+
+  // Another tab connecting or disconnecting a node changes what this nav
+  // should show, and so does coming back to a tab left open for a while.
+  window.addEventListener("storage", (event) => {
+    if (!event.key || event.key === NODE_ID_KEY) refreshNav();
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) refreshNav();
+  });
+}
+
+function refreshNav() {
+  markCurrentPage();
+  hideConnectWhenConnected();
 }
 
 // Highlight the link for the page being viewed. Compared on pathname so query
 // strings and cache-busting params do not defeat the match.
 function markCurrentPage() {
-  const here = window.location.pathname.replace(/\/+$/, "") || "/connect";
-
   document.querySelectorAll(".header-nav a").forEach((link) => {
-    const target = new URL(link.href, window.location.origin).pathname
-      .replace(/\/+$/, "");
-    if (target === here) link.setAttribute("aria-current", "page");
+    if (linkPath(link) === currentPath()) link.setAttribute("aria-current", "page");
     else link.removeAttribute("aria-current");
   });
+}
+
+// Once this browser has a node, "Connect" is an entry point you have already
+// been through, so it just takes up room in the nav.
+//
+// The one exception is the /connect page itself: hiding the link for the page
+// you are looking at leaves the header with nothing marked, which reads as a
+// bug. Someone on /connect is also most likely there to add or swap a node.
+function hideConnectWhenConnected() {
+  const connected = hasNode();
+
+  document.querySelectorAll(".header-nav a").forEach((link) => {
+    if (linkPath(link) !== "/connect") return;
+    link.hidden = connected && currentPath() !== "/connect";
+  });
+}
+
+function hasNode() {
+  try {
+    return Boolean(localStorage.getItem(NODE_ID_KEY));
+  } catch (error) {
+    // Storage can be unavailable outright in some privacy modes. Showing the
+    // link is the safe default -- it is never harmful, only redundant.
+    console.warn("Could not read the node session:", error);
+    return false;
+  }
+}
+
+function currentPath() {
+  return window.location.pathname.replace(/\/+$/, "") || "/connect";
+}
+
+function linkPath(link) {
+  return new URL(link.href, window.location.origin).pathname.replace(/\/+$/, "");
 }
 
 function fallbackHeader() {
