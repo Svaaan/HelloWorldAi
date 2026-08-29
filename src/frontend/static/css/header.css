@@ -86,6 +86,12 @@
     background-color var(--t-fast) var(--ease);
 }
 
+/* Hidden by header.js when this browser already has a node. Stated
+   explicitly so a display rule on the flex item cannot override it. */
+.header-nav a[hidden] {
+  display: none;
+}
+
 .header-nav a:hover {
   color: var(--text);
   background-color: var(--surface-2);
