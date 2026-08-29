@@ -15,7 +15,8 @@
 
 /* The live panel and job history both run the full width underneath. */
 .task-panel,
-.live-panel {
+.live-panel,
+.selftest-panel {
   grid-column: 1 / -1;
 }
 
@@ -815,4 +816,81 @@ input:disabled + .slider {
     align-items: flex-start;
     gap: 0.4rem;
   }
+}
+
+/* --- self test ---------------------------------------------------- */
+
+.selftest-intro {
+  margin: 0 0 1rem;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: var(--text-muted);
+  max-width: 70ch;
+}
+
+.selftest-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.85rem;
+}
+
+.selftest-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.9rem 1rem;
+  background-color: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+
+.selftest-stat-label {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.selftest-stat-value {
+  font-size: 1.3rem;
+  font-weight: 650;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+/* The number worth scheduling on. */
+.selftest-stat:first-child .selftest-stat-value {
+  color: var(--accent);
+}
+
+.selftest-stat-hint {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.selftest-note {
+  margin: 0.85rem 0 0;
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+
+.selftest-note.is-ok     { color: var(--success); }
+.selftest-note.is-warn   { color: var(--warning); }
+.selftest-note.is-error  { color: var(--danger); }
+
+.selftest-note.is-running {
+  color: var(--accent);
+  animation: selftest-pulse 1.4s var(--ease) infinite;
+}
+
+@keyframes selftest-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.55; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .selftest-note.is-running { animation: none; }
 }

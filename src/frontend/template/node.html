@@ -93,6 +93,21 @@
             </div>
         </section>
 
+        <!-- Full width: prove the machine works before a stranger relies on it. -->
+        <section class="panel selftest-panel">
+            <div class="panel-head">
+                <h2>Test this machine</h2>
+                <button id="runSelfTest" type="button" class="btn-ghost">Run a test job</button>
+            </div>
+            <p class="selftest-intro">
+                Trains a small model here, start to finish, through the same code a
+                real job uses. It proves the GPU works and measures what it
+                sustains under a real workload &mdash; a more honest figure than
+                the burst benchmark.
+            </p>
+            <div id="selfTestResult"></div>
+        </section>
+
         <!-- Full width: what the node is doing at this moment. -->
         <section class="panel live-panel">
             <div class="panel-head">
@@ -117,9 +132,11 @@
         import { startJobPolling } from "/static/js/nodejs/jobList.js";
         import { initNodeInfoManager } from "/static/js/nodejs/nodeInfo.js";
         import { startLiveWorkPolling } from "/static/js/nodejs/liveWork.js";
+        import { initSelfTest } from "/static/js/nodejs/selfTest.js";
 
         loadHeader();
         startJobPolling();
+        initSelfTest();
         startLiveWorkPolling();
         window.nodeInfoManager = initNodeInfoManager();
     </script>

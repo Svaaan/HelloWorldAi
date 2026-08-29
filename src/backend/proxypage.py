@@ -221,6 +221,33 @@ async def proxy_current_task():
         return {"error": f"Failed to reach node: {e}"}
 
 
+@router.post("/self-test")
+async def proxy_run_self_test(request: Request):
+    """Ask the node to train something small and report what it managed."""
+    try:
+        async with httpx.AsyncClient() as client:
+            # Generous: this trains a real model before it answers.
+            res = await client.post(f"{NODE_URL}/self-test",
+                                    headers=auth_headers(request), timeout=600)
+            if res.status_code >= 400:
+                raise HTTPException(status_code=res.status_code, detail=safe_json(res))
+            return safe_json(res)
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=502, detail=f"Failed to reach node: {e}")
+
+
+@router.get("/self-test")
+async def proxy_get_self_test(request: Request):
+    try:
+        async with httpx.AsyncClient() as client:
+            res = await client.get(f"{NODE_URL}/self-test",
+                                   headers=auth_headers(request), timeout=20)
+            res.raise_for_status()
+            return safe_json(res)
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=502, detail=f"Failed to reach node: {e}")
+
+
 @router.get("/usage")
 async def proxy_usage():
     try:

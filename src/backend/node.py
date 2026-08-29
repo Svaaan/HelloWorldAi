@@ -432,6 +432,112 @@ async def start_heartbeat_task():
     logger.info(f"💓 Heartbeat loop started (every {HEARTBEAT_INTERVAL_SECONDS}s).")
 
 
+# --- self test -----------------------------------------------------------
+#
+# A contributor could register a node and have no idea whether it actually
+# works until a stranger's job either ran or did not. This trains a small model
+# locally, start to finish, through the same code a real job goes through.
+#
+# It also produces a better throughput figure than the synthetic benchmark. The
+# benchmark times a burst of matrix multiplications, which flatters the card:
+# on this machine it reports around 18 TFLOPS while a real transformer job
+# sustains closer to 6. What a submitter cares about is how quickly their job
+# finishes, so the sustained figure is the honest one to schedule on.
+#
+# Deliberately compute-bound. A tiny MLP would finish instantly and report a
+# throughput near zero, which would say nothing about the card.
+# Sized to saturate the card rather than to finish quickly. An earlier version
+# ran 60 steps of a small model in 1.6 seconds and reported 1.25 TFLOPS against
+# a 41 TFLOPS benchmark -- almost all of that gap was CUDA warm-up and model
+# setup, not the card. This is the same shape of workload a real training job
+# has, run for long enough that the start-up cost stops dominating.
+SELF_TEST_TASK = {
+    "task_type": "llm_training",
+    "model_name": "self-test",
+    "model_spec": {
+        "architecture": "transformer",
+        "vocab_size": 4096,
+        "d_model": 384,
+        "n_head": 6,
+        "n_layer": 4,
+        "seq_len": 256,
+    },
+    "hyperparameters": {"steps": 200, "batch_size": 24, "learning_rate": 0.0003},
+}
+
+self_test: Dict[str, Any] = {}
+
+
+@app.get("/self-test")
+async def get_self_test():
+    """The last self test result, if one has been run."""
+    return {"result": self_test or None, "running": bool(self_test.get("running"))}
+
+
+@app.post("/self-test")
+async def run_self_test():
+    """Train a small model here and now, and report what the card managed."""
+    if current_task.get("status") == "running":
+        raise HTTPException(
+            status_code=409,
+            detail="This node is running a job. Try again when it has finished.",
+        )
+    if self_test.get("running"):
+        raise HTTPException(status_code=409, detail="A self test is already running.")
+
+    logs: List[str] = []
+    self_test.clear()
+    self_test.update({"running": True, "started_at": datetime.utcnow().isoformat(),
+                      "logs": logs})
+
+    def log(message):
+        logs.append(str(message))
+
+    try:
+        outcome = await asyncio.to_thread(
+            execute_task, dict(SELF_TEST_TASK), log, None, None
+        )
+    except Exception as e:
+        logger.error(f"Self test raised: {e}")
+        self_test.update({"running": False, "status": "failed", "result": str(e)})
+        return {"status": "failed", "result": str(e), "logs": logs}
+
+    metrics = outcome.get("metrics") or {}
+
+    # The two figures answer different questions, so both are reported rather
+    # than one being quietly replaced by the other.
+    result = {
+        "running": False,
+        "status": outcome.get("status"),
+        "result": outcome.get("result"),
+        "finished_at": datetime.utcnow().isoformat(),
+        "sustained_tflops": metrics.get("achieved_tflops"),
+        "peak_tflops": metrics.get("pooled_tflops"),
+        "steps": metrics.get("steps"),
+        "seconds": metrics.get("seconds"),
+        "initial_loss": metrics.get("initial_loss"),
+        "final_loss": metrics.get("final_loss"),
+        "devices": metrics.get("devices"),
+        "logs": logs,
+    }
+
+    # Did it actually learn? A card that runs without reducing the loss is
+    # producing numbers, not training.
+    first, last = result["initial_loss"], result["final_loss"]
+    result["learned"] = bool(
+        first is not None and last is not None and last < first
+    )
+
+    self_test.clear()
+    self_test.update(result)
+
+    logger.info(
+        f"Self test finished: {result['status']}, "
+        f"{result['sustained_tflops']} TFLOPS sustained, learned={result['learned']}"
+    )
+    return result
+
+
 @app.get("/usage")
 async def get_usage_info():
     try:
