@@ -166,31 +166,13 @@ Add `-v` to also wipe the database and start clean next time.
 Once a node shows as **Available** on the dashboard:
 
 1. Go to **http://localhost:3000/distribution**
-2. Click your node in the list
-3. Paste a job description into the box, for example:
+2. Click a node, or **Send to any node** to let the coordinator pick a free one
+3. Attach your training data (see below) and fill in the form
+4. Click **Send job**
 
-```json
-{
-  "task_type": "llm_training",
-  "model_name": "my-first-model",
-  "model_spec": { "architecture": "mlp", "hidden_dim": 64, "depth": 2 },
-  "hyperparameters": { "steps": 50, "batch_size": 64, "learning_rate": 0.01 }
-}
-```
-
-What each part means:
-
-| Field | Meaning |
-|---|---|
-| `task_type` | The only kind currently supported is `llm_training` |
-| `model_spec.architecture` | `mlp` for ordinary tables of numbers, `transformer` for text |
-| `hyperparameters.steps` | How many rounds of training |
-| `hyperparameters.batch_size` | How many examples per round — this is what gets split across the GPUs |
-
-4. Click **Send Task Request**
-
-The job goes into a queue. The node picks it up within about 10 seconds, trains,
-and sends the result back. Watch it happen:
+The job goes into a queue. A node picks it up within about 10 seconds, trains,
+and sends the result back. It appears in **your workspace**, where you can
+download the trained model. Watch it happen:
 
 ```bash
 docker compose -f docker/docker-compose.test.yml logs -f node
@@ -199,6 +181,62 @@ docker compose -f docker/docker-compose.test.yml logs -f node
 Without a dataset attached the node trains on made-up numbers, which only proves
 the plumbing works. Results are marked `synthetic_data: true` so you can tell
 real work from a dry run.
+
+### What you can train on
+
+Two kinds of file, and the form follows whichever you attach:
+
+| You upload | You get | What the file looks like |
+|---|---|---|
+| `.csv` | A classifier | Every column a feature except the last, which is the label. Labels may be numbers or names. |
+| `.txt` | A language model | Any plain text. It learns to continue it, one character at a time. |
+
+Everything about the model's *shape* is read from your file — how many inputs,
+how many classes, how long the sequences are. You choose its *size*: how wide,
+how deep, how long to train.
+
+**How much data you need.** Text is the hungry one. Measured on this service,
+same hardware, same architecture family:
+
+| Corpus | Held-back accuracy | What it produced |
+|---|---|---|
+| 71 KB | 41% | Word-shaped nonsense |
+| 310 KB | 62% | Syntactically plausible lines |
+
+Both passed verification; both were real training. Around 1 MB is where
+sentences start to hold together. The upload says so before you send the job,
+and the result is graded **barely learned / learned / learned well** alongside
+the Verified badge — because "Verified" only means the model is genuine, not
+that it is good.
+
+The download is a `.npz` that describes itself, so you can load it anywhere with
+`src/frontend/static/scripts/load_model.py` and nothing else from this project:
+
+```bash
+python load_model.py my-model.npz --prompt "Once upon a"
+```
+
+### Where the GPU comes in
+
+Only for the training loop itself. Everything before it is ordinary CPU work you
+do on your own machine:
+
+```
+your files  →  turn them into numbers  →  [ TRAIN ]  →  a model file
+.txt .csv       CPU, on your machine       ← GPU →       you download
+.jpg .mp3       decode, tokenise, extract   the network
+```
+
+That is why the uploads above are CSV and text: they are the two formats this
+service can turn into numbers for you. Anything else — images, audio, Parquet,
+annotations — has to be converted first. If you can turn your data into a table
+of numbers with a label per row, save it as CSV and it will train. If you can
+turn it into token ids yourself, you can upload a packed `.npz` of `x` and `y`
+arrays directly to `POST /artifacts` and skip the conversion entirely.
+
+What is **not** supported, on purpose: uploading a `.py` training script. Running
+a stranger's code on a contributor's machine is the exact thing this project is
+built to avoid. The form is the configuration file.
 
 ---
 
@@ -364,6 +402,8 @@ Each test file runs on its own:
 | `test_model_manifest.py` | That a downloaded model can be rebuilt and run |
 | `test_submitter.py` | Identity for the person sending work |
 | `test_verification.py` | Catching a contributor who fakes results |
+| `test_text_dataset.py` | Turning a text file into something a language model can train on |
+| `test_advice.py` | Warning that data is too small, and grading how well a model learned |
 
 Tests needing PyTorch or NumPy skip themselves politely if you don't have them,
 so nothing here breaks on a plain Python install.
@@ -408,7 +448,7 @@ your settings file and the port mapping in the compose file.
 
 ## Honest status
 
-Working, and covered by **253 tests**:
+Working, and covered by **300 tests**:
 
 - Detecting GPUs and measuring what they can really do
 - Splitting one batch across mismatched GPUs, proportional to real speed
@@ -420,6 +460,8 @@ Working, and covered by **253 tests**:
 - Choosing which machine gets a job, and moving it on if that machine declines
 - An identity for the person sending work, and a way to collect the model
 - Datasets encrypted in the database, and deleted once a job is done
+- Training a language model on a text file you upload, and generating text
+  from what comes back
 
 Built but **not yet run against a live server**, so expect rough edges:
 
