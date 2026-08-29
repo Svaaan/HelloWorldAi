@@ -309,6 +309,25 @@ async def proxy_download_artifact(artifact_id: str, request: Request):
         raise HTTPException(status_code=502, detail=f"Failed to reach coordinator: {e}")
 
 
+@router.post("/submit-task")
+async def proxy_submit_task_anywhere(request: Request):
+    """Queue work and let the coordinator choose the node."""
+    try:
+        task_data = await request.json()
+        async with httpx.AsyncClient() as client:
+            res = await client.post(
+                f"{COORDINATOR_URL}/submit-task",
+                json=task_data,
+                headers=auth_headers(request),
+                timeout=60,
+            )
+            if res.status_code >= 400:
+                raise HTTPException(status_code=res.status_code, detail=safe_json(res))
+            return safe_json(res)
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=502, detail=f"Failed to reach coordinator: {e}")
+
+
 @router.post("/submit-task/{node_id}")
 async def proxy_submit_task(node_id: str, request: Request):
     """Queue work for a node. Goes to the coordinator, which holds the queue.
@@ -329,6 +348,38 @@ async def proxy_submit_task(node_id: str, request: Request):
             return safe_json(res)
     except httpx.RequestError as e:
         return {"status": "error", "message": f"Failed to reach coordinator: {e}"}
+
+
+@router.post("/cancel-task/{task_id}")
+async def proxy_cancel_task(task_id: str, request: Request):
+    """Stop a job the caller submitted."""
+    try:
+        async with httpx.AsyncClient() as client:
+            res = await client.post(
+                f"{COORDINATOR_URL}/cancel-task/{task_id}",
+                headers=auth_headers(request), timeout=20,
+            )
+            if res.status_code >= 400:
+                raise HTTPException(status_code=res.status_code, detail=safe_json(res))
+            return safe_json(res)
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=502, detail=f"Failed to reach coordinator: {e}")
+
+
+@router.post("/retry-task/{task_id}")
+async def proxy_retry_task(task_id: str, request: Request):
+    """Queue the same job again."""
+    try:
+        async with httpx.AsyncClient() as client:
+            res = await client.post(
+                f"{COORDINATOR_URL}/retry-task/{task_id}",
+                headers=auth_headers(request), timeout=20,
+            )
+            if res.status_code >= 400:
+                raise HTTPException(status_code=res.status_code, detail=safe_json(res))
+            return safe_json(res)
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=502, detail=f"Failed to reach coordinator: {e}")
 
 
 @router.get("/job-schema")
@@ -463,18 +514,18 @@ async def proxy_distribution_page(request: Request):
 
 @router.get("/available-nodes")
 async def proxy_available_nodes():
+    """Nodes offering their GPUs, straight from the coordinator.
+
+    This used to fetch /nodes and re-apply the availability filter here. That
+    is the same question asked twice, and the two answers had drifted: the
+    coordinator's /available-nodes fills in each node's throughput, so going
+    the long way round reported every machine as 0 TFLOPS.
+    """
     try:
         async with httpx.AsyncClient() as client:
-            res = await client.get(f"{COORDINATOR_URL}/nodes")
+            res = await client.get(f"{COORDINATOR_URL}/available-nodes", timeout=20)
             res.raise_for_status()
-            all_nodes = safe_json(res)
-
-            available_nodes = [
-                node for node in all_nodes
-                if node.get("isConnected") and node.get("isAvailable")
-            ]
-
-            return available_nodes
+            return safe_json(res)
     except httpx.RequestError as e:
         return {"error": f"Failed to fetch available nodes: {e}"}
 

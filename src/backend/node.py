@@ -24,7 +24,7 @@ from backend.service.authNodeService import (
     find_node_id_by_public_key,
 )
 from backend.utils.config import COORDINATOR_URL
-from backend.service.taskExecutor import execute_task
+from backend.service.taskExecutor import JobCancelled, execute_task
 from backend.service.gpuBenchmark import benchmark_all
 from backend.service.poolPlanner import pool_summary
 from backend.service.thermalPolicy import STATE_STOP, thermal_status
@@ -605,6 +605,34 @@ async def _decline_task(task_id, headers, reason):
         logger.warning(f"Could not decline {task_id}: {e}")
 
 
+CANCEL_POLL_SECONDS = int(os.getenv("CANCEL_POLL_INTERVAL", 3))
+
+
+async def _watch_for_cancel(task_id, headers):
+    """Set the cancel flag if the submitter asks the job to stop.
+
+    Runs only while a job is running. The heartbeat is once a minute and the
+    task poller is blocked for the duration of a job, so neither could carry
+    this without making cancellation take a minute or never arrive.
+    """
+    url = f"{COORDINATOR_URL}/task-cancelled/{task_id}"
+    while True:
+        await asyncio.sleep(CANCEL_POLL_SECONDS)
+        try:
+            async with httpx.AsyncClient() as client:
+                res = await client.get(url, headers=headers, timeout=10)
+            if res.status_code == 200 and (res.json() or {}).get("cancel_requested"):
+                current_task["cancel_requested"] = True
+                logger.info(f"Task {task_id} was cancelled by the submitter.")
+                return
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            # A watcher that cannot reach the coordinator must not take the
+            # job down with it; the job simply stays uncancellable for now.
+            logger.debug(f"Cancellation check failed: {e}")
+
+
 async def _run_task(task, node_id, headers) -> bool:
 
     task_id = task["task_id"]
@@ -624,12 +652,21 @@ async def _run_task(task, node_id, headers) -> bool:
         "status": "running",
         "logs": logs,
         "progress": None,
+        "cancel_requested": False,
     })
     log("Task started")
 
     def on_progress(update):
-        """Structured numbers for the dashboard, written as the job runs."""
+        """Structured numbers for the dashboard, written as the job runs.
+
+        Also the point where a cancellation takes effect. This runs in the
+        worker thread once per step, so it only reads a flag -- the flag is set
+        by _watch_for_cancel on the event loop, which is where the HTTP call
+        belongs.
+        """
         current_task["progress"] = update
+        if current_task.get("cancel_requested"):
+            raise JobCancelled("Cancelled by the submitter.")
 
     # Fetch the submitter's dataset, if this job carries one. unpack_dataset
     # refuses anything that could execute code, so a hostile payload fails here
@@ -662,6 +699,7 @@ async def _run_task(task, node_id, headers) -> bool:
                                   "metrics": {}}, logs)
             return True
 
+    watcher = asyncio.create_task(_watch_for_cancel(task_id, headers))
     try:
         # execute_task blocks (and real training will block hard), so it runs off
         # the event loop or heartbeats would stall for the whole job.
@@ -672,6 +710,11 @@ async def _run_task(task, node_id, headers) -> bool:
         logger.error(f"Task {task_id} raised: {e}")
         log(f"Error processing task: {e}")
         outcome = {"status": "failed", "result": f"Error: {e}"}
+    finally:
+        watcher.cancel()
+
+    if outcome.get("status") == "cancelled":
+        log("Stopped at the submitter's request.")
 
     # Hand the trained weights back so the submitter can collect them.
     weights_id = None
