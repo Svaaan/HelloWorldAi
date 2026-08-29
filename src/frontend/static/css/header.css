@@ -86,9 +86,11 @@
     background-color var(--t-fast) var(--ease);
 }
 
-/* Hidden by header.js when this browser already has a node. Stated
-   explicitly so a display rule on the flex item cannot override it. */
-.header-nav a[hidden] {
+/* Hidden by header.js: individual links that belong to the other side of the
+   network, and the whole nav on the front door. Stated explicitly because the
+   display rules above outrank the hidden attribute's default. */
+.header-nav a[hidden],
+.header-nav[hidden] {
   display: none;
 }
 

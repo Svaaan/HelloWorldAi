@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HelloWorldAi</title>
+    <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="/static/css/theme.css">
+    <link rel="stylesheet" href="/static/css/start.css">
+</head>
+
+<body>
+    <div id="header-placeholder"></div>
+
+    <main class="start-container">
+        <div class="start-intro">
+            <h1>Train AI on hardware people already own</h1>
+            <p>
+                Graphics cards sit idle in bedrooms while people with data cannot
+                afford to train anything. This puts the two together.
+            </p>
+        </div>
+
+        <!-- Two doors, because there are two entirely different reasons to be
+             here. Sending everyone through the GPU flow told people with data
+             and an ordinary laptop that their hardware was unsuitable for
+             something they never wanted to do. -->
+        <div class="start-choices">
+            <section class="start-choice" id="builderChoice">
+                <div class="start-choice-top">
+                    <span class="start-choice-tag">I have data</span>
+                </div>
+                <h2>Train a model</h2>
+                <p>
+                    Upload a dataset and send it to a machine with a spare GPU.
+                    You get the trained model back, checked against data the
+                    machine never saw.
+                </p>
+                <p class="start-choice-note">
+                    <strong>No graphics card needed.</strong> Any computer will do —
+                    the training happens on somebody else's.
+                </p>
+
+                <div class="start-actions">
+                    <button id="builderStart" type="button" class="btn">
+                        Get started
+                    </button>
+                    <button id="builderReturning" type="button" class="btn-ghost">
+                        I have a key file
+                    </button>
+                </div>
+                <input type="file" id="builderKeyFile" accept=".json,application/json" hidden>
+                <div id="builderStatus" class="start-status"></div>
+            </section>
+
+            <section class="start-choice" id="contributorChoice">
+                <div class="start-choice-top">
+                    <span class="start-choice-tag">I have a GPU</span>
+                    <a href="/setup" class="start-choice-tag start-choice-guide">
+                        Setup guide
+                    </a>
+                </div>
+                <h2>Lend your graphics card</h2>
+                <p>
+                    Run a small agent that takes training jobs when your machine is
+                    idle. It stops on its own if the card gets too hot, and you
+                    approve each job unless you say otherwise.
+                </p>
+                <p class="start-choice-note">
+                    Needs an <strong>NVIDIA GPU</strong> on Windows with WSL 2, or Linux.
+                </p>
+
+                <div class="start-actions">
+                    <!-- Connecting a card stays available whether or not one is
+                         already set up: this used to be replaced by "Open your
+                         node", which left somebody with one node no way to add
+                         a second, and no way back if the stored one was stale. -->
+                    <a href="/connect" class="btn" id="contributorPrimary">Connect a GPU</a>
+                    <a href="/node" class="btn-ghost" id="contributorNode" hidden>Open your node</a>
+                </div>
+            </section>
+        </div>
+
+        <p class="start-footnote">
+            Already set up? Your browser remembers — pick a door and you will be
+            taken straight through.
+        </p>
+    </main>
+
+    <script type="module">
+        import { loadHeader } from "/static/js/component/header.js";
+        import { initStart } from "/static/js/component/start.js";
+
+        loadHeader();
+        initStart();
+    </script>
+</body>
+
+</html>

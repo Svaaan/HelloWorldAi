@@ -151,17 +151,29 @@ export async function buildJobForm(container, { modelName } = {}) {
   advanced.appendChild(advancedBody);
   container.appendChild(advanced);
 
+  // A number input hands back an empty string when it is blank, or when the
+  // browser rejected what was typed -- which happens on locales that display a
+  // decimal comma. Number("") is 0 and parseInt("") is NaN, so the server would
+  // answer a blank box with "must be between 1e-08 and 10", which explains
+  // nothing. Falling back to the value already shown as the default is both
+  // truer to what the person saw and easier to act on.
+  function readNumber(input, definition) {
+    const raw = String(input.value).trim();
+    const parsed = definition.type === "float"
+      ? Number(raw) : parseInt(raw, 10);
+
+    return raw === "" || !Number.isFinite(parsed) ? definition.default : parsed;
+  }
+
   function readForm() {
     const spec = { architecture: archSelect.value };
     inputs.forEach(({ input, spec: definition }, name) => {
-      spec[name] = definition.type === "float"
-        ? Number(input.value) : parseInt(input.value, 10);
+      spec[name] = readNumber(input, definition);
     });
 
     const hyperparameters = {};
     hyperInputs.forEach(({ input, spec: definition }, name) => {
-      hyperparameters[name] = definition.type === "float"
-        ? Number(input.value) : parseInt(input.value, 10);
+      hyperparameters[name] = readNumber(input, definition);
     });
 
     return {

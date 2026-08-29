@@ -894,3 +894,27 @@ input:disabled + .slider {
 @media (prefers-reduced-motion: reduce) {
   .selftest-note.is-running { animation: none; }
 }
+
+.selftest-data {
+  margin-bottom: 1.1rem;
+  padding: 0.9rem 1rem;
+  background-color: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+
+.selftest-data-label {
+  display: block;
+  margin-bottom: 0.3rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.selftest-data-hint {
+  margin: 0 0 0.7rem;
+  font-size: 0.75rem;
+  line-height: 1.55;
+  color: var(--text-faint);
+  max-width: 70ch;
+}

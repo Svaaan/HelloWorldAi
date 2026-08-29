@@ -28,7 +28,9 @@ from backend.service.taskExecutor import JobCancelled, execute_task
 from backend.service.gpuBenchmark import benchmark_all
 from backend.service.poolPlanner import pool_summary
 from backend.service.thermalPolicy import STATE_STOP, thermal_status
-from backend.service.artifacts import ArtifactError, pack_state_dict, unpack_dataset
+from backend.service.artifacts import (
+    ArtifactError, pack_state_dict, parse_csv_dataset, unpack_dataset,
+)
 
 # Initialize logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -465,6 +467,16 @@ SELF_TEST_TASK = {
     "hyperparameters": {"steps": 200, "batch_size": 24, "learning_rate": 0.0003},
 }
 
+# When the owner supplies a CSV the point changes: not "how fast is this card"
+# but "does my own data train here". A feedforward net is the shape that fits
+# rows of numbers, and its dimensions come from the file.
+SELF_TEST_CSV_TASK = {
+    "task_type": "llm_training",
+    "model_name": "self-test",
+    "model_spec": {"architecture": "mlp", "hidden_dim": 64, "depth": 2},
+    "hyperparameters": {"steps": 200, "batch_size": 32, "learning_rate": 0.01},
+}
+
 self_test: Dict[str, Any] = {}
 
 
@@ -475,8 +487,13 @@ async def get_self_test():
 
 
 @app.post("/self-test")
-async def run_self_test():
-    """Train a small model here and now, and report what the card managed."""
+async def run_self_test(request: Request):
+    """Train a small model here and now, and report what the card managed.
+
+    An optional CSV body trains on the owner's own data instead of synthetic
+    tokens. It is parsed and used here and never sent anywhere -- a self test
+    involves no coordinator and no network.
+    """
     if current_task.get("status") == "running":
         raise HTTPException(
             status_code=409,
@@ -486,28 +503,77 @@ async def run_self_test():
         raise HTTPException(status_code=409, detail="A self test is already running.")
 
     logs: List[str] = []
-    self_test.clear()
-    self_test.update({"running": True, "started_at": datetime.utcnow().isoformat(),
-                      "logs": logs})
 
     def log(message):
         logs.append(str(message))
 
+    # --- the owner's data, if they supplied any --------------------------
+    dataset = None
+    task_data = dict(SELF_TEST_TASK)
+
+    body = await request.body()
+    if body and body.strip():
+        try:
+            features, labels, class_names = parse_csv_dataset(
+                body.decode("utf-8", errors="replace")
+            )
+        except (ArtifactError, ValueError) as e:
+            raise HTTPException(status_code=400, detail=f"That CSV could not be read: {e}")
+
+        dataset = (features, labels)
+        task_data = dict(SELF_TEST_CSV_TASK)
+        log(f"Training on your CSV: {features.shape[0]:,} rows, "
+            f"{features.shape[1]} features")
+        if class_names:
+            log(f"Labels: {', '.join(class_names[:8])}")
+
+    self_test.clear()
+    self_test.update({"running": True, "started_at": datetime.utcnow().isoformat(),
+                      "logs": logs, "used_dataset": dataset is not None})
+
+    # Presented exactly like a real job, so the owner watches it in the same
+    # live view -- progress, loss, temperature -- rather than staring at a
+    # button. The dashboard reads all of this from /current-task.
+    current_task.clear()
+    current_task.update({
+        "task_id": "self-test",
+        "model_name": "Test job" + (" (your data)" if dataset else ""),
+        "started_at": datetime.utcnow().isoformat(),
+        "started_ts": time.time(),
+        "status": "running",
+        "logs": logs,
+        "progress": None,
+        "self_test": True,
+    })
+
+    def on_progress(update):
+        current_task["progress"] = update
+
     try:
         outcome = await asyncio.to_thread(
-            execute_task, dict(SELF_TEST_TASK), log, None, None
+            execute_task, task_data, log, dataset, on_progress
         )
     except Exception as e:
         logger.error(f"Self test raised: {e}")
+        current_task.update({"status": "failed",
+                             "finished_at": datetime.utcnow().isoformat()})
         self_test.update({"running": False, "status": "failed", "result": str(e)})
         return {"status": "failed", "result": str(e), "logs": logs}
 
     metrics = outcome.get("metrics") or {}
 
+    current_task.update({
+        "status": outcome.get("status", "completed"),
+        "result": outcome.get("result"),
+        "metrics": metrics,
+        "finished_at": datetime.utcnow().isoformat(),
+    })
+
     # The two figures answer different questions, so both are reported rather
     # than one being quietly replaced by the other.
     result = {
         "running": False,
+        "used_dataset": dataset is not None,
         "status": outcome.get("status"),
         "result": outcome.get("result"),
         "finished_at": datetime.utcnow().isoformat(),
@@ -629,6 +695,8 @@ async def claim_and_run_one_task() -> bool:
     if not node_id or not token:
         return False
     if not node_info.get("accept_tasks", True):
+        return False
+    if self_test.get("running"):
         return False
 
     # Do not pick up new work on a card that is already too hot; let it cool.

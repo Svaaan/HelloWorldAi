@@ -226,9 +226,17 @@ async def proxy_run_self_test(request: Request):
     """Ask the node to train something small and report what it managed."""
     try:
         async with httpx.AsyncClient() as client:
+            # The body is the owner's optional CSV. Forwarding it is the whole
+            # point of the option: without this the node always saw an empty
+            # request and quietly trained on synthetic data instead.
+            body = await request.body()
+            headers = auth_headers(request)
+            if body:
+                headers["Content-Type"] = request.headers.get("content-type", "text/csv")
+
             # Generous: this trains a real model before it answers.
-            res = await client.post(f"{NODE_URL}/self-test",
-                                    headers=auth_headers(request), timeout=600)
+            res = await client.post(f"{NODE_URL}/self-test", content=body,
+                                    headers=headers, timeout=600)
             if res.status_code >= 400:
                 raise HTTPException(status_code=res.status_code, detail=safe_json(res))
             return safe_json(res)

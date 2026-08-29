@@ -112,6 +112,11 @@
 .job-field {
   display: grid;
   gap: 0.3rem;
+  /* Pack to the top. Fields are stretched to the tallest in their row, and
+     without this the rows of a field that has no hint stretch to fill that
+     height -- so "Learning rate", alone in having no hint, had its input
+     pushed below the two beside it. */
+  align-content: start;
 }
 
 .job-field-label {

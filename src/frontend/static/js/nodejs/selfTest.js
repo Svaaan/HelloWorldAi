@@ -54,12 +54,18 @@ function render(result) {
 
   const grid = el("div", "selftest-stats");
 
+  // A small model on somebody's own rows finishes almost instantly, so its
+  // throughput measures start-up cost rather than the card. Reporting it as
+  // "sustained" beside the benchmark would invite exactly the wrong
+  // comparison, so on a CSV run the figure is left out.
   const sustained = Number(result.sustained_tflops);
-  grid.appendChild(stat(
-    "Sustained",
-    sustained ? `${sustained.toFixed(2)} TFLOPS` : "—",
-    "on a real workload",
-  ));
+  if (!result.used_dataset) {
+    grid.appendChild(stat(
+      "Sustained",
+      sustained ? `${sustained.toFixed(2)} TFLOPS` : "—",
+      "on a real workload",
+    ));
+  }
 
   const peak = Number(result.peak_tflops);
   if (peak) {
@@ -84,7 +90,12 @@ function render(result) {
   // something real, rather than merely running without erroring.
   target.appendChild(
     result.learned
-      ? notice("This machine trains correctly and is ready for work.", "is-ok")
+      ? notice(
+          result.used_dataset
+            ? "Your data trains on this machine. It is ready for work."
+            : "This machine trains correctly and is ready for work.",
+          "is-ok",
+        )
       : notice(
           "The job ran but the loss did not fall. That can happen on a very "
           + "short test; run it again, and if it repeats something is wrong.",
@@ -108,21 +119,51 @@ async function loadExisting() {
   }
 }
 
+function setCsvStatus(message, kind) {
+  const target = document.getElementById("selfTestCsvStatus");
+  if (!target) return;
+  target.replaceChildren();
+  if (!message) return;
+
+  const line = document.createElement("span");
+  if (kind) line.className = `${kind}-message`;
+  line.textContent = message;
+  target.appendChild(line);
+}
+
 export function initSelfTest() {
   const button = document.getElementById("runSelfTest");
   if (!button) return;
 
   loadExisting();
 
+  const csvInput = document.getElementById("selfTestCsv");
+  if (csvInput) {
+    csvInput.addEventListener("change", () => {
+      const file = csvInput.files?.[0];
+      setCsvStatus(
+        file ? `Will train on ${file.name} (${Math.round(file.size / 1024)} kB).` : "",
+      );
+    });
+  }
+
   button.addEventListener("click", async () => {
     button.disabled = true;
     button.textContent = "Testing…";
     render({ running: true });
 
+    // The node presents this as its current task, so the live view picks it up
+    // on its next poll -- the same overlay a real job opens.
+    const file = csvInput?.files?.[0];
+
     // The request holds open for the whole job, so nothing else is needed to
     // know when it finished.
     try {
-      const res = await fetch("/self-test", { method: "POST" });
+      const res = await fetch("/self-test", {
+        method: "POST",
+        headers: file ? { "Content-Type": "text/csv" } : {},
+        body: file ? await file.text() : undefined,
+      });
       const data = await res.json().catch(() => null);
 
       if (!res.ok) {

@@ -2,17 +2,20 @@
 <link rel="stylesheet" href="/static/css/header.css">
 
 <header class="header">
-    <a class="header-logo" href="/connect">
+    <a class="header-logo" href="/">
         <span class="node-icon" aria-hidden="true"></span>
         <span>HelloWorldAi</span>
     </a>
 
+    <!-- Each side of the network sees only its own pages. header.js hides the
+         rest: a builder has no use for the node agent installer, and somebody
+         lending a GPU is not looking for a workspace. -->
     <nav class="header-nav" aria-label="Main">
-        <a href="/connect">Connect</a>
-        <a href="/node">Your node</a>
-        <a href="/distribution">Send work</a>
-        <a href="/workspace">Your workspace</a>
-        <a href="/setup">Setup</a>
+        <a href="/connect" data-role="contributor">Connect</a>
+        <a href="/node" data-role="contributor">Your node</a>
+        <a href="/setup" data-role="contributor">Setup</a>
+        <a href="/distribution" data-role="builder">Send work</a>
+        <a href="/workspace" data-role="builder">Your workspace</a>
     </nav>
 
     <div class="header-details">

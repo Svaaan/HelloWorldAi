@@ -68,9 +68,17 @@ async def revalidate_pages_and_assets(request, call_next):
 
 
 # === Frontend routes ===
-@dashboard_app.get("/", include_in_schema=False)
-def redirect_to_connect():
-    return RedirectResponse(url="/connect")
+@dashboard_app.get("/", response_class=HTMLResponse, include_in_schema=False)
+async def start_page():
+    """The front door.
+
+    This used to redirect to /connect, which asks for a GPU. Somebody arriving
+    with a dataset and an ordinary laptop was told their hardware was
+    unsuitable for something they had not asked to do. The two sides of the
+    network get a door each.
+    """
+    path = os.path.join(TEMPLATE_DIR, "start.html")
+    return FileResponse(path) if os.path.exists(path) else HTMLResponse("<h1>404 - start.html not found</h1>", status_code=404)
 
 @dashboard_app.get("/connect", response_class=HTMLResponse)
 def render_connect():

@@ -4,11 +4,14 @@
 // app's navigation lives. Two things it has to get right: mark the page you
 // are on, and fail visibly rather than leaving a page with no header at all.
 
+import { isContributor, isNewHere, showsFor } from "./role.js";
+
 const COUNT_INTERVAL_MS = 60000;
 
 // Set by the connect flow (see connect/nodeSession.js) once a node has proved
 // ownership. Its presence is what "this browser has a node" means everywhere.
 const NODE_ID_KEY = "currentNodeId";
+const BUILDER_KEY = "submitterKey";
 
 let countTimer = null;
 
@@ -36,7 +39,9 @@ export async function loadHeader() {
   // Another tab connecting or disconnecting a node changes what this nav
   // should show, and so does coming back to a tab left open for a while.
   window.addEventListener("storage", (event) => {
-    if (!event.key || event.key === NODE_ID_KEY) refreshNav();
+    if (!event.key || event.key === NODE_ID_KEY || event.key === BUILDER_KEY) {
+      refreshNav();
+    }
   });
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) refreshNav();
@@ -45,7 +50,7 @@ export async function loadHeader() {
 
 function refreshNav() {
   markCurrentPage();
-  hideConnectWhenConnected();
+  applyRoles();
 }
 
 // Highlight the link for the page being viewed. Compared on pathname so query
@@ -57,34 +62,48 @@ function markCurrentPage() {
   });
 }
 
-// Once this browser has a node, "Connect" is an entry point you have already
-// been through, so it just takes up room in the nav.
+// Show each side of the network only its own pages.
 //
-// The one exception is the /connect page itself: hiding the link for the page
-// you are looking at leaves the header with nothing marked, which reads as a
-// bug. Someone on /connect is also most likely there to add or swap a node.
-function hideConnectWhenConnected() {
-  const connected = hasNode();
+// Two extra rules keep this from hiding something someone needs:
+//
+//   * the page you are on is never hidden, or the header ends up with nothing
+//     marked, which reads as a bug;
+//   * "Connect" disappears once a node is registered, because it is an entry
+//     point already used -- unless you are standing on it.
+function applyRoles() {
+  const here = currentPath();
 
   document.querySelectorAll(".header-nav a").forEach((link) => {
-    if (linkPath(link) !== "/connect") return;
-    link.hidden = connected && currentPath() !== "/connect";
-  });
-}
+    const path = linkPath(link);
 
-function hasNode() {
-  try {
-    return Boolean(localStorage.getItem(NODE_ID_KEY));
-  } catch (error) {
-    // Storage can be unavailable outright in some privacy modes. Showing the
-    // link is the safe default -- it is never harmful, only redundant.
-    console.warn("Could not read the node session:", error);
-    return false;
-  }
+    if (path === here) {
+      link.hidden = false;
+      return;
+    }
+
+    if (path === "/connect" && isContributor()) {
+      link.hidden = true;
+      return;
+    }
+
+    link.hidden = !showsFor(link.dataset.role);
+  });
+
+  // The pages that sign somebody in. Until they have, the nav offers
+  // destinations that mean nothing to them and competes with the one question
+  // the page is actually asking.
+  const ENTRY_PAGES = ["/", "/connect"];
+
+  const nav = document.querySelector(".header-nav");
+  if (nav) nav.hidden = isNewHere() && ENTRY_PAGES.includes(here);
 }
 
 function currentPath() {
-  return window.location.pathname.replace(/\/+$/, "") || "/connect";
+  // "/" must survive: stripping its slash leaves an empty string, and the old
+  // fallback to "/connect" made the front door look like the connect page --
+  // which is exactly the conflation this split is undoing.
+  const path = window.location.pathname.replace(/\/+$/, "");
+  return path || "/";
 }
 
 function linkPath(link) {
