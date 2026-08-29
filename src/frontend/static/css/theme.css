@@ -317,6 +317,7 @@ pre {
 .status-connected,
 .status-available,
 .status-online,
+.status-busy,
 .status-disconnected,
 .status-unavailable,
 .status-offline {
@@ -344,9 +345,17 @@ pre {
   background-color: var(--danger-wash);
 }
 
+/* Working, not broken -- but not free to take your job right now either, so
+   it reads at a glance like the other unavailable states. */
+.status-busy {
+  color: var(--danger);
+  background-color: var(--danger-wash);
+}
+
 .status-connected::before,
 .status-available::before,
 .status-online::before,
+.status-busy::before,
 .status-disconnected::before,
 .status-unavailable::before,
 .status-offline::before {
@@ -424,6 +433,16 @@ pre {
   position: relative;
   text-align: left;
   animation: hw-rise var(--t) var(--ease-out);
+
+  /* Never taller than the window, and scrollable once it would be.
+     A centred flex child that outgrows its container overflows at the top as
+     well as the bottom, and neither end can be reached -- which left the send
+     button on the job form unreachable on a short window.
+     100dvh so mobile browser chrome does not hide the last rows. */
+  max-height: calc(100vh - 2.5rem);
+  max-height: calc(100dvh - 2.5rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .modal-content { max-width: 620px; }

@@ -338,6 +338,11 @@ async def get_current_task():
     }
 
 
+def is_busy() -> bool:
+    """Whether this node is occupied: a real job, or its own test."""
+    return current_task.get("status") == "running" or bool(self_test.get("running"))
+
+
 async def send_heartbeat_once() -> bool:
     """Post one heartbeat to the coordinator. Returns False if we have no session."""
     global _warned_about_missing_session
@@ -383,6 +388,10 @@ async def send_heartbeat_once() -> bool:
         "cpu_usage": psutil.cpu_percent(interval=None),
         "gpu_usage": round(sum(loads) / len(loads), 2) if loads else 0.0,
         "capabilities": capabilities,
+        # Whether the card is occupied. The coordinator can see a claimed job
+        # by itself, but a self test never becomes a coordinator task, so
+        # without this the node looks idle while it is flat out.
+        "busy": is_busy(),
     }
 
     async with httpx.AsyncClient() as client:
@@ -549,6 +558,14 @@ async def run_self_test(request: Request):
     def on_progress(update):
         current_task["progress"] = update
 
+    # Tell the coordinator now rather than at the next scheduled heartbeat: a
+    # test is over in seconds, so a minute's delay would report it as idle for
+    # its whole duration and then busy after it had finished.
+    try:
+        await send_heartbeat_once()
+    except Exception as e:
+        logger.debug(f"Could not announce the self test: {e}")
+
     try:
         outcome = await asyncio.to_thread(
             execute_task, task_data, log, dataset, on_progress
@@ -601,6 +618,12 @@ async def run_self_test(request: Request):
         f"Self test finished: {result['status']}, "
         f"{result['sustained_tflops']} TFLOPS sustained, learned={result['learned']}"
     )
+
+    try:
+        await send_heartbeat_once()      # free again
+    except Exception as e:
+        logger.debug(f"Could not announce the end of the self test: {e}")
+
     return result
 
 

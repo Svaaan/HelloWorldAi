@@ -8,7 +8,9 @@
 
 import { showNodeModal } from "./modalHandler.js";
 
-const POLL_INTERVAL_MS = 60000;
+// Whether a machine is free changes minute to minute, so a minute-long poll
+// would show a stale answer for most of its life.
+const POLL_INTERVAL_MS = 10000;
 
 let pollTimer = null;
 let inFlight = false;
@@ -70,11 +72,21 @@ function buildNodeCard(node) {
   card.setAttribute(
     "aria-label",
     `Send work to node ${node.node_id}, ${gpuCount} GPU${gpuCount === 1 ? "" : "s"}`
+    + (node.busy ? ", currently busy" : "")
   );
 
   const head = el("div", "node-header");
   head.appendChild(el("span", "node-id", node.node_id));
-  head.appendChild(el("span", "node-status status-online", "Online"));
+
+  // A machine that is training is still online, but it is not free -- and a
+  // green "Online" beside a card already flat out reads as "send it here".
+  // Work sent to it will queue behind what it is doing.
+  const busy = Boolean(node.busy);
+  head.appendChild(el(
+    "span",
+    `node-status ${busy ? "status-busy" : "status-online"}`,
+    busy ? "Busy" : "Online",
+  ));
   card.appendChild(head);
 
   const badge = computeBadge(node);
@@ -91,6 +103,14 @@ function buildNodeCard(node) {
     "Price/h",
     node.price_per_hour != null ? `${node.price_per_hour} SEK` : "Free"
   ));
+
+  const queued = Number(node.queued) || 0;
+  if (queued > 0) {
+    specs.appendChild(specRow(
+      "Queue",
+      `${queued} job${queued === 1 ? "" : "s"} ahead`,
+    ));
+  }
   card.appendChild(specs);
 
   card.appendChild(el("span", "node-cta", "Send a job →"));
@@ -117,10 +137,17 @@ function updateCount(nodes) {
     return;
   }
 
-  const tflops = nodes.reduce((sum, n) => sum + (Number(n.total_gpu_tflops) || 0), 0);
-  label.textContent = tflops > 0
-    ? `${nodes.length} online · ${tflops.toFixed(1)} TFLOPS available`
-    : `${nodes.length} online`;
+  // Count only what is actually free: totalling the compute of machines
+  // already training overstates what the network can start on right now.
+  const free = nodes.filter((n) => !n.busy);
+  const tflops = free.reduce((sum, n) => sum + (Number(n.total_gpu_tflops) || 0), 0);
+
+  const busyCount = nodes.length - free.length;
+  const parts = [`${nodes.length} online`];
+  if (busyCount) parts.push(`${busyCount} busy`);
+  if (tflops > 0) parts.push(`${tflops.toFixed(1)} TFLOPS free`);
+
+  label.textContent = parts.join(" · ");
 }
 
 export async function fetchAvailableNodes() {

@@ -511,6 +511,12 @@ async def node_heartbeat(
             if tflops is not None:
                 persisted["total_gpu_tflops"] = tflops
 
+        # A node knows things the coordinator cannot see -- a self test never
+        # becomes a task here, so without this the machine looks idle while it
+        # is flat out.
+        if "busy" in status:
+            persisted["reported_busy"] = bool(status["busy"])
+
         await db.nodes_collection.update_one({"_id": node_id}, {"$set": persisted})
         
         return {"status": "success", "timestamp": node.last_heartbeat}
@@ -645,9 +651,24 @@ async def get_available_nodes(db: Database = Depends(get_db)):
         cursor = db.nodes_collection.find(query)
         nodes = []
         
+        # One aggregation rather than a query per node.
+        loads = await _node_loads(db)
+        running = {
+            row["_id"]
+            async for row in db.tasks_collection.aggregate([
+                {"$match": {"status": "running"}},
+                {"$group": {"_id": "$node_id"}},
+            ])
+        }
+
         async for node in cursor:
             node_id = node.pop("_id", None)
             node["node_id"] = node_id
+
+            # Busy from either direction: a job this coordinator handed out, or
+            # something the node is doing of its own accord.
+            node["busy"] = node_id in running or bool(node.get("reported_busy"))
+            node["queued"] = loads.get(node_id, 0)
 
             live_node = connected_nodes.get(node_id)
             live_tflops = (live_node.capabilities.get("total_gpu_tflops")
