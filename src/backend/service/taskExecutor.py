@@ -89,7 +89,8 @@ def describe_pool(batch_size: int,
 
 
 def _run_llm_training(task_data: Dict[str, Any], log: Callable[[str], None],
-                      dataset=None, on_progress=None) -> Dict[str, Any]:
+                      dataset=None, on_progress=None,
+                      initial_state=None) -> Dict[str, Any]:
     """Train for real on this machine's GPUs, sharded by measured throughput."""
     model_name = task_data.get("model_name")
     hyperparameters = task_data.get("hyperparameters", {}) or {}
@@ -105,7 +106,8 @@ def _run_llm_training(task_data: Dict[str, Any], log: Callable[[str], None],
 
     outcome = trainer.train(task_data, log, plan,
                             batch_size=batch_size, dataset=dataset,
-                            on_progress=on_progress)
+                            on_progress=on_progress,
+                            initial_state=initial_state)
     metrics = outcome["metrics"]
     metrics["pooled_tflops"] = summary["pooled_tflops"]
     metrics["device_count"] = max(summary["device_count"], len(metrics.get("devices", [])))
@@ -136,6 +138,17 @@ HANDLERS: Dict[str, Callable[..., Dict[str, Any]]] = {
 }
 
 
+def _accepts(handler: Callable, name: str) -> bool:
+    """Whether `handler` takes an argument by this name."""
+    try:
+        params = inspect.signature(handler).parameters
+    except (TypeError, ValueError):
+        return False        # cannot introspect it; do not pass extras
+    if any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values()):
+        return True
+    return name in params
+
+
 def _accepts_progress(handler: Callable) -> bool:
     """Whether `handler` takes the on_progress argument."""
     try:
@@ -148,10 +161,14 @@ def _accepts_progress(handler: Callable) -> bool:
 
 
 def execute_task(task_data: Dict[str, Any], log: Callable[[str], None],
-                 dataset=None, on_progress=None) -> Dict[str, Any]:
+                 dataset=None, on_progress=None,
+                 initial_state=None) -> Dict[str, Any]:
     """Dispatch a task and return {status, result, metrics[, state_dict]}.
 
     `dataset` is the (x, y) pair the node downloaded for this task, or None.
+
+    `initial_state` is a previous run's weights, when this job is continuing
+    one rather than starting over.
 
     Never raises: a failing task reports `failed` so the node can hand the
     outcome back rather than looking like it went silent.
@@ -169,9 +186,11 @@ def execute_task(task_data: Dict[str, Any], log: Callable[[str], None],
         }
 
     try:
-        # on_progress is optional: HANDLERS is an extension point, and a
-        # handler written against the older three-argument signature should
-        # keep working rather than dying with a confusing TypeError.
+        # Both extras are optional. HANDLERS is an extension point, and a
+        # handler written against an older signature should keep working
+        # rather than dying with a confusing TypeError.
+        if _accepts(handler, "initial_state"):
+            return handler(task_data, log, dataset, on_progress, initial_state)
         if _accepts_progress(handler):
             return handler(task_data, log, dataset, on_progress)
         return handler(task_data, log, dataset)

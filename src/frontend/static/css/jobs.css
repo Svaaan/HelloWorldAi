@@ -220,6 +220,163 @@
   margin: 0;
 }
 
+/* Ask the model something. Folded away like the samples, because it is a
+   thing you do rather than a thing you read. */
+.job-prompt > summary {
+  cursor: pointer;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--accent);
+  list-style: none;
+}
+
+.job-prompt > summary::-webkit-details-marker { display: none; }
+
+.job-prompt-body {
+  display: grid;
+  gap: 0.55rem;
+  margin-top: 0.6rem;
+}
+
+.job-prompt-input {
+  width: 100%;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-xs);
+  background-color: var(--surface-2);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.job-prompt-body button {
+  justify-self: start;
+}
+
+.job-prompt-output[hidden] {
+  display: none;
+}
+
+.job-prompt-output {
+  margin: 0;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--r-xs);
+  background-color: var(--surface-2);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  line-height: 1.6;
+  color: var(--text-muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.job-prompt-output strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* One run per line: what was changed, and how far it got. Bars rather than a
+   column of numbers, because the question is which one is taller. */
+.job-series > summary {
+  cursor: pointer;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--accent);
+  list-style: none;
+}
+
+.job-series > summary::-webkit-details-marker { display: none; }
+
+.job-series-body {
+  display: grid;
+  gap: 0.4rem;
+  margin-top: 0.6rem;
+}
+
+.series-run {
+  display: grid;
+  grid-template-columns: minmax(7rem, 1.4fr) minmax(4rem, 2fr) auto;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.35rem 0.5rem;
+  border-radius: var(--r-xs);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.series-run.is-current {
+  background-color: var(--surface-2);
+  color: var(--text);
+}
+
+.series-change {
+  overflow-wrap: anywhere;
+}
+
+.series-bar {
+  display: block;
+  height: 0.5rem;
+  border-radius: var(--r-pill);
+  background-color: var(--surface-3);
+  overflow: hidden;
+}
+
+.series-fill {
+  display: block;
+  height: 100%;
+  border-radius: var(--r-pill);
+  background-color: var(--border-strong);
+}
+
+.series-fill.is-best {
+  background-color: var(--accent);
+}
+
+.series-score {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+/* Carrying on from a trained model. Above the fields because it decides
+   which of them can still be changed. */
+.job-continue {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: start;
+  gap: 0.55rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: var(--r-xs);
+  background-color: var(--bg-elevated);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.job-continue input {
+  margin-top: 0.2rem;
+  accent-color: var(--accent);
+}
+
+.job-continue strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* A field the shape of the model has fixed. Dimmed rather than removed, so it
+   is clear the value still applies and simply cannot move. */
+.job-field.is-locked {
+  opacity: 0.45;
+}
+
+.job-field.is-locked input {
+  cursor: not-allowed;
+}
+
 /* --- expanded detail --- */
 
 .job-body {

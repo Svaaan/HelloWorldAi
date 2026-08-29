@@ -300,6 +300,42 @@ SAMPLE_NEW_TOKENS = 140
 SAMPLE_TEMPERATURE = 0.8
 
 
+def render_bytes(ids) -> str:
+    """Token ids back to text. 'replace' because the model works a byte at a
+    time and can stop part-way through a multi-byte character."""
+    return bytes(int(i) & 0xFF for i in ids).decode("utf-8", "replace")
+
+
+def continue_tokens(model, spec: Dict[str, Any], ids: List[int],
+                    length: int = SAMPLE_NEW_TOKENS,
+                    temperature: float = SAMPLE_TEMPERATURE) -> List[int]:
+    """Extend a sequence of token ids, one token at a time.
+
+    Sampled rather than argmax: always taking the most likely token makes a
+    small model repeat one phrase, which reads like a bug rather than a weak
+    model.
+    """
+    torch = _torch()
+    seq_len = int(spec.get("seq_len", 64))
+    ids = list(ids)
+
+    with torch.no_grad():
+        device = next(model.parameters()).device
+        for _ in range(length):
+            # The position embedding only reaches seq_len, so that is as far
+            # back as the model can look -- over its own output as well.
+            window = torch.tensor([ids[-seq_len:]], dtype=torch.long, device=device)
+            logits = model(window)[0, -1]
+
+            if temperature <= 0:
+                ids.append(int(torch.argmax(logits)))
+            else:
+                probabilities = torch.softmax(logits / temperature, dim=-1)
+                ids.append(int(torch.multinomial(probabilities, 1)))
+
+    return ids
+
+
 def sample_text(model, spec: Dict[str, Any], features, count: int = SAMPLE_COUNT
                 ) -> List[Dict[str, str]]:
     """Continue a few real snippets, so the submitter can read the result.
@@ -325,34 +361,18 @@ def sample_text(model, spec: Dict[str, Any], features, count: int = SAMPLE_COUNT
     total = int(features.shape[0])
     picks = [int(i * total / max(1, count)) % total for i in range(count)]
 
-    def render(ids):
-        # 'replace' because the model works a byte at a time and can stop
-        # part-way through a multi-byte character.
-        return bytes(int(i) & 0xFF for i in ids).decode("utf-8", "replace")
-
     was_training = model.training
     model.eval()
-    device = next(model.parameters()).device
 
     samples: List[Dict[str, str]] = []
     try:
-        with torch.no_grad():
-            for index in picks:
-                ids = [int(v) for v in features[index][:prompt_len]]
-                prompt = render(ids)
-
-                for _ in range(SAMPLE_NEW_TOKENS):
-                    window = torch.tensor([ids[-seq_len:]], dtype=torch.long,
-                                          device=device)
-                    logits = model(window)[0, -1]
-                    probabilities = torch.softmax(
-                        logits / SAMPLE_TEMPERATURE, dim=-1)
-                    ids.append(int(torch.multinomial(probabilities, 1)))
-
-                samples.append({
-                    "prompt": prompt,
-                    "continuation": render(ids[prompt_len:]),
-                })
+        for index in picks:
+            ids = [int(v) for v in features[index][:prompt_len]]
+            grown = continue_tokens(model, spec, ids)
+            samples.append({
+                "prompt": render_bytes(ids),
+                "continuation": render_bytes(grown[prompt_len:]),
+            })
     except Exception as e:
         # A sample is a courtesy. It must never be the reason a finished job
         # fails after the training has already been paid for.
@@ -370,14 +390,25 @@ def sample_text(model, spec: Dict[str, Any], features, count: int = SAMPLE_COUNT
 class PooledTrainer:
     """Replicates a model across devices and trains with uneven shards."""
 
-    def __init__(self, factory: Callable[[], Any], devices: List[Any]):
+    def __init__(self, factory: Callable[[], Any], devices: List[Any],
+                 initial_state: Optional[Dict[str, Any]] = None):
         torch = _torch()
         self.torch = torch
         self.devices = devices
 
         self.replicas = []
         for device in devices:
-            self.replicas.append(factory().to(device))
+            model = factory()
+            # Carrying on from a previous run rather than from random noise.
+            # strict=True: weights that do not fit this model are a mistake to
+            # report, not something to paper over by loading half of them.
+            if initial_state is not None:
+                model.load_state_dict(
+                    {name: torch.as_tensor(value)
+                     for name, value in initial_state.items()},
+                    strict=True,
+                )
+            self.replicas.append(model.to(device))
 
         self.master = self.replicas[0]
         self.primary = devices[0]
@@ -485,7 +516,8 @@ def train(task_data: Dict[str, Any], log: Callable[[str], None],
           plan: Optional[List[Dict[str, Any]]] = None,
           batch_size: Optional[int] = None,
           dataset: Optional[Tuple[Any, Any]] = None,
-          on_progress: Optional[Callable[[Dict[str, Any]], None]] = None) -> Dict[str, Any]:
+          on_progress: Optional[Callable[[Dict[str, Any]], None]] = None,
+          initial_state: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Run a real training job. Returns metrics for the coordinator.
 
     `batch_size` overrides the hyperparameter when the caller has already
@@ -496,6 +528,11 @@ def train(task_data: Dict[str, Any], log: Callable[[str], None],
 
     `on_progress` is called after every step with structured numbers, so the
     dashboard can draw a progress bar instead of scraping the log text.
+
+    `initial_state` starts training from a previous run's weights instead of
+    from random initialisation. Each run in a series used to begin again from
+    nothing, so improving a model meant paying for everything it had already
+    learned a second time.
 
     Returns {"metrics": {...}, "state_dict": {...}} where state_dict holds the
     trained weights as numpy arrays, ready to hand back to the submitter.
@@ -561,7 +598,19 @@ def train(task_data: Dict[str, Any], log: Callable[[str], None],
     log(f"Training {steps} steps at batch {effective_batch} "
         f"across {len(devices)} device(s)")
 
-    trainer = PooledTrainer(workload["factory"], devices)
+    if initial_state is not None:
+        log(f"Continuing from a model that was already trained "
+            f"({len(initial_state)} tensors).")
+
+    try:
+        trainer = PooledTrainer(workload["factory"], devices, initial_state)
+    except (RuntimeError, KeyError) as e:
+        # A shape that does not fit is worth naming: the submitter changed the
+        # model between runs and the old weights cannot be carried over.
+        raise ValueError(
+            f"The weights being continued from do not fit this model: {e}"
+        )
+
     optimizer = torch.optim.Adam(trainer.parameters(), lr=learning_rate)
 
     generator = torch.Generator().manual_seed(seed)
@@ -654,6 +703,7 @@ def train(task_data: Dict[str, Any], log: Callable[[str], None],
         "synthetic_data": dataset is None,
         "ran_hot": warned_hot,
         "stopped_early": stopped_early,
+        "warm_started": initial_state is not None,
     }
 
     # Kept out of the manifest: build_manifest picks named keys, and a model

@@ -1,5 +1,6 @@
 import uuid
 import time
+import re
 import numpy as np
 from fastapi import Body, FastAPI, HTTPException, Request, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,7 +14,7 @@ from backend.service.authNodeService import verify_signature
 from backend.service.tokenService import issue_node_token, read_node_token, NODE_TOKEN_TTL
 from backend.service.submitterService import read_submitter_key
 from backend.service.jobSpec import (
-    ARCHITECTURES, JobSpecError, advise, job_schema, validate_job,
+    ARCHITECTURES, JobSpecError, advise, job_schema, next_run_name, validate_job,
 )
 from backend.service.nodePicker import (
     BUSY_STATUSES, NoNodeAvailable, pick_node, summarise_choice,
@@ -1055,6 +1056,59 @@ async def retry_task(
     task_data = dict(task.get("task_data") or {})
     notes: List[str] = []
 
+    # Name the run after the one it came from. Every re-run inheriting the
+    # parent's name left a list of identical labels and a download that
+    # overwrote the one before it -- and the series view, which exists to
+    # compare them, had nothing to tell them apart by.
+    if not (changes or {}).get("model_name"):
+        parent_name = str(task_data.get("model_name") or "model")
+        base = re.sub(r"-v\d+$", "", parent_name.strip()) or "model"
+
+        # Everything already called this, so two adjustments of the same run
+        # do not both come out as v2.
+        family = await db.tasks_collection.find(
+            {"submitter_id": submitter,
+             "task_data.model_name": {"$regex": rf"^{re.escape(base)}(-v\d+)?$"}},
+            {"task_data.model_name": 1},
+        ).to_list(length=200)
+
+        task_data["model_name"] = next_run_name(
+            parent_name,
+            [(t.get("task_data") or {}).get("model_name") for t in family],
+        )
+
+    # Carry on from what the last run learned instead of starting over.
+    #
+    # Weights only fit the model they came from, so the shape cannot change:
+    # a wider or deeper network has different tensors and load_state_dict
+    # would refuse them -- on the contributor's machine, after the job had
+    # been claimed. Refused here instead, where it is a sentence rather than a
+    # failed run.
+    warm_start = bool((changes or {}).get("continue_from"))
+    initial_weights_id = None
+
+    if warm_start:
+        initial_weights_id = task.get("weights_id")
+        if not initial_weights_id:
+            raise HTTPException(
+                status_code=409,
+                detail="That job produced no model to carry on from.",
+            )
+
+        spec_changes = {k: v for k, v in ((changes or {}).get("model_spec") or {}).items()
+                        if k != "architecture"}
+        current = task_data.get("model_spec") or {}
+        differing = [k for k, v in spec_changes.items() if current.get(k) != v]
+        if differing:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Carrying on from a trained model keeps its shape, so "
+                    f"{', '.join(sorted(differing))} cannot change. Train "
+                    f"longer, or change the model and start fresh."
+                ),
+            )
+
     # Only the two things worth changing between runs. The dataset is fixed by
     # definition here, and its shape decided the rest of the model already.
     if changes:
@@ -1119,6 +1173,8 @@ async def retry_task(
         "task_data": task_data,
         "dataset_id": task.get("dataset_id"),
         "holdout_artifact_id": task.get("holdout_artifact_id"),
+        # The model this run begins from, or None to begin from noise.
+        "initial_weights_id": initial_weights_id,
         "status": "pending",
         "attempts": 0,
         "submitted_at": datetime.utcnow(),
@@ -1135,6 +1191,7 @@ async def retry_task(
         "task_id": retry["_id"],
         "task_status": "pending",
         "verifiable": bool(retry["holdout_artifact_id"]),
+        "continued": bool(initial_weights_id),
         "notes": notes,
     }
 
@@ -1174,6 +1231,8 @@ async def next_task(
                 "task_id": task["_id"],
                 "task_data": task.get("task_data", {}),
                 "dataset_id": task.get("dataset_id"),
+                # The model this job carries on from, if it carries on from one.
+                "initial_weights_id": task.get("initial_weights_id"),
                 "attempts": task.get("attempts", 0),
                 "submitted_at": (task.get("submitted_at").isoformat()
                                  if task.get("submitted_at") else None),
@@ -1201,6 +1260,7 @@ async def next_task(
             "task_id": task["_id"],
             "task_data": task.get("task_data", {}),
             "dataset_id": task.get("dataset_id"),
+            "initial_weights_id": task.get("initial_weights_id"),
             "attempts": task.get("attempts", 1),
         }
     }
@@ -1419,8 +1479,128 @@ async def list_my_tasks(
     return [public_task(t, owner=True) for t in tasks]
 
 
+# What a submitter may ask a finished model to write, and how much of it.
+# This is a forward pass per token on the coordinator's CPU, so it is bounded
+# rather than trusted: a small model is cheap, and cheap times unbounded is not.
+MAX_PROMPT_CHARS = 500
+MAX_SAMPLE_TOKENS = 400
+DEFAULT_SAMPLE_TOKENS = 200
+
+
+@app.post("/my-tasks/{task_id}/sample")
+async def sample_from_model(
+    task_id: str,
+    body: dict = Body(None),
+    db: Database = Depends(get_db),
+    submitter: Optional[str] = Depends(optional_submitter),
+):
+    """Ask a finished language model to continue a prompt you type.
+
+    A model came back as a number, a grade, and three continuations of prompts
+    the node picked. Finding out what it does with a prompt of your own meant
+    downloading the weights, installing torch and running a script -- for a
+    forward pass that takes a fraction of a second on the machine already
+    holding the file.
+    """
+    task = await _owned_task(db, task_id, submitter)
+
+    weights_id = task.get("weights_id")
+    if not weights_id:
+        raise HTTPException(status_code=409, detail="This job has no model to ask.")
+
+    spec = (task.get("task_data") or {}).get("model_spec") or {}
+    architecture = str(spec.get("architecture", "mlp")).lower()
+    if architecture in ("mlp", "feedforward"):
+        raise HTTPException(
+            status_code=400,
+            detail="This model classifies rows of numbers; it does not write text.",
+        )
+
+    prompt = str((body or {}).get("prompt") or "")
+    if not prompt.strip():
+        raise HTTPException(status_code=400, detail="Type something for it to continue.")
+    if len(prompt) > MAX_PROMPT_CHARS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"The prompt is longer than {MAX_PROMPT_CHARS} characters.",
+        )
+
+    try:
+        length = int((body or {}).get("length") or DEFAULT_SAMPLE_TOKENS)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="length must be a whole number.")
+    length = max(1, min(length, MAX_SAMPLE_TOKENS))
+
+    try:
+        temperature = float((body or {}).get("temperature", 0.8))
+    except (TypeError, ValueError):
+        temperature = 0.8
+    temperature = max(0.0, min(temperature, 2.0))
+
+    from backend.service.artifacts import ArtifactError, read_manifest, unpack_state_dict
+    from backend.service.trainer import (
+        build_workload, continue_tokens, render_bytes,
+    )
+
+    try:
+        payload = await _read_artifact(db, str(weights_id))
+        state_dict = unpack_state_dict(payload)
+        manifest = read_manifest(payload) or {}
+    except Exception as e:
+        logger.error(f"Could not read weights {weights_id}: {e}")
+        raise HTTPException(status_code=400, detail="Could not read the model file.")
+
+    # The manifest travels inside the weights and is the authority on what was
+    # actually built -- the task's spec is what was asked for.
+    resolved = manifest.get("spec") or spec
+    tokenizer = (manifest.get("tokenizer") or {}).get("kind")
+    if tokenizer and tokenizer != "bytes":
+        raise HTTPException(
+            status_code=400,
+            detail=f"This model's tokeniser is {tokenizer!r}, which this "
+                   f"service cannot encode for.",
+        )
+
+    def run():
+        import torch
+
+        model = build_workload(resolved)["factory"]()
+        model.load_state_dict(
+            {name: torch.as_tensor(np.asarray(value))
+             for name, value in state_dict.items()},
+            strict=True,
+        )
+        model.eval()
+
+        ids = list(prompt.encode("utf-8"))
+        grown = continue_tokens(model, resolved, ids,
+                                length=length, temperature=temperature)
+        return render_bytes(grown[len(ids):])
+
+    try:
+        # Off the event loop: this is a few hundred forward passes, and the
+        # coordinator still has heartbeats to answer while it runs.
+        continuation = await asyncio.to_thread(run)
+    except ArtifactError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Could not sample task {task_id}: {e}")
+        raise HTTPException(status_code=500, detail="The model could not be run.")
+
+    return {
+        "status": "success",
+        "prompt": prompt,
+        "continuation": continuation,
+        "tokens": length,
+    }
+
+
 async def _forget_dataset(db, task: dict) -> int:
     """Delete the dataset copies a finished job no longer needs.
+
+    Weights are never touched here -- neither the ones a job produced nor the
+    ones it started from, which belong to the run before it and are still that
+    run's result.
 
     Submitted data used to live in the database for ever: the training split,
     the holdout, and the original upload that prepare_dataset_split replaced.
@@ -1893,8 +2073,12 @@ async def download_artifact(
     # submitter may read the weights their own job produced -- but never the
     # dataset by id, which they already hold.
     if caller:
+        # initial_weights_id is the model a continuing job starts from. The
+        # node has to read it to load it, and only for a task assigned to it.
         claim = {"node_id": caller,
-                 "$or": [{"dataset_id": artifact_id}, {"weights_id": artifact_id}]}
+                 "$or": [{"dataset_id": artifact_id},
+                         {"weights_id": artifact_id},
+                         {"initial_weights_id": artifact_id}]}
     else:
         claim = {"submitter_id": submitter, "weights_id": artifact_id}
 
@@ -2026,11 +2210,30 @@ async def verify_task(task_id: str, db: Database = Depends(get_db)):
     task_data = task.get("task_data", {}) or {}
     spec = task_data.get("model_spec") or {}
 
+    # A job continuing an earlier one is handed a model that already works.
+    # Nothing stops a node from claiming it, sleeping, and handing the same
+    # weights straight back -- and they would score well, because they were
+    # good when they arrived. So the starting point goes to the verifier,
+    # which already knows how to refuse weights identical to what it began
+    # with; it simply had nothing to compare against until now.
+    initial_state = None
+    initial_id = task.get("initial_weights_id")
+    if initial_id:
+        try:
+            initial_state = unpack_state_dict(await _read_artifact(db, str(initial_id)))
+        except Exception as e:
+            logger.warning(
+                f"Could not read the starting weights for {task_id}: {e}. "
+                f"Verifying without the unchanged-weights check."
+            )
+
     # Evaluation is CPU-bound; keep it off the event loop.
     report = await asyncio.to_thread(
         verify_training_result,
         state_dict, spec, holdout_x, holdout_y,
         task.get("metrics", {}),
+        None,
+        initial_state,
     )
 
     await db.tasks_collection.update_one(

@@ -20,6 +20,7 @@ definition means the form and the validator cannot drift apart.
 """
 
 import math
+import re
 from typing import Any, Dict, List, Optional, Tuple
 
 TASK_TYPES = ("llm_training",)
@@ -182,6 +183,37 @@ def suggest_steps(rows: int, batch_size: int, default: int) -> int:
 
     wanted = math.ceil((TARGET_PASSES * rows) / batch_size)
     return int(max(default, min(wanted, MAX_SUGGESTED_STEPS)))
+
+
+# A re-run that keeps its parent's name leaves a list of identical labels, and
+# the download it produces overwrites the one before it. Runs are a sequence,
+# so they should be named like one.
+#
+# A dash rather than a space: the name becomes a filename, and
+# `load_model.py my-model v2-task_1234.npz` is two arguments.
+RUN_SUFFIX = re.compile(r"-v(\d+)$")
+
+
+def next_run_name(parent_name: str, taken: Optional[List[str]] = None) -> str:
+    """The next name in a series, given what the earlier runs were called.
+
+    Numbers follow the family rather than the chain, so two adjustments of the
+    same run do not both come out as v2.
+    """
+    base = RUN_SUFFIX.sub("", str(parent_name or "model").strip()) or "model"
+
+    highest = 1
+    for name in (taken or []):
+        name = str(name).strip()
+        if name == base:
+            continue
+        match = RUN_SUFFIX.match(name[len(base):]) if name.startswith(base) else None
+        if match:
+            highest = max(highest, int(match.group(1)))
+
+    suffix = f"-v{highest + 1}"
+    # The name has a length limit, and the suffix is the part that matters.
+    return base[:MAX_NAME_CHARS - len(suffix)] + suffix
 
 
 def advise(job: Dict[str, Any], dataset_info: Optional[Dict[str, Any]] = None) -> List[str]:

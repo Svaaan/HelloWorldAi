@@ -30,6 +30,7 @@ from backend.service.poolPlanner import pool_summary
 from backend.service.thermalPolicy import STATE_OK, STATE_STOP, thermal_status
 from backend.service.artifacts import (
     ArtifactError, pack_state_dict, parse_csv_dataset, unpack_dataset,
+    unpack_state_dict,
 )
 
 # Initialize logging
@@ -1028,12 +1029,45 @@ async def _run_task(task, node_id, headers) -> bool:
                                   "metrics": {}}, logs)
             return True
 
+    # A job continuing an earlier one starts from that run's weights instead of
+    # from random initialisation. Read with unpack_state_dict, which refuses
+    # anything that could execute code -- these came off another machine, and
+    # the coordinator only moved them.
+    initial_state = None
+    initial_id = task.get("initial_weights_id")
+    if initial_id:
+        try:
+            log(f"Downloading the model to continue from ({initial_id})")
+            async with httpx.AsyncClient() as client:
+                res = await client.get(
+                    f"{COORDINATOR_URL}/artifacts/{initial_id}",
+                    headers=headers, timeout=120,
+                )
+                res.raise_for_status()
+            initial_state = unpack_state_dict(res.content)
+            log(f"Starting from {len(initial_state)} existing tensors")
+        except ArtifactError as e:
+            log(f"Rejected those weights: {e}")
+            await _report_result(task_id, headers,
+                                 {"status": "failed",
+                                  "result": f"Starting weights rejected: {e}",
+                                  "metrics": {}}, logs)
+            return True
+        except Exception as e:
+            log(f"Could not download the starting weights: {e}")
+            await _report_result(task_id, headers,
+                                 {"status": "failed",
+                                  "result": f"Starting weights download failed: {e}",
+                                  "metrics": {}}, logs)
+            return True
+
     watcher = asyncio.create_task(_watch_for_cancel(task_id, headers))
     try:
         # execute_task blocks (and real training will block hard), so it runs off
         # the event loop or heartbeats would stall for the whole job.
         outcome = await asyncio.to_thread(
-            execute_task, task.get("task_data", {}), log, dataset, on_progress
+            execute_task, task.get("task_data", {}), log, dataset, on_progress,
+            initial_state
         )
     except Exception as e:
         logger.error(f"Task {task_id} raised: {e}")

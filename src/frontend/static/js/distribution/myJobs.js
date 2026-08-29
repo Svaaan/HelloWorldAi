@@ -32,7 +32,19 @@ const openJobs = new Set();
 // A row being *open* survives a rebuild through openJobs above, because that
 // is one boolean. Half-typed input is not something to rebuild -- so while
 // somebody is editing, the refresh waits.
+//
+// Keyed by job *and* panel: a row can have both the settings form and the
+// prompt box open, and closing one must not resume the refresh under the
+// other.
 const editingJobs = new Set();
+
+function beginEditing(taskId, panel) {
+  editingJobs.add(`${taskId}:${panel}`);
+}
+
+function endEditing(taskId, panel) {
+  editingJobs.delete(`${taskId}:${panel}`);
+}
 
 const STATUS_LABEL = {
   pending: "Queued",
@@ -241,6 +253,187 @@ function buildUsage(job) {
   return box;
 }
 
+// --- comparing runs on the same data -------------------------------------
+//
+// Three runs sat in a list and the only way to tell whether the second was
+// better than the first was to open both and read numbers off them. Worse, a
+// run that changed two settings at once left no record of which one bought the
+// improvement -- so the loop produced numbers without producing knowledge.
+//
+// Every re-run already records the job it came from. That is a chain, and a
+// chain of (what changed, what it scored) is the thing worth looking at.
+
+const TRACKED_SETTINGS = [
+  ["hidden_dim", "hidden width"], ["depth", "layers"],
+  ["d_model", "width"], ["n_head", "heads"], ["n_layer", "layers"],
+  ["steps", "steps"], ["batch_size", "batch"], ["learning_rate", "rate"],
+];
+
+function settingsOf(job) {
+  return { ...(job.task_data?.model_spec || {}),
+           ...(job.task_data?.hyperparameters || {}) };
+}
+
+/** What this run changed from the one it came from, in words. */
+function changesFrom(job, parent) {
+  if (!parent) return "first run";
+
+  const before = settingsOf(parent);
+  const after = settingsOf(job);
+
+  const changed = TRACKED_SETTINGS
+    .filter(([key]) => key in after && before[key] !== after[key])
+    .map(([key, label]) => `${label} ${before[key]} → ${after[key]}`);
+
+  return changed.length ? changed.join(", ") : "same settings";
+}
+
+/** Runs descended from one original, oldest first. */
+function seriesFor(job, byId) {
+  const chain = [];
+  const seen = new Set();
+
+  let current = job;
+  while (current && !seen.has(current.task_id)) {
+    seen.add(current.task_id);
+    chain.unshift(current);
+    current = current.retry_of ? byId.get(current.retry_of) : null;
+  }
+  return chain;
+}
+
+function buildSeries(job, byId) {
+  const chain = seriesFor(job, byId).filter(
+    (run) => (run.verification?.measured || {}).learned_fraction != null
+  );
+  if (chain.length < 2) return null;
+
+  const box = el("details", "job-series");
+  box.open = true;
+  box.appendChild(el("summary", null, `Runs on this data (${chain.length})`));
+
+  const body = el("div", "job-series-body");
+  const best = Math.max(...chain.map(
+    (run) => run.verification.measured.learned_fraction));
+
+  chain.forEach((run, index) => {
+    const captured = run.verification.measured.learned_fraction;
+    const row = el("div", "series-run");
+    if (run.task_id === job.task_id) row.classList.add("is-current");
+
+    row.appendChild(el("span", "series-change",
+      changesFrom(run, index ? chain[index - 1] : null)));
+
+    // A bar, because the point is which one is taller.
+    const track = el("span", "series-bar");
+    const fill = el("span",
+      captured >= best ? "series-fill is-best" : "series-fill");
+    fill.style.width = `${Math.max(2, captured * 100).toFixed(1)}%`;
+    track.appendChild(fill);
+    row.appendChild(track);
+
+    row.appendChild(el("span", "series-score", `${(captured * 100).toFixed(1)}%`));
+    body.appendChild(row);
+  });
+
+  body.appendChild(el("p", "job-field-hint",
+    "How much of the possible improvement over guessing each run captured, "
+    + "all scored on the same held-back rows."));
+
+  box.appendChild(body);
+  return box;
+}
+
+
+// Ask the model something of your own.
+//
+// A finished language model arrived as a grade and three continuations of
+// prompts the node chose. What it does with *your* sentence is the question
+// anyone actually has, and answering it meant downloading the weights,
+// installing torch and running a script -- for a forward pass that takes two
+// seconds on the machine already holding the file.
+function buildPrompt(job) {
+  const box = el("details", "job-prompt");
+  box.appendChild(el("summary", null, "Ask it to write something"));
+
+  // Open, the panel holds a half-typed prompt and an answer worth reading.
+  // The list rebuilds every ten seconds and would take both away.
+  box.addEventListener("toggle", () => {
+    if (box.open) beginEditing(job.task_id, "prompt");
+    else endEditing(job.task_id, "prompt");
+  });
+
+  const body = el("div", "job-prompt-body");
+  body.appendChild(el("p", "job-field-hint",
+    "Type the start of something and it will continue it, in whatever style "
+    + "it picked up from your data."));
+
+  const input = document.createElement("textarea");
+  input.className = "job-prompt-input";
+  input.rows = 2;
+  input.placeholder = "The quick brown fox";
+  input.maxLength = 500;
+  body.appendChild(input);
+
+  const ask = el("button", "btn-ghost", "Continue it");
+  ask.type = "button";
+
+  const output = el("p", "job-prompt-output");
+  output.hidden = true;
+
+  ask.addEventListener("click", async () => {
+    const prompt = input.value.trim();
+    if (!prompt) {
+      output.hidden = false;
+      output.replaceChildren(el("span", "error-message", "Type something first."));
+      return;
+    }
+
+    ask.disabled = true;
+    ask.textContent = "Writing…";
+    output.hidden = false;
+    output.replaceChildren(el("span", null, "…"));
+
+    try {
+      const res = await fetch(`/my-tasks/${encodeURIComponent(job.task_id)}/sample`, {
+        method: "POST",
+        headers: submitterHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({ prompt, length: 200, temperature: 0.7 }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.status !== "success") {
+        throw new Error(data?.detail?.detail || data?.detail || "The model could not be run.");
+      }
+
+      // The prompt in bold and the model's own words after it, so it is
+      // obvious where one ends and the other begins.
+      output.replaceChildren();
+      output.appendChild(el("strong", null, data.prompt));
+      output.appendChild(el("span", null, data.continuation));
+    } catch (error) {
+      console.error("Could not sample the model:", error);
+      output.replaceChildren(el("span", "error-message", error.message));
+    } finally {
+      ask.disabled = false;
+      ask.textContent = "Continue it";
+    }
+  });
+
+  // Enter sends; Shift+Enter is a newline, since a prompt can be several lines.
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      ask.click();
+    }
+  });
+
+  body.appendChild(ask);
+  body.appendChild(output);
+  box.appendChild(body);
+  return box;
+}
+
+
 // Same data, different settings. Only the numbers worth changing between two
 // runs -- the dataset is fixed here, and its shape already decided the rest.
 function buildTuner(job, onClose) {
@@ -253,12 +446,32 @@ function buildTuner(job, onClose) {
     "Runs on the same data, scored against the same held-back rows — so the "
     + "difference in the result is your change, not a different split."));
 
+  // Carry on from what this run already learned, rather than paying for it
+  // twice. Only offered when there is a model to carry on from.
+  let continueFrom = null;
+  if (job.weights_id) {
+    const wrap = el("label", "job-continue");
+    continueFrom = document.createElement("input");
+    continueFrom.type = "checkbox";
+    wrap.appendChild(continueFrom);
+
+    const words = el("span");
+    words.appendChild(el("strong", null, "Carry on from this model"));
+    words.appendChild(el("span", null,
+      " — start where this run finished instead of from scratch. Keeps the "
+      + "same shape, so only the training settings can change."));
+    wrap.appendChild(words);
+    box.appendChild(wrap);
+  }
+
   const grid = el("div", "job-field-grid");
   const inputs = new Map();
 
   const fields = isText
     ? [["d_model", "Model width", spec.d_model], ["n_layer", "Layers", spec.n_layer]]
     : [["hidden_dim", "Hidden width", spec.hidden_dim], ["depth", "Hidden layers", spec.depth]];
+
+  const shapeNames = fields.map(([name]) => name);
 
   fields.concat([
     ["steps", "Training steps", hyper.steps],
@@ -281,11 +494,27 @@ function buildTuner(job, onClose) {
   });
   box.appendChild(grid);
 
+  // Greyed rather than hidden: seeing that the shape is fixed, and why, beats
+  // watching two fields vanish.
+  function applyContinueState() {
+    const on = Boolean(continueFrom?.checked);
+    shapeNames.forEach((name) => {
+      const input = inputs.get(name);
+      input.disabled = on;
+      input.closest(".job-field").classList.toggle("is-locked", on);
+    });
+  }
+
+  if (continueFrom) {
+    continueFrom.addEventListener("change", applyContinueState);
+    applyContinueState();
+  }
+
   const status = el("div", "field-status");
 
-  editingJobs.add(job.task_id);
+  beginEditing(job.task_id, "tune");
   const done = () => {
-    editingJobs.delete(job.task_id);
+    endEditing(job.task_id, "tune");
     if (onClose) onClose();
   };
 
@@ -301,11 +530,18 @@ function buildTuner(job, onClose) {
       return Number.isFinite(parsed) ? parsed : undefined;
     };
 
+    const carrying = Boolean(continueFrom?.checked);
     const changes = { model_spec: {}, hyperparameters: {} };
-    fields.forEach(([name]) => {
-      const value = read(name);
-      if (value !== undefined) changes.model_spec[name] = value;
-    });
+    if (carrying) changes.continue_from = true;
+
+    // Sending the shape at all while carrying on would be refused, and
+    // rightly: the weights only fit the model they came from.
+    if (!carrying) {
+      fields.forEach(([name]) => {
+        const value = read(name);
+        if (value !== undefined) changes.model_spec[name] = value;
+      });
+    }
     ["steps", "learning_rate"].forEach((name) => {
       const value = read(name);
       if (value !== undefined) changes.hyperparameters[name] = value;
@@ -323,14 +559,16 @@ function buildTuner(job, onClose) {
       }
 
       status.replaceChildren(el("span", "success-message",
-        `Queued as ${data.task_id}. It will appear above when it finishes.`));
+        data.continued
+          ? `Queued as ${data.task_id}, carrying on from this model.`
+          : `Queued as ${data.task_id}. It will appear above when it finishes.`));
       (data.notes || []).forEach((text) =>
         status.appendChild(el("p", "field-advice", text)));
 
       // Let the panel stand long enough to read what it just said, then let
       // the list come back and show the new run.
       setTimeout(() => {
-        editingJobs.delete(job.task_id);
+        endEditing(job.task_id, "tune");
         loadMyJobs();
       }, 4000);
     } catch (error) {
@@ -358,7 +596,7 @@ function buildTuner(job, onClose) {
 }
 
 
-function buildJobRow(job) {
+function buildJobRow(job, byId) {
   const row = el("details", "job-row");
   row.open = openJobs.has(job.task_id);
   row.addEventListener("toggle", () => {
@@ -415,6 +653,11 @@ function buildJobRow(job) {
 
   const grading = strengthNote(job.verification);
   if (grading) body.appendChild(el("p", "job-grade", grading));
+
+  // Where this run sits among the ones before it, and what was changed to get
+  // here. Only worth drawing once there is something to compare against.
+  const series = byId ? buildSeries(job, byId) : null;
+  if (series) body.appendChild(series);
 
   // What the model actually writes. This is the only question anyone has
   // about a finished language model, and answering it used to require a
@@ -490,6 +733,13 @@ function buildJobRow(job) {
     download.addEventListener("click", () => downloadModel(job, download));
     body.appendChild(download);
 
+    // Before the download, not after it: what this thing writes is the reason
+    // to want the file at all.
+    const architecture = job.task_data?.model_spec?.architecture || "mlp";
+    if (!["mlp", "feedforward"].includes(architecture)) {
+      body.appendChild(buildPrompt(job));
+    }
+
     // A downloaded .npz is a bag of arrays until someone knows what to do with
     // it. The file describes itself, so the whole answer is two commands.
     body.appendChild(buildUsage(job));
@@ -560,8 +810,10 @@ export async function loadMyJobs() {
     const present = new Set(jobs.map((job) => job.task_id));
     [...openJobs].forEach((id) => { if (!present.has(id)) openJobs.delete(id); });
 
+    const byId = new Map(jobs.map((job) => [job.task_id, job]));
+
     const list = el("div", "job-list");
-    jobs.forEach((job) => list.appendChild(buildJobRow(job)));
+    jobs.forEach((job) => list.appendChild(buildJobRow(job, byId)));
     container.replaceChildren(list);
   } catch (error) {
     console.error("Could not load your jobs:", error);

@@ -350,6 +350,26 @@ async def proxy_upload_artifact(request: Request):
         return {"status": "error", "message": f"Failed to reach coordinator: {e}"}
 
 
+@router.post("/my-tasks/{task_id}/sample")
+async def proxy_sample_model(task_id: str, request: Request):
+    """Ask a finished model to continue a prompt."""
+    body = await request.body()
+    headers = auth_headers(request)
+    headers["Content-Type"] = "application/json"
+
+    try:
+        async with httpx.AsyncClient() as client:
+            res = await client.post(
+                f"{COORDINATOR_URL}/my-tasks/{task_id}/sample",
+                content=body, headers=headers, timeout=120,
+            )
+            if res.status_code >= 400:
+                raise HTTPException(status_code=res.status_code, detail=safe_json(res))
+            return safe_json(res)
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=502, detail=f"Failed to reach coordinator: {e}")
+
+
 @router.post("/artifacts/{artifact_id}/append")
 async def proxy_append_artifact(artifact_id: str, request: Request):
     """Add another file to a dataset that was already uploaded."""
