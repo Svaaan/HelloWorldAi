@@ -516,3 +516,29 @@ pre {
     scroll-behavior: auto !important;
   }
 }
+
+/* "This exists in one place and you are about to lose it." Used on both the
+   workspace and the node page, since both identities are a key in localStorage
+   and neither can be recovered by anyone. */
+.key-warning {
+  padding: 0.75rem 0.9rem;
+  margin-bottom: 0.9rem;
+  border: 1px solid var(--warning);
+  border-left-width: 3px;
+  border-radius: var(--r-xs);
+  background-color: var(--warning-wash);
+}
+
+.key-warning strong {
+  display: block;
+  margin-bottom: 0.3rem;
+  font-size: 0.8125rem;
+  color: var(--warning);
+}
+
+.key-warning p {
+  margin: 0 0 0.4rem;
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  color: var(--text-muted);
+}

@@ -196,8 +196,7 @@ def dataset_sampler(features, labels, spec: Dict[str, Any]):
     architecture = str(spec.get("architecture", "mlp")).lower()
     if architecture in ("mlp", "feedforward"):
         # One label per row: a class index.
-        x = x.float()
-        y = y.long()
+        feature_dtype = torch.float32
     else:
         # One label per *position*: the token that follows it. This used to
         # cast a 1-D label array to long and hand it over, which meant the
@@ -211,15 +210,19 @@ def dataset_sampler(features, labels, spec: Dict[str, Any]):
                 f"and y{tuple(y.shape)}. Upload a .txt file and the targets "
                 f"are built for you."
             )
-        x = x.long()
-        y = y.long()
+        feature_dtype = torch.long
 
     total = x.shape[0]
 
+    # Widened per batch rather than over the whole dataset. Casting up front
+    # turned a corpus of byte ids into an int64 array eight times its size and
+    # held it there for the length of the job -- on someone else's machine, to
+    # feed a few hundred rows at a time.
     def make_batch(n, generator, device):
         # Sample with replacement so a batch larger than the dataset still works.
         index = torch.randint(0, total, (n,), generator=generator)
-        return x[index].to(device), y[index].to(device)
+        return (x[index].to(device=device, dtype=feature_dtype),
+                y[index].to(device=device, dtype=torch.long))
 
     return make_batch, total
 

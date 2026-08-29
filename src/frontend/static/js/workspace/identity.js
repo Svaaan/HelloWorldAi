@@ -19,6 +19,39 @@ import {
 const FILE_TYPE = "helloworldai-builder-key";
 const FILE_VERSION = 1;
 
+// Whether this key has ever been written to a file.
+//
+// The key lives in localStorage, which is the same store a browser empties
+// when someone clears site data, uses a private window, or switches machines.
+// Nothing said so, and there is no recovery: the coordinator keeps only a
+// one-way digest, so a lost key is a lost workspace and every model in it.
+// A quiet "Save key to a file" button next to that is not a warning.
+//
+// The flag is stored beside the key, so clearing site data clears it too --
+// which is correct. A restored browser with no record of a backup should ask
+// again rather than assume.
+const BACKED_UP_KEY = "submitterKeyBackedUp";
+
+function markBackedUp() {
+  try {
+    localStorage.setItem(BACKED_UP_KEY, getSubmitterKey().slice(0, 8));
+  } catch {
+    // A browser that refuses storage will simply keep asking, which is the
+    // safe direction to fail in.
+  }
+}
+
+/** Whether the key currently held has been written to a file from here. */
+function isBackedUp() {
+  try {
+    const stored = localStorage.getItem(BACKED_UP_KEY);
+    return Boolean(stored) && hasSubmitterKey()
+      && stored === getSubmitterKey().slice(0, 8);
+  } catch {
+    return false;
+  }
+}
+
 function el(tag, className, text) {
   const node = document.createElement(tag);
   if (className) node.className = className;
@@ -64,6 +97,8 @@ function downloadKeyFile() {
   link.remove();
   setTimeout(() => URL.revokeObjectURL(url), 30000);
 
+  markBackedUp();
+  renderBackupWarning(false);    // the moment it is saved, not on next load
   setStatus("Key saved. Keep it somewhere safe — it is the only way back to your jobs.", "success");
 }
 
@@ -98,8 +133,30 @@ async function loadKeyFile(file) {
   if (!key) throw new Error("No builder key in that file.");
 
   setSubmitterKey(key);          // throws if it is malformed
+  markBackedUp();                // it demonstrably exists in a file
   return key;
 }
+
+// --- the one copy problem -------------------------------------------------
+
+function renderBackupWarning(needed) {
+  const host = document.getElementById("identityWarning");
+  if (!host) return;
+
+  host.replaceChildren();
+  host.hidden = !needed;
+  if (!needed) return;
+
+  const box = el("div", "key-warning");
+  box.appendChild(el("strong", null, "This key exists only in this browser."));
+  box.appendChild(el("p", null,
+    "Clearing site data, a private window, or a different computer will lose "
+    + "it — and with it every job and model on this page. There is no reset: "
+    + "the coordinator stores a one-way digest of your key and cannot give it "
+    + "back. Save it to a file now."));
+  host.appendChild(box);
+}
+
 
 // --- wiring ---------------------------------------------------------------
 
@@ -126,6 +183,8 @@ export async function initIdentity({ onChange } = {}) {
     save.disabled = !known;
     save.addEventListener("click", downloadKeyFile);
   }
+
+  renderBackupWarning(known && !isBackedUp());
 
   const fileInput = document.getElementById("keyFileInput");
   if (fileInput) {

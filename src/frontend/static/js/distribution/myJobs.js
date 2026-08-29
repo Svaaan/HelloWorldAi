@@ -230,6 +230,111 @@ function buildUsage(job) {
   return box;
 }
 
+// Same data, different settings. Only the numbers worth changing between two
+// runs -- the dataset is fixed here, and its shape already decided the rest.
+function buildTuner(job, onClose) {
+  const spec = job.task_data?.model_spec || {};
+  const hyper = job.task_data?.hyperparameters || {};
+  const isText = !["mlp", "feedforward"].includes(spec.architecture || "mlp");
+
+  const box = el("div", "job-tuner");
+  box.appendChild(el("p", "job-field-hint",
+    "Runs on the same data, scored against the same held-back rows — so the "
+    + "difference in the result is your change, not a different split."));
+
+  const grid = el("div", "job-field-grid");
+  const inputs = new Map();
+
+  const fields = isText
+    ? [["d_model", "Model width", spec.d_model], ["n_layer", "Layers", spec.n_layer]]
+    : [["hidden_dim", "Hidden width", spec.hidden_dim], ["depth", "Hidden layers", spec.depth]];
+
+  fields.concat([
+    ["steps", "Training steps", hyper.steps],
+    ["learning_rate", "Learning rate", hyper.learning_rate],
+  ]).forEach(([name, label, value]) => {
+    const wrap = el("div", "job-field");
+    const tag = el("label", "job-field-label", label);
+    tag.htmlFor = `tune-${job.task_id}-${name}`;
+    wrap.appendChild(tag);
+
+    const input = document.createElement("input");
+    input.type = "number";
+    input.id = `tune-${job.task_id}-${name}`;
+    input.value = value ?? "";
+    if (name === "learning_rate") input.step = "any";
+    wrap.appendChild(input);
+
+    inputs.set(name, input);
+    grid.appendChild(wrap);
+  });
+  box.appendChild(grid);
+
+  const status = el("div", "field-status");
+
+  const send = el("button", "btn", "Run with these settings");
+  send.type = "button";
+  send.addEventListener("click", async () => {
+    send.disabled = true;
+    status.replaceChildren(el("span", null, "Queueing…"));
+
+    const read = (name) => {
+      const raw = String(inputs.get(name).value).trim();
+      const parsed = name === "learning_rate" ? Number(raw) : parseInt(raw, 10);
+      return Number.isFinite(parsed) ? parsed : undefined;
+    };
+
+    const changes = { model_spec: {}, hyperparameters: {} };
+    fields.forEach(([name]) => {
+      const value = read(name);
+      if (value !== undefined) changes.model_spec[name] = value;
+    });
+    ["steps", "learning_rate"].forEach((name) => {
+      const value = read(name);
+      if (value !== undefined) changes.hyperparameters[name] = value;
+    });
+
+    try {
+      const res = await fetch(`/retry-task/${encodeURIComponent(job.task_id)}`, {
+        method: "POST",
+        headers: submitterHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify(changes),
+      });
+      const data = await res.json();
+      if (!res.ok || data.status !== "success") {
+        throw new Error(data?.detail?.detail || data?.detail || "The coordinator refused it.");
+      }
+
+      status.replaceChildren(el("span", "success-message",
+        `Queued as ${data.task_id}. It will appear above when it finishes.`));
+      (data.notes || []).forEach((text) =>
+        status.appendChild(el("p", "field-advice", text)));
+      // The list refreshes on its own; reload now so the new run is immediate.
+      await loadMyJobs();
+    } catch (error) {
+      console.error("Could not queue the adjusted run:", error);
+      status.replaceChildren(el("span", "error-message", error.message));
+      send.disabled = false;
+    }
+  });
+
+  const cancel = el("button", "btn-ghost", "Cancel");
+  cancel.type = "button";
+  cancel.addEventListener("click", () => {
+    box.remove();
+    if (onClose) onClose();
+  });
+
+  const row = el("div", "job-actions");
+  row.appendChild(send);
+  row.appendChild(cancel);
+  box.appendChild(row);
+  box.appendChild(status);
+
+  return box;
+}
+
+
 function buildJobRow(job) {
   const row = el("details", "job-row");
   row.open = openJobs.has(job.task_id);
@@ -326,7 +431,7 @@ function buildJobRow(job) {
         : null,
     }));
     actions.appendChild(cancel);
-  } else {
+  } else if (job.can_rerun) {
     const again = el("button", "btn-ghost", "Run again");
     again.type = "button";
     again.addEventListener("click", () => act(job, again, {
@@ -334,6 +439,24 @@ function buildJobRow(job) {
       verb: "Queueing",
     }));
     actions.appendChild(again);
+
+    // The useful half. "Run again" repeats a result you have already seen;
+    // what you want after reading the grade is the same data with different
+    // numbers -- and re-uploading the file to get that would score the next
+    // run against a different holdout, making the comparison meaningless.
+    const tune = el("button", "btn-ghost", "Adjust and run");
+    tune.type = "button";
+    tune.addEventListener("click", () => {
+      tune.disabled = true;
+      body.insertBefore(buildTuner(job, () => { tune.disabled = false; }),
+                        actions.nextSibling);
+    });
+    actions.appendChild(tune);
+  } else if (job.status === "completed") {
+    // Its data has been deleted, so there is nothing to run it against.
+    actions.appendChild(el("p", "job-note",
+      "The data behind this job has been deleted, so it cannot be run again. "
+      + "Send it as a new job with the file."));
   }
 
   if (actions.childElementCount) body.appendChild(actions);

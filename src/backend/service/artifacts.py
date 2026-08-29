@@ -349,11 +349,20 @@ def parse_csv_dataset(text: str) -> Tuple[np.ndarray, np.ndarray, Optional[List[
 # built with.
 TEXT_VOCAB_SIZE = 256
 
-# Text expands: every byte becomes an int32 in both x and y, so the packed
-# archive is far larger than the file uploaded. Compression claws most of it
-# back for natural language, but the limit is on the input where the person
-# uploading can see it.
-MAX_TEXT_BYTES = 16 * 1024 * 1024
+# What a text corpus actually costs, measured rather than assumed.
+#
+# The packed archive is not the constraint: byte ids compress to a fraction of
+# the source (0.03x on repetitive text, well under 1x on prose). The constraint
+# is memory on the contributor's machine, which is somebody's home PC.
+#
+# It used to be 16x the source file there -- int32 arrays for x and y, cast to
+# int64 in one go before the first batch. Both were waste: a byte id fits in a
+# uint8, and the cast belongs on the batch rather than the corpus. That is now
+# 2x, so the same memory holds eight times the text.
+#
+#     16 MB source, before:  256 MB on the node
+#     16 MB source, after:    32 MB on the node
+MAX_TEXT_BYTES = 128 * 1024 * 1024
 
 MIN_SEQ_LEN, MAX_SEQ_LEN = 8, 2048
 
@@ -452,10 +461,11 @@ def parse_text_dataset(text: Any, seq_len: int = 64) -> Tuple[np.ndarray, np.nda
         )
 
     span = rows * seq_len
-    # int32 rather than int64: the ids only go up to 255, and this halves what
-    # crosses the network. The trainer casts to long when it builds the batch.
-    x = data[:span].reshape(rows, seq_len).astype(np.int32)
-    y = data[1:span + 1].reshape(rows, seq_len).astype(np.int32)
+    # uint8, because that is what a byte is. Every widening from here -- to the
+    # int64 an embedding lookup needs -- happens per batch, on the few hundred
+    # rows being trained on, rather than over the whole corpus at rest.
+    x = data[:span].reshape(rows, seq_len).copy()
+    y = data[1:span + 1].reshape(rows, seq_len).copy()
 
     info = {
         "tokenizer": "bytes",

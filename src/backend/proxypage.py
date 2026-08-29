@@ -323,6 +323,13 @@ async def proxy_verify_task(task_id: str):
         return {"error": f"Failed to reach coordinator: {e}"}
 
 
+# A corpus worth training a language model on is measured in tens of
+# megabytes. Two minutes was comfortable for a spreadsheet and not for that:
+# the upload has to cross the browser's connection, then this hop, and the
+# coordinator has to convert it before answering.
+ARTIFACT_UPLOAD_TIMEOUT = int(os.getenv("ARTIFACT_UPLOAD_TIMEOUT", 900))
+
+
 @router.post("/artifacts")
 async def proxy_upload_artifact(request: Request):
     """Forward a dataset (or weights) blob to the coordinator's store."""
@@ -334,7 +341,7 @@ async def proxy_upload_artifact(request: Request):
                 params=dict(request.query_params),
                 content=body,
                 headers={"Content-Type": "application/octet-stream"},
-                timeout=120,
+                timeout=ARTIFACT_UPLOAD_TIMEOUT,
             )
             if res.status_code >= 400:
                 raise HTTPException(status_code=res.status_code, detail=safe_json(res))
@@ -418,12 +425,23 @@ async def proxy_cancel_task(task_id: str, request: Request):
 
 @router.post("/retry-task/{task_id}")
 async def proxy_retry_task(task_id: str, request: Request):
-    """Queue the same job again."""
+    """Queue the same job again, with any changed settings.
+
+    The body carries the changes. Forwarding only the headers -- which this did
+    -- meant the coordinator saw an empty request and re-ran the original
+    settings while reporting success, so the page showed a tuned run that had
+    quietly ignored every value typed into it.
+    """
+    body = await request.body()
+    headers = auth_headers(request)
+    if body:
+        headers["Content-Type"] = "application/json"
+
     try:
         async with httpx.AsyncClient() as client:
             res = await client.post(
                 f"{COORDINATOR_URL}/retry-task/{task_id}",
-                headers=auth_headers(request), timeout=20,
+                headers=headers, content=body or None, timeout=20,
             )
             if res.status_code >= 400:
                 raise HTTPException(status_code=res.status_code, detail=safe_json(res))

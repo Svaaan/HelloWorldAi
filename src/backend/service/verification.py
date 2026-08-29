@@ -115,11 +115,31 @@ def _torch():
         return None
 
 
+# The most rows worth holding back, however large the dataset.
+#
+# A holdout exists to measure one number, and the precision of that number
+# depends on how many predictions it covers, not on what share of the data it
+# is. A flat 20% of a 200,000 sequence corpus is 40,000 sequences, which is
+# five million predictions -- and scoring it means four forward passes on the
+# coordinator's CPU, which took longer than the training did on a GPU and
+# pinned every core while it ran.
+#
+# A thousand rows is a standard error well under a percentage point, and it
+# costs the same whether the corpus is one megabyte or a hundred. Everything
+# above it goes to the node instead, so a bigger dataset now buys more
+# training rather than a slower check.
+MAX_HOLDOUT_ROWS = 1024
+
+
 def split_holdout(features, labels, holdout_fraction: float = 0.2,
-                  seed: int = 0) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+                  seed: int = 0,
+                  max_rows: Optional[int] = MAX_HOLDOUT_ROWS
+                  ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Split a dataset into (train_x, train_y, holdout_x, holdout_y).
 
-    Only the training half is ever sent to a node.
+    Only the training half is ever sent to a node. `max_rows` bounds the
+    holdout so verification costs the same on any size of dataset; pass None
+    for a strict fraction.
     """
     x = np.asarray(features)
     y = np.asarray(labels)
@@ -135,6 +155,8 @@ def split_holdout(features, labels, holdout_fraction: float = 0.2,
         raise ValueError(f"holdout_fraction must be between 0 and 1, got {holdout_fraction}")
 
     holdout_rows = max(1, int(round(rows * holdout_fraction)))
+    if max_rows:
+        holdout_rows = min(holdout_rows, int(max_rows))
     holdout_rows = min(holdout_rows, rows - 1)   # always leave something to train on
 
     order = np.random.default_rng(seed).permutation(rows)
@@ -181,26 +203,67 @@ def untrained_reference(spec: Dict[str, Any], features, labels,
     return {"loss": float(np.mean(losses)), "accuracy": float(np.mean(accuracies))}
 
 
+# How many rows to push through the model at once when scoring.
+#
+# This used to be "all of them". On a small table that is the same thing and
+# reads better; on a language model trained over a large corpus the holdout is
+# hundreds of thousands of sequences, and one forward pass over all of it asks
+# for more memory than the machine has. Scoring must not be the thing that
+# fails on a job that trained fine.
+EVAL_BATCH_ROWS = 512
+
+
+def _score_batched(model, workload, x, y, architecture: str) -> Dict[str, float]:
+    """Loss and accuracy over data too large for a single forward pass.
+
+    The mean over chunks is weighted by how many predictions each contained,
+    which makes it exactly the mean over the whole set rather than an average
+    of averages -- they differ whenever the last chunk is short.
+    """
+    torch = _torch()
+
+    x = np.asarray(x)
+    y = np.asarray(y)
+    is_classifier = architecture in ("mlp", "feedforward")
+
+    total_loss = 0.0
+    correct = 0
+    predicted = 0
+
+    with torch.no_grad():
+        for start in range(0, x.shape[0], EVAL_BATCH_ROWS):
+            chunk_x = torch.as_tensor(x[start:start + EVAL_BATCH_ROWS])
+            chunk_y = torch.as_tensor(y[start:start + EVAL_BATCH_ROWS]).long()
+            # Widened here rather than over the whole array, for the same
+            # reason the trainer widens per batch.
+            chunk_x = chunk_x.float() if is_classifier else chunk_x.long()
+
+            outputs = model(chunk_x)
+            flat = chunk_y.reshape(-1)
+            count = flat.numel()
+            if not count:
+                continue
+
+            total_loss += float(workload["loss_fn"](outputs, chunk_y).item()) * count
+            predictions = outputs.reshape(-1, outputs.shape[-1]).argmax(dim=-1)
+            correct += int((predictions == flat).sum().item())
+            predicted += count
+
+    if not predicted:
+        return {"loss": 0.0, "accuracy": 0.0}
+
+    return {"loss": total_loss / predicted, "accuracy": correct / predicted}
+
+
 def _score_model(model, resolved: Dict[str, Any], x, y) -> Dict[str, float]:
     """Forward pass only: loss and accuracy for an already-built model."""
-    torch = _torch()
     from backend.service.trainer import build_workload
 
     workload = build_workload(resolved)
     model.eval()
 
     architecture = str(resolved.get("architecture", "mlp")).lower()
-    inputs = torch.as_tensor(np.asarray(x))
-    inputs = inputs.float() if architecture in ("mlp", "feedforward") else inputs.long()
-    targets = torch.as_tensor(np.asarray(y)).long()
-
-    with torch.no_grad():
-        outputs = model(inputs)
-        loss = float(workload["loss_fn"](outputs, targets).item())
-        predictions = outputs.reshape(-1, outputs.shape[-1]).argmax(dim=-1)
-        accuracy = float((predictions == targets.reshape(-1)).float().mean().item())
-
-    return {"loss": loss, "accuracy": accuracy}
+    return _score_batched(model, workload, x, y, architecture)
 
 
 def evaluate(state_dict: Dict[str, Any], spec: Dict[str, Any],
@@ -227,19 +290,7 @@ def evaluate(state_dict: Dict[str, Any], spec: Dict[str, Any],
     model.eval()
 
     architecture = str(resolved.get("architecture", "mlp")).lower()
-    if architecture in ("mlp", "feedforward"):
-        inputs = torch.as_tensor(x).float()
-    else:
-        inputs = torch.as_tensor(x).long()
-    targets = torch.as_tensor(y).long()
-
-    with torch.no_grad():
-        outputs = model(inputs)
-        loss = float(workload["loss_fn"](outputs, targets).item())
-        predictions = outputs.reshape(-1, outputs.shape[-1]).argmax(dim=-1)
-        accuracy = float((predictions == targets.reshape(-1)).float().mean().item())
-
-    return {"loss": loss, "accuracy": accuracy}
+    return _score_batched(model, workload, x, y, architecture)
 
 
 def _check(name: str, passed: bool, detail: str) -> Dict[str, Any]:

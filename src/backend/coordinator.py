@@ -4,7 +4,7 @@ import numpy as np
 from fastapi import Body, FastAPI, HTTPException, Request, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 from datetime import datetime, timedelta
 import secrets
 import asyncio
@@ -1009,14 +1009,19 @@ async def task_cancelled(
 @app.post("/retry-task/{task_id}")
 async def retry_task(
     task_id: str,
+    changes: Optional[dict] = Body(None),
     db: Database = Depends(get_db),
     submitter: Optional[str] = Depends(optional_submitter),
 ):
-    """Queue the same job again, on the same node.
+    """Queue the job again on the same data, optionally with different settings.
 
     The dataset split is reused rather than rebuilt, so a retry is scored
-    against the same held-back rows as the original and the two runs can
-    honestly be compared.
+    against the same held-back rows as the original. That is what makes two
+    runs comparable: change the model or the step count, and the difference in
+    the result is the change rather than a different slice of the data.
+
+    Re-running with new settings used to mean uploading the file again, which
+    both made the comparison meaningless and put the data on the wire twice.
     """
     task = await _owned_task(db, task_id, submitter)
 
@@ -1026,16 +1031,71 @@ async def retry_task(
             detail="That job has not finished yet. Cancel it first if you want to start over.",
         )
 
+    # The data behind a finished job is deleted after a grace period, and the
+    # task keeps pointing at nothing. Without this a retry queued a job with no
+    # dataset at all: it trained on random numbers, could not be verified, and
+    # came back marked completed -- the very thing a job submitted the normal
+    # way is now refused for.
+    if not task.get("dataset_id"):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"The data for this job was deleted "
+                f"{DATASET_RETENTION_MINUTES} minutes after it finished, so it "
+                f"cannot be run again. Send it as a new job with the file."
+            ),
+        )
+
     node = await db.nodes_collection.find_one({"_id": task.get("node_id")})
     if not node or not node.get("isConnected"):
         raise HTTPException(status_code=409, detail="That node is no longer connected.")
     if not node.get("isAvailable"):
         raise HTTPException(status_code=409, detail="That node is not accepting work.")
 
+    task_data = dict(task.get("task_data") or {})
+    notes: List[str] = []
+
+    # Only the two things worth changing between runs. The dataset is fixed by
+    # definition here, and its shape decided the rest of the model already.
+    if changes:
+        # The one thing a retry must not touch. A CSV cannot be read by a
+        # language model and text cannot be read by a classifier, and the check
+        # that refuses that pairing runs at upload -- which a retry does not
+        # repeat. Without this the switch was accepted and failed on the node.
+        original = str((task_data.get("model_spec") or {}).get("architecture", "mlp"))
+        wanted = (changes.get("model_spec") or {}).get("architecture")
+        if wanted and str(wanted).lower() != original.lower():
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "A re-run keeps the same data, so it keeps the same kind of "
+                    "model. Send a new job to train a different one."
+                ),
+            )
+
+        for field in ("model_spec", "hyperparameters"):
+            supplied = changes.get(field)
+            if isinstance(supplied, dict):
+                task_data[field] = {**(task_data.get(field) or {}), **supplied}
+
+        if changes.get("model_name"):
+            task_data["model_name"] = changes["model_name"]
+
+        # Through the same validator as a first submission, so a retry cannot
+        # smuggle in a value the form would have refused.
+        dataset_info = task_data.pop("dataset_info", None)
+        try:
+            task_data, notes = validate_job(task_data)
+        except JobSpecError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        if dataset_info:
+            task_data["dataset_info"] = dataset_info
+            notes = list(notes) + advise(task_data, dataset_info)
+
     retry = {
         "_id": f"task_{uuid.uuid4()}",
         "node_id": task["node_id"],
-        "task_data": task.get("task_data"),
+        "task_data": task_data,
         "dataset_id": task.get("dataset_id"),
         "holdout_artifact_id": task.get("holdout_artifact_id"),
         "status": "pending",
@@ -1054,6 +1114,7 @@ async def retry_task(
         "task_id": retry["_id"],
         "task_status": "pending",
         "verifiable": bool(retry["holdout_artifact_id"]),
+        "notes": notes,
     }
 
 
@@ -1255,6 +1316,11 @@ def public_task(task: dict, owner: bool = False) -> dict:
     clean = {k: v for k, v in task.items() if k not in INTERNAL_TASK_FIELDS}
     # Keep the fact of a dataset, which the dashboard shows, without the id.
     clean["has_holdout"] = bool(task.get("holdout_artifact_id"))
+
+    # Whether the data behind this job still exists. It is deleted a while
+    # after the job finishes, and once it is gone the job cannot be run again
+    # -- the page needs to know that before offering the button.
+    clean["can_rerun"] = bool(task.get("dataset_id"))
 
     # dataset_info describes what the submitter's numbers meant -- the class
     # names from their label column, above all. /tasks needs no key, so

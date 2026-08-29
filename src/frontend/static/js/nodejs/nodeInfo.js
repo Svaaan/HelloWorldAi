@@ -236,6 +236,49 @@ export function initNodeInfoManager() {
         group.append(gpuContainer);
 
         container.replaceChildren(group);
+        const warning = keyBackupWarning();
+        if (warning) container.prepend(warning);
+    }
+
+    // A node's keypair lives in this browser's localStorage, and the download
+    // at registration is a button somebody can walk past. Clearing site data
+    // then leaves a machine that is still online and still taking jobs, with
+    // no way for its owner to see or control it -- which is exactly what
+    // happened while testing this.
+    function keyBackupWarning() {
+        let backedUp = false;
+        try {
+            const stored = localStorage.getItem("nodeKeyBackedUp");
+            const publicKey = localStorage.getItem("nodePublicKeyBase64");
+            backedUp = Boolean(stored) && Boolean(publicKey)
+                && stored === publicKey.slice(0, 12);
+        } catch (e) {
+            backedUp = false;         // keep asking rather than assume
+        }
+
+        if (backedUp) return null;
+
+        const box = document.createElement("div");
+        box.className = "key-warning";
+
+        const title = document.createElement("strong");
+        title.textContent = "This node's key exists only in this browser.";
+        box.append(title);
+
+        const text = document.createElement("p");
+        text.textContent =
+            "Clear your site data and you lose control of this machine — it "
+            + "keeps running and taking jobs, and this page can no longer see "
+            + "it. There is no reset. Save the key file from the connect page.";
+        box.append(text);
+
+        const link = document.createElement("a");
+        link.className = "panel-notice-action";
+        link.href = "/connect";
+        link.textContent = "Save the key file →";
+        box.append(link);
+
+        return box;
     }
 
     function showNotice(title, detail, isError, action) {

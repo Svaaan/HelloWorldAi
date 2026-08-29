@@ -59,6 +59,17 @@ function offerPrivateKeyDownload() {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
 
+    // Recorded so the node page can stop warning about a key that exists in
+    // one browser and nowhere else. Stored beside the key, so clearing site
+    // data clears this too -- a restored browser with no record of a backup
+    // should ask again rather than assume.
+    try {
+        localStorage.setItem("nodeKeyBackedUp", savedPublicKeyBase64.slice(0, 12));
+    } catch (e) {
+        // A browser refusing storage will simply keep asking, which is the
+        // safe direction to fail in.
+    }
+
     showMessage("✅ Key pair downloaded successfully. Keep it safe!", "success");
 }
 
