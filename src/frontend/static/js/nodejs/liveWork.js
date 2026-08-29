@@ -11,6 +11,12 @@ const POLL_MS = 2000;
 
 let timer = null;
 let lastLogCount = 0;
+
+// What the overlay and the inline panel currently hold. Rebuilding either from
+// scratch every two seconds made both flash on every poll, so the DOM is only
+// replaced when its shape changes; otherwise the values are written in place.
+let overlayShape = null;
+let inlineShape = null;
 let overlayDismissedFor = null;   // task_id the owner closed; do not reopen it
 let latest = { task: null, thermal: null };
 
@@ -124,8 +130,104 @@ function renderApproval(waiting) {
 function stat(label, value, className) {
   const box = el("div", `run-stat ${className || ""}`.trim());
   box.appendChild(el("span", "run-stat-label", label));
-  box.appendChild(el("span", "run-stat-value", value));
+
+  const shown = el("span", "run-stat-value", value);
+  // Keyed so a later poll can rewrite the number without touching the node
+  // around it.
+  shown.dataset.f = label;
+  box.appendChild(shown);
   return box;
+}
+
+/** Write text only when it differs, so unchanged nodes are never touched. */
+function setText(root, key, value) {
+  const node = root.querySelector(`[data-f="${CSS.escape(key)}"]`);
+  if (node && node.textContent !== String(value)) node.textContent = String(value);
+}
+
+function setWidth(node, percent) {
+  const next = `${percent}%`;
+  if (node && node.style.width !== next) node.style.width = next;
+}
+
+/**
+ * What the rendered structure depends on -- as opposed to the values inside it.
+ * While this is unchanged the same DOM can be reused and simply rewritten.
+ */
+function shapeOf(task, thermal) {
+  const p = task.progress || {};
+  const gpus = (thermal?.gpus || []).map((g) => [
+    g.name,
+    g.utilisation != null,
+    g.power_w != null,
+    g.fan_percent != null,
+    g.memory_used_mb != null && g.memory_total_mb != null,
+    g.state,
+  ].join(","));
+
+  return [
+    task.task_id,
+    task.status,
+    p.steps ? "progress" : "",
+    p.loss != null ? "loss" : "",
+    p.initial_loss != null ? "initial" : "",
+    thermal?.reason ? "warning" : "",
+    gpus.join("|"),
+  ].join("~");
+}
+
+/** Rewrite the numbers in an overlay that is already on screen. */
+function updateOverlayBody(body, task, thermal) {
+  const progress = task.progress;
+
+  if (progress && progress.steps) {
+    const pct = Math.min(100, (progress.step / progress.steps) * 100);
+    setText(body, "progress-step", `Step ${progress.step} of ${progress.steps}`);
+    setText(body, "progress-pct", `${Math.round(pct)}%`);
+    setWidth(body.querySelector(".usage-bar-fill"), pct);
+  }
+
+  setText(body, "Elapsed", formatElapsed(task.elapsed_s));
+  if (progress && progress.loss != null) setText(body, "Loss", progress.loss);
+
+  (thermal?.gpus || []).forEach((gpu, index) => {
+    setText(body, `GPU load`, gpu.utilisation == null ? "—" : `${gpu.utilisation}%`);
+    setText(body, `Temperature`, `${gpu.temperature}°C`);
+    if (gpu.power_w != null) setText(body, "Power", `${gpu.power_w} W`);
+    if (gpu.fan_percent != null) setText(body, "Fan", `${gpu.fan_percent}%`);
+    if (gpu.memory_used_mb != null && gpu.memory_total_mb != null) {
+      setText(body, "VRAM",
+        `${(gpu.memory_used_mb / 1024).toFixed(1)} / ${(gpu.memory_total_mb / 1024).toFixed(1)} GB`);
+    }
+
+    const row = body.querySelectorAll(".run-thermal")[index];
+    if (row) {
+      const span = Math.max(1, gpu.stop - 30);
+      setWidth(row.querySelector(".thermal-fill"),
+        Math.max(0, Math.min(100, ((gpu.temperature - 30) / span) * 100)));
+    }
+  });
+
+  updateLog(body.querySelector(".run-log"), task.logs || []);
+}
+
+/**
+ * Keep the log current without stealing the reader's place in it.
+ *
+ * This used to be recreated and scrolled to the bottom on every poll, which
+ * jumped the panel every two seconds and yanked anyone who had scrolled up
+ * back down again.
+ */
+function updateLog(pre, logs) {
+  if (!pre) return;
+
+  const text = logs.join("\n");
+  if (pre.textContent === text) return;
+
+  // Only follow the tail for somebody already reading the tail.
+  const atBottom = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 24;
+  pre.textContent = text;
+  if (atBottom) pre.scrollTop = pre.scrollHeight;
 }
 
 function formatElapsed(seconds) {
@@ -158,9 +260,14 @@ function buildOverlayBody(task, thermal) {
   if (progress && progress.steps) {
     const wrap = el("div", "run-progress");
     const line = el("div", "run-progress-head");
-    line.appendChild(el("span", null, `Step ${progress.step} of ${progress.steps}`));
-    line.appendChild(el("span", "run-progress-pct",
-      `${Math.round((progress.step / progress.steps) * 100)}%`));
+    const stepText = el("span", null, `Step ${progress.step} of ${progress.steps}`);
+    stepText.dataset.f = "progress-step";
+    line.appendChild(stepText);
+
+    const pctText = el("span", "run-progress-pct",
+      `${Math.round((progress.step / progress.steps) * 100)}%`);
+    pctText.dataset.f = "progress-pct";
+    line.appendChild(pctText);
     wrap.appendChild(line);
 
     const track = el("div", "usage-bar");
@@ -246,22 +353,31 @@ function openOverlay(task, thermal) {
     document.body.appendChild(overlay);
   }
 
+  const shape = shapeOf(task, thermal);
+  const existing = overlay.querySelector(".run-body");
+
+  if (existing && shape === overlayShape) {
+    // Same structure: rewrite the numbers and leave the nodes alone. Replacing
+    // them wholesale is what made the panel flash every two seconds.
+    updateOverlayBody(existing, task, thermal);
+    return;
+  }
+
   const panel = el("div", "modal-container run-panel");
   const { body, pre } = buildOverlayBody(task, thermal);
   panel.appendChild(body);
   overlay.replaceChildren(panel);
   overlay.style.display = "flex";
+  overlayShape = shape;
 
-  const logs = task.logs || [];
-  if (logs.length !== lastLogCount) {
-    lastLogCount = logs.length;
-    pre.scrollTop = pre.scrollHeight;
-  }
+  pre.scrollTop = pre.scrollHeight;
+  lastLogCount = (task.logs || []).length;
 }
 
 export function closeOverlay() {
   const overlay = document.getElementById("runOverlay");
   if (overlay) overlay.style.display = "none";
+  overlayShape = null;
 }
 
 /** Reopen the live view for a job, from its row in Jobs. */
@@ -279,9 +395,21 @@ function renderInline(task, accepting) {
   if (!panel) return;
 
   if (!task) {
-    panel.replaceChildren(el("p", "live-idle",
-      accepting ? "Idle — waiting for work." : "Not accepting work."));
+    const idle = accepting ? "Idle — waiting for work." : "Not accepting work.";
+    if (panel.dataset.shape !== `idle:${idle}`) {
+      panel.replaceChildren(el("p", "live-idle", idle));
+      panel.dataset.shape = `idle:${idle}`;
+      inlineShape = null;
+    }
     lastLogCount = 0;
+    return;
+  }
+
+  const shape = [task.task_id, task.status, accepting].join("~");
+  if (shape === inlineShape) {
+    // Only the log moves between polls; rebuilding the panel around it was
+    // what made this jump up and down.
+    updateLog(panel.querySelector(".live-log"), task.logs || []);
     return;
   }
 
@@ -300,6 +428,9 @@ function renderInline(task, accepting) {
   const pre = el("pre", "live-log", (task.logs || []).join("\n"));
   panel.appendChild(pre);
   pre.scrollTop = pre.scrollHeight;
+
+  inlineShape = shape;
+  panel.dataset.shape = shape;
 }
 
 // --- polling -------------------------------------------------------------
