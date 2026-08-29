@@ -12,11 +12,22 @@
 # There is deliberately no MongoDB: the node reaches the coordinator's API and
 # never touches its database.
 
+# Compose names a project after the directory holding the compose file, which
+# for this one is "docker" -- a name plenty of machines already use. When that
+# happens Compose merges the two into a single project and reconciles the
+# containers, so starting a node can take over an unrelated stack. Naming it
+# explicitly keeps a contributor's node to itself.
+name: helloworldai-node
+
 services:
   node:
     build:
       context: ../
       dockerfile: docker/Dockerfile
+      args:
+        # Only what node.py reaches. The full set pulls in selenium,
+        # playwright and the rest, which this never touches.
+        REQUIREMENTS: requirements-node.txt
     environment:
       - USE_DOCKER=true
       - ENV=production
@@ -49,6 +60,10 @@ services:
     build:
       context: ../
       dockerfile: docker/Dockerfile
+      args:
+        # The contributor's local dashboard only proxies to the node and the
+        # coordinator, so it needs the same slim set.
+        REQUIREMENTS: requirements-node.txt
     ports:
       # Local only: this UI drives your own node and should not be exposed.
       - "127.0.0.1:3000:3000"

@@ -25,12 +25,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 #     && apt-get update && apt-get install -y mongodb-mongosh \
 #     && rm -rf /var/lib/apt/lists/*
 
-#  Copy only requirements file first (for caching)
-COPY ./requirements.txt ./requirements.txt
+#  Which dependency set to install. The coordinator and dashboard need the
+#  whole project; a contributor's node needs a fraction of it, and installing
+#  the rest on their machine cost several gigabytes and many minutes for
+#  packages node.py never imports.
+#
+#    docker build --build-arg REQUIREMENTS=requirements-node.txt ...
+ARG REQUIREMENTS=requirements.txt
 
-#  Install dependencies (cached if requirements.txt is unchanged)
+#  Copy only the requirements file first (for caching)
+COPY ./${REQUIREMENTS} ./requirements-install.txt
+
+#  Install dependencies (cached while the requirements file is unchanged)
 RUN python -m pip install --no-cache-dir --upgrade pip && \
-    python -m pip install --no-cache-dir -r requirements.txt
+    python -m pip install --no-cache-dir -r requirements-install.txt
 
 # Copy the rest of the source code (your app files)
 COPY ./src ./src

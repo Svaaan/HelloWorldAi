@@ -1,0 +1,42 @@
+# What a contributor's node actually needs.
+#
+# The node used to install the whole project's requirements.txt: selenium,
+# playwright, undetected-chromedriver, pyppeteer, beautifulsoup4, feedparser,
+# azure-cosmos, Flask and the rest. None of that is reachable from node.py --
+# it belongs to other parts of the project -- but every contributor downloaded
+# and compiled it, which is most of why the image came out at 12.5 GB.
+#
+# Versions are pinned to the same values as requirements.txt. If you change one
+# there, change it here too.
+#
+# Measured rather than guessed: importing backend.node loads 30 third-party
+# packages, and torch arrives later through the lazy import in trainer.py.
+
+# --- web server: the node exposes a small local API ---
+fastapi==0.115.12
+uvicorn==0.34.0
+python-multipart==0.0.20
+orjson==3.10.16
+ujson==5.10.0
+
+# --- talking to the coordinator ---
+httpx==0.28.1
+requests==2.32.3
+
+# --- the actual work ---
+torch==2.6.0
+numpy==2.2.3
+
+# --- reading the machine: GPUs, temperature, CPU ---
+pynvml==12.0.0
+nvidia-ml-py==12.570.86
+psutil==7.0.0
+
+# --- session tokens and artifact encryption ---
+itsdangerous==2.2.0
+cryptography==44.0.2
+
+# --- configuration ---
+python-dotenv==1.0.1
+pydantic==2.11.0
+typing_extensions==4.12.2

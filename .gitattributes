@@ -1,0 +1,20 @@
+# Line endings.
+#
+# Git converts to CRLF on Windows checkouts by default. That is harmless for
+# most files here, but not for anything Linux executes: a shell script with
+# carriage returns fails on the first line that matters --
+#
+#     setup-node.sh: line 15: $'\r': command not found
+#     setup-node.sh: line 16: set: pipefail: invalid option name
+#
+# which silently disables the script's own error handling and then continues.
+# The committed blobs were already LF; the damage happened on checkout, and the
+# dev server serves the working copy straight to contributors.
+#
+# So the files that end up running inside a container are pinned to LF on every
+# platform. Everything else keeps git's normal behaviour.
+
+*.sh        text eol=lf
+Dockerfile  text eol=lf
+*.yml       text eol=lf
+*.yaml      text eol=lf
