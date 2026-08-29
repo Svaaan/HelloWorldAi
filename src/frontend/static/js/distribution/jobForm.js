@@ -13,6 +13,10 @@
 
 let schemaPromise = null;
 
+// The coordinator holds this share of every dataset back to verify the result
+// with, so it is not part of what the model reads.
+const HOLDOUT_FRACTION = 0.2;
+
 function el(tag, className, text) {
   const node = document.createElement(tag);
   if (className) node.className = className;
@@ -110,6 +114,46 @@ export async function buildJobForm(container, { modelName } = {}) {
   const hyperInputs = new Map();
   container.appendChild(hyperGrid);
 
+  // What this run will actually do to the uploaded data, updated as the
+  // numbers are typed. The coordinator says the same thing in its reply, but
+  // by then the job is already queued -- which makes it a post-mortem rather
+  // than a decision.
+  const runShape = el("p", "job-run-shape");
+  container.appendChild(runShape);
+
+  // Rows as uploaded; part is held back for verification and never reaches
+  // the node, so the model reads fewer than the file contains.
+  let datasetRows = 0;
+
+  function trainingRows() {
+    return Math.max(1, Math.round(datasetRows * (1 - HOLDOUT_FRACTION)));
+  }
+
+  function describeRun() {
+    if (!datasetRows) {
+      runShape.textContent = "";
+      return;
+    }
+
+    const steps = readNumber(hyperInputs.get("steps").input, hyperInputs.get("steps").spec);
+    const batch = readNumber(hyperInputs.get("batch_size").input, hyperInputs.get("batch_size").spec);
+    const rows = trainingRows();
+    const samples = steps * batch;
+
+    // Batches are drawn with replacement, so n draws do not touch n distinct
+    // rows. 1 - e^(-n/N) is the share actually reached.
+    const coverage = 1 - Math.exp(-samples / rows);
+    const passes = samples / rows;
+    const thin = coverage < (schema.guidance?.min_coverage ?? 0.95);
+
+    runShape.classList.toggle("is-thin", thin);
+    runShape.textContent = thin
+      ? `Draws ${samples.toLocaleString()} samples from ${rows.toLocaleString()} rows — `
+        + `about ${Math.round(coverage * 100)}% of your data. More steps would use the rest.`
+      : `Reads your ${rows.toLocaleString()} rows about ${passes.toFixed(1)} times `
+        + `(${samples.toLocaleString()} samples).`;
+  }
+
   function renderArchitecture() {
     const definition = schema.architectures[archSelect.value];
     archSummary.textContent = definition.summary || "";
@@ -139,9 +183,12 @@ export async function buildJobForm(container, { modelName } = {}) {
         ? { ...spec, default: overrides[spec.name] }
         : spec;
       const { wrap, input } = field(withDefault);
+      input.addEventListener("input", describeRun);
       hyperInputs.set(spec.name, { input, spec: withDefault });
       hyperGrid.appendChild(wrap);
     });
+
+    describeRun();
   }
 
   archSelect.addEventListener("change", renderArchitecture);
@@ -209,14 +256,36 @@ export async function buildJobForm(container, { modelName } = {}) {
      * selected can only end in a refusal. Switching here means the person
      * chooses by picking a file, which is the choice they were already making.
      */
-    suggest(format) {
+    suggest(format, info) {
+      datasetRows = Number(info?.rows) || 0;
+
       const match = Object.entries(schema.architectures)
         .find(([, definition]) => definition.accepts === format);
 
-      if (!match || archSelect.value === match[0]) return;
+      if (match && archSelect.value !== match[0]) {
+        archSelect.value = match[0];
+        renderArchitecture();          // rebuilds the fields, then describes
+      }
 
-      archSelect.value = match[0];
-      renderArchitecture();
+      // Enough steps to at least read the data that was uploaded. Only ever
+      // upward: training less over a small corpus was measured on this
+      // service and produced a worse model, not a less overfitted one.
+      const steps = hyperInputs.get("steps");
+      const batch = hyperInputs.get("batch_size");
+      if (datasetRows && steps && batch) {
+        const perBatch = readNumber(batch.input, batch.spec);
+        const wanted = Math.ceil(
+          ((schema.guidance?.target_passes ?? 3) * trainingRows()) / perBatch
+        );
+        const capped = Math.min(
+          Math.max(steps.spec.default, wanted),
+          schema.guidance?.max_suggested_steps ?? 20000,
+          steps.spec.max,
+        );
+        steps.input.value = capped;
+      }
+
+      describeRun();
     },
 
     /** The job to submit. Throws if the JSON view holds something unparseable. */

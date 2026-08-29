@@ -234,7 +234,9 @@ export function showNodeModal(node) {
 
       setStatus(datasetStatus, `Ready: ${parts.join(", ")}`, "success");
       datasetAdvice.textContent = data.advice || "";
-      if (jobForm?.suggest) jobForm.suggest(format);
+      // The row count lets the form size the run and show what it will do,
+      // before the job is sent rather than in the reply after it.
+      if (jobForm?.suggest) jobForm.suggest(format, { rows: data.rows });
       setReady(true);
     } catch (error) {
       console.error("Dataset upload failed:", error);

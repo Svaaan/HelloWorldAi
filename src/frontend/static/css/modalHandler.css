@@ -156,6 +156,24 @@
   text-align: left;
 }
 
+/* What the run will do to the uploaded data, updated as the numbers change.
+   Stated as a fact, not a verdict: measurement did not support calling a high
+   pass count a mistake. Only genuinely leaving data unread earns a tone. */
+.job-run-shape:empty {
+  display: none;
+}
+
+.job-run-shape {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.job-run-shape.is-thin {
+  color: var(--warning);
+}
+
 #taskDataInput {
   min-height: 190px;
 }

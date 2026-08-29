@@ -288,6 +288,31 @@ function buildJobRow(job) {
   const grading = strengthNote(job.verification);
   if (grading) body.appendChild(el("p", "job-grade", grading));
 
+  // What the model actually writes. This is the only question anyone has
+  // about a finished language model, and answering it used to require a
+  // download, a Python install and a script.
+  const samples = job.metrics?.samples;
+  if (Array.isArray(samples) && samples.length) {
+    const box = el("details", "job-samples");
+    box.appendChild(el("summary", null,
+      `What it writes now (${samples.length} samples)`));
+
+    const inner = el("div", "job-samples-body");
+    inner.appendChild(el("p", "job-field-hint",
+      "Each starts from a short snippet of your own text — shown in bold — "
+      + "and the model continued it."));
+
+    samples.forEach((sample) => {
+      const block = el("p", "job-sample");
+      block.appendChild(el("strong", null, sample.prompt || ""));
+      block.appendChild(el("span", null, sample.continuation || ""));
+      inner.appendChild(block);
+    });
+
+    box.appendChild(inner);
+    body.appendChild(box);
+  }
+
   const actions = el("div", "job-actions");
 
   if (!FINISHED.includes(job.status)) {

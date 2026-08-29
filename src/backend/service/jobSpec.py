@@ -19,6 +19,7 @@ before it is queued, and to describe the form the submitter fills in. A single
 definition means the form and the validator cannot drift apart.
 """
 
+import math
 from typing import Any, Dict, List, Optional, Tuple
 
 TASK_TYPES = ("llm_training",)
@@ -122,24 +123,65 @@ def job_schema() -> Dict[str, Any]:
         "default_task_type": DEFAULT_TASK_TYPE,
         "architectures": ARCHITECTURES,
         "hyperparameters": HYPERPARAMETERS,
+        # So the form can show the same arithmetic the coordinator will,
+        # before the job is sent rather than in the reply after it.
+        "guidance": {
+            "target_passes": TARGET_PASSES,
+            "min_coverage": MIN_COVERAGE,
+            "max_suggested_steps": MAX_SUGGESTED_STEPS,
+        },
     }
 
 
-# How many times a run will go over the whole dataset. Past roughly this many
-# passes a language model stops generalising and starts memorising: it reports
-# a beautiful training loss and does no better on anything it has not already
-# seen.
+# How many passes over the data a run should make at minimum.
 #
-# Deliberately not applied to the classifier. Measured on this service: 240
-# rows of well-separated data, 53 passes, and the result scored 100% on the
-# holdout -- many epochs over a small table is normal practice, not a mistake.
-# Warning there would be noise, and overfitting a table shows up in the
-# strength grade afterwards, where it is measured rather than guessed.
-MAX_COMFORTABLE_PASSES = 12
+# There was a warning here for the other end too -- "past about 12 passes the
+# model memorises rather than learns" -- and measuring it on this service
+# proved it wrong. Same 897 sequences, same model, only the step count changed:
+#
+#     8 passes   train loss 2.14   holdout accuracy 0.349   captured 0.225
+#    36 passes   train loss 0.99   holdout accuracy 0.407   captured 0.295
+#
+# Training four times longer over the same small corpus made the held-back
+# score better, not worse. The textbook intuition about epochs did not survive
+# contact with the measurement, so the warning is gone rather than softened.
+# What was actually wrong in that run was the size of the corpus, and there is
+# a warning for that at upload, where it is grounded.
+#
+# This floor stays because it is close to arithmetic rather than a claim about
+# learning: a run drawing far fewer samples than there are rows leaves most of
+# the data unused.
+TARGET_PASSES = 3.0
 
-# And the other end -- a run that does not finish one pass has not shown the
-# model most of the data it was given.
-MIN_USEFUL_PASSES = 1.0
+# Sampling is with replacement, so n draws from N rows do not touch n distinct
+# rows. The expected share actually seen is 1 - e^(-n/N), which at low ratios
+# is close to n/N and at high ratios is not.
+MIN_COVERAGE = 0.95
+
+# A suggestion should not quietly propose an hour of somebody else's GPU.
+# Measured on an RTX 3070: about 1,000 steps a minute for the default model.
+MAX_SUGGESTED_STEPS = 20_000
+
+
+def _coverage(samples: float, rows: float) -> float:
+    """Expected share of distinct rows drawn, sampling with replacement."""
+    if rows <= 0:
+        return 0.0
+    return 1.0 - math.exp(-samples / rows)
+
+
+def suggest_steps(rows: int, batch_size: int, default: int) -> int:
+    """A step count that at least reads the data the submitter uploaded.
+
+    Only ever raises the default. Lowering it was the obvious other half and
+    the measurement above says not to: on a corpus too small to learn from,
+    training less produces a worse model, not a less overfitted one.
+    """
+    if rows <= 0 or batch_size <= 0:
+        return default
+
+    wanted = math.ceil((TARGET_PASSES * rows) / batch_size)
+    return int(max(default, min(wanted, MAX_SUGGESTED_STEPS)))
 
 
 def advise(job: Dict[str, Any], dataset_info: Optional[Dict[str, Any]] = None) -> List[str]:
@@ -155,29 +197,18 @@ def advise(job: Dict[str, Any], dataset_info: Optional[Dict[str, Any]] = None) -
     if not rows:
         return notes
 
-    architecture = str((job.get("model_spec") or {}).get("architecture", "mlp")).lower()
-    if (ARCHITECTURES.get(architecture) or {}).get("accepts") != "text":
-        return notes
-
     hyper = job.get("hyperparameters") or {}
     steps = int(hyper.get("steps") or 0)
     batch = int(hyper.get("batch_size") or 0)
     if steps <= 0 or batch <= 0:
         return notes
 
-    passes = (steps * batch) / float(rows)
-
-    if passes > MAX_COMFORTABLE_PASSES:
+    seen = _coverage(steps * batch, rows)
+    if seen < MIN_COVERAGE:
         notes.append(
-            f"This run goes over your {int(rows):,} rows about {passes:.0f} times. "
-            f"Past roughly {MAX_COMFORTABLE_PASSES} the model tends to memorise "
-            f"rather than learn — the training loss keeps falling while the "
-            f"result gets no better. Fewer steps, or more data, would help."
-        )
-    elif passes < MIN_USEFUL_PASSES:
-        notes.append(
-            f"This run sees only about {passes * 100:.0f}% of your "
-            f"{int(rows):,} rows. More steps would let it read the rest."
+            f"This run draws {steps * batch:,} samples from {int(rows):,} rows, "
+            f"so it will only reach about {seen * 100:.0f}% of your data. "
+            f"More steps would use the rest."
         )
 
     return notes

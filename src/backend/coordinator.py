@@ -1244,11 +1244,36 @@ async def _verify_quietly(task_id: str):
 INTERNAL_TASK_FIELDS = ("holdout_artifact_id", "submitter_id")
 
 
-def public_task(task: dict) -> dict:
-    """A task document safe to hand to a caller."""
+def public_task(task: dict, owner: bool = False) -> dict:
+    """A task document safe to hand to a caller.
+
+    `owner` means the caller proved the submitter key this job was sent with.
+    A few things belong to them and to nobody else -- above all the writing
+    samples, which are the model continuing verbatim snippets of their own
+    text, and so are their data coming back out.
+    """
     clean = {k: v for k, v in task.items() if k not in INTERNAL_TASK_FIELDS}
     # Keep the fact of a dataset, which the dashboard shows, without the id.
     clean["has_holdout"] = bool(task.get("holdout_artifact_id"))
+
+    # dataset_info describes what the submitter's numbers meant -- the class
+    # names from their label column, above all. /tasks needs no key, so
+    # leaving it in published every submitter's labels to anyone who asked:
+    # harmless for "setosa, versicolor", not for "relapsed" or "defaulted".
+    #
+    # It is internal plumbing, carried in the task so the node can put it in
+    # the manifest it packs with the weights. The node reads the task through
+    # /next-task, which does not come through here, so nothing needs it in an
+    # HTTP response. The submitter gets it back inside their model file.
+    task_data = clean.get("task_data")
+    if isinstance(task_data, dict) and "dataset_info" in task_data:
+        clean["task_data"] = {k: v for k, v in task_data.items()
+                              if k != "dataset_info"}
+
+    metrics = clean.get("metrics")
+    if isinstance(metrics, dict) and "samples" in metrics and not owner:
+        clean["metrics"] = {k: v for k, v in metrics.items() if k != "samples"}
+
     return clean
 
 
@@ -1304,7 +1329,7 @@ async def list_my_tasks(
     for task in tasks:
         task["task_id"] = task.pop("_id")
 
-    return [public_task(t) for t in tasks]
+    return [public_task(t, owner=True) for t in tasks]
 
 
 async def _forget_dataset(db, task: dict) -> int:

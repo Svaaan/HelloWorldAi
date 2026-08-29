@@ -161,6 +161,43 @@
   color: var(--text-muted);
 }
 
+/* The model's own output, folded away by default: it is the most interesting
+   thing on the card and also the longest. */
+.job-samples > summary {
+  cursor: pointer;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--accent);
+  list-style: none;
+}
+
+.job-samples > summary::-webkit-details-marker { display: none; }
+
+.job-samples-body {
+  display: grid;
+  gap: 0.6rem;
+  margin-top: 0.6rem;
+}
+
+.job-sample {
+  margin: 0;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--r-xs);
+  background-color: var(--surface-2);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  line-height: 1.6;
+  color: var(--text-muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.job-sample strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
 /* --- expanded detail --- */
 
 .job-body {

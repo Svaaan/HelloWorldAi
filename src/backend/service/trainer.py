@@ -285,6 +285,83 @@ def infer_spec_from_dataset(features, labels, spec: Dict[str, Any]) -> Dict[str,
     return resolved
 
 
+# How much generated text to send back with a finished job, and how much of
+# the submitter's own data to prime it with. Small on purpose: this travels
+# inside the task document and is read on a summary card, not a page.
+SAMPLE_COUNT = 3
+SAMPLE_PROMPT_TOKENS = 24
+SAMPLE_NEW_TOKENS = 140
+
+# Sampled rather than argmax. Always taking the most likely token makes a small
+# model repeat one phrase, which looks like a bug rather than a weak model.
+SAMPLE_TEMPERATURE = 0.8
+
+
+def sample_text(model, spec: Dict[str, Any], features, count: int = SAMPLE_COUNT
+                ) -> List[Dict[str, str]]:
+    """Continue a few real snippets, so the submitter can read the result.
+
+    A finished language model used to arrive as a number and a download. What
+    it actually writes is the only question anyone has about it, and answering
+    it here costs a fraction of a second on a card that has just spent minutes
+    training -- against a download, a Python install and a script for the
+    person who asked.
+
+    Priming with the submitter's own text rather than a fixed prompt keeps the
+    comparison fair: it is continuing the kind of thing it was trained on.
+    """
+    torch = _torch()
+    if torch is None or features is None or len(features) == 0:
+        return []
+
+    seq_len = int(spec.get("seq_len", 64))
+    prompt_len = max(1, min(SAMPLE_PROMPT_TOKENS, seq_len - 1))
+
+    # Spread across the data rather than taking the first rows, which on a
+    # sorted or structured file would all look the same.
+    total = int(features.shape[0])
+    picks = [int(i * total / max(1, count)) % total for i in range(count)]
+
+    def render(ids):
+        # 'replace' because the model works a byte at a time and can stop
+        # part-way through a multi-byte character.
+        return bytes(int(i) & 0xFF for i in ids).decode("utf-8", "replace")
+
+    was_training = model.training
+    model.eval()
+    device = next(model.parameters()).device
+
+    samples: List[Dict[str, str]] = []
+    try:
+        with torch.no_grad():
+            for index in picks:
+                ids = [int(v) for v in features[index][:prompt_len]]
+                prompt = render(ids)
+
+                for _ in range(SAMPLE_NEW_TOKENS):
+                    window = torch.tensor([ids[-seq_len:]], dtype=torch.long,
+                                          device=device)
+                    logits = model(window)[0, -1]
+                    probabilities = torch.softmax(
+                        logits / SAMPLE_TEMPERATURE, dim=-1)
+                    ids.append(int(torch.multinomial(probabilities, 1)))
+
+                samples.append({
+                    "prompt": prompt,
+                    "continuation": render(ids[prompt_len:]),
+                })
+    except Exception as e:
+        # A sample is a courtesy. It must never be the reason a finished job
+        # fails after the training has already been paid for.
+        logger.warning(f"Could not generate samples: {e}")
+        return []
+    finally:
+        if was_training:
+            model.train()
+
+    return samples
+
+
 # --- proportional data-parallel trainer ----------------------------------
 
 class PooledTrainer:
@@ -541,6 +618,18 @@ def train(task_data: Dict[str, Any], log: Callable[[str], None],
         f"{achieved_tflops:.2f} TFLOPS achieved")
     log(f"Loss {first_loss:.4f} -> {last_loss:.4f}")
 
+    # Before the weights are copied out, while the model is still on the card.
+    # Not `samples` -- that name is already the throughput count a few lines
+    # down, and shadowing it turned a finished job into a TypeError after the
+    # training had been paid for.
+    writing = []
+    if dataset is not None and str(spec.get("architecture", "mlp")).lower() \
+            not in ("mlp", "feedforward"):
+        writing = sample_text(trainer.master, spec, dataset[0])
+        if writing:
+            log("Sample of what it writes now:")
+            log(f"  {writing[0]['prompt']}{writing[0]['continuation'][:120]}")
+
     state_dict = {
         name: tensor.detach().cpu().numpy()
         for name, tensor in trainer.master.state_dict().items()
@@ -563,6 +652,11 @@ def train(task_data: Dict[str, Any], log: Callable[[str], None],
         "ran_hot": warned_hot,
         "stopped_early": stopped_early,
     }
+
+    # Kept out of the manifest: build_manifest picks named keys, and a model
+    # file should carry a description of itself rather than a writing sample.
+    if writing:
+        metrics["samples"] = writing
 
     # Packed with the weights so the submitter can rebuild and run the model
     # without knowing anything about this codebase.
