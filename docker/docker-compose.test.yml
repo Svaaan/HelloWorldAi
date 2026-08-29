@@ -42,6 +42,10 @@ services:
       # the host tree with __pycache__ owned by the container.
       - PYTHONDONTWRITEBYTECODE=1
       - MONGO_URI=mongodb://mongo_test:27017
+      # Submitted datasets are encrypted with this before they reach GridFS.
+      # A real deployment supplies its own and keeps it out of source control;
+      # this one exists so the test stack exercises the encrypted path.
+      - ARTIFACT_ENCRYPTION_KEY=1AKVwQbVtCnXXgp+R/uioUqN8o47VH0vvd8t4EMJsKU=
     depends_on:
       - mongo_test
     command: uvicorn src.backend.coordinator:app --host 0.0.0.0 --port 8100

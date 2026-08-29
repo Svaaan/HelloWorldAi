@@ -29,7 +29,12 @@ const STATUS_LABEL = {
   completed: "Completed",
   failed: "Failed",
   rejected: "Declined",
+  cancelled: "Cancelled",
 };
+
+// Nothing more will happen to a job in one of these states, so it can be run
+// again but not stopped.
+const FINISHED = ["completed", "failed", "rejected", "cancelled"];
 
 const VERDICT_LABEL = {
   accepted: "Verified",
@@ -102,6 +107,35 @@ async function downloadModel(job, button) {
     button.textContent = "Download failed";
     button.disabled = false;
     setTimeout(() => { button.textContent = original; }, 2500);
+  }
+}
+
+async function act(job, button, { path, verb, confirm }) {
+  if (confirm && !window.confirm(confirm)) return;
+
+  const original = button.textContent;
+  button.disabled = true;
+  button.textContent = `${verb}…`;
+
+  try {
+    const res = await fetch(`${path}/${encodeURIComponent(job.task_id)}`, {
+      method: "POST",
+      headers: submitterHeaders(),
+    });
+
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+      const detail = data?.detail?.detail || data?.detail;
+      throw new Error(detail || `Server returned ${res.status}`);
+    }
+
+    // The list refreshes on its own; reload now so the new state is immediate.
+    await loadMyJobs();
+  } catch (error) {
+    console.error(`Could not ${verb.toLowerCase()} the job:`, error);
+    button.textContent = error.message;
+    button.disabled = false;
+    setTimeout(() => { button.textContent = original; }, 3000);
   }
 }
 
@@ -197,6 +231,31 @@ function buildJobRow(job) {
   }
 
   if (job.result) body.appendChild(el("p", "job-result", job.result));
+
+  const actions = el("div", "job-actions");
+
+  if (!FINISHED.includes(job.status)) {
+    const cancel = el("button", "btn-ghost", "Cancel job");
+    cancel.type = "button";
+    cancel.addEventListener("click", () => act(job, cancel, {
+      path: "/cancel-task",
+      verb: "Cancelling",
+      confirm: job.status === "running"
+        ? "Stop this job? The work done so far is lost."
+        : null,
+    }));
+    actions.appendChild(cancel);
+  } else {
+    const again = el("button", "btn-ghost", "Run again");
+    again.type = "button";
+    again.addEventListener("click", () => act(job, again, {
+      path: "/retry-task",
+      verb: "Queueing",
+    }));
+    actions.appendChild(again);
+  }
+
+  if (actions.childElementCount) body.appendChild(actions);
 
   if (job.status === "completed" && job.weights_id) {
     const download = el("button", "btn", "Download trained model");

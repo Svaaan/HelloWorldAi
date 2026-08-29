@@ -31,6 +31,7 @@
                 <div class="panel-actions">
                     <span id="nodeCount" class="panel-count"></span>
                     <button id="refreshNodes" type="button" class="btn-ghost">Refresh</button>
+                    <button id="sendAnywhere" type="button" class="btn">Send to any node</button>
                 </div>
             </div>
 
@@ -50,7 +51,7 @@
     <script type="module">
         import { loadHeader } from "/static/js/component/header.js";
         import { fetchAvailableNodes, startNodePolling } from "/static/js/distribution/fetchNode.js";
-        import { initModalCloseHandler } from "/static/js/distribution/modalHandler.js";
+        import { initModalCloseHandler, showNodeModal } from "/static/js/distribution/modalHandler.js";
 
         loadHeader();
         initModalCloseHandler();
@@ -58,6 +59,10 @@
 
         document.getElementById("refreshNodes")
             .addEventListener("click", () => fetchAvailableNodes());
+
+        // No node argument: the coordinator chooses at submit time.
+        document.getElementById("sendAnywhere")
+            .addEventListener("click", () => showNodeModal(null));
     </script>
 </body>
 

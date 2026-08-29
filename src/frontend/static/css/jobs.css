@@ -299,3 +299,21 @@
   font-size: 0.75rem !important;
   color: var(--text-faint) !important;
 }
+
+/* Stop a job, or run it again. */
+.job-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.85rem;
+}
+
+.job-actions .btn-ghost {
+  font-size: 0.8125rem;
+  padding: 0.45rem 0.9rem;
+}
+
+.job-status-cancelled {
+  color: var(--text-muted);
+  background-color: var(--surface-3);
+}
