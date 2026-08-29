@@ -202,9 +202,10 @@ same hardware, same architecture family:
 |---|---|---|
 | 71 KB | 41% | Word-shaped nonsense |
 | 310 KB | 62% | Syntactically plausible lines |
+| 25 MB | 77% | Correctly spelled words in sentences |
 
-Both passed verification; both were real training. Around 1 MB is where
-sentences start to hold together. The upload says so before you send the job,
+All passed verification; all were real training. Around 1 MB is where
+sentences start to hold together, and the limit on a text upload is 128 MB. The upload says so before you send the job,
 and the result is graded **barely learned / learned / learned well** alongside
 the Verified badge — because "Verified" only means the model is genuine, not
 that it is good.
@@ -404,6 +405,7 @@ Each test file runs on its own:
 | `test_verification.py` | Catching a contributor who fakes results |
 | `test_text_dataset.py` | Turning a text file into something a language model can train on |
 | `test_advice.py` | Warning that data is too small, and grading how well a model learned |
+| `test_retry.py` | Re-running a job on the same data with different settings |
 
 Tests needing PyTorch or NumPy skip themselves politely if you don't have them,
 so nothing here breaks on a plain Python install.
@@ -448,7 +450,7 @@ your settings file and the port mapping in the compose file.
 
 ## Honest status
 
-Working, and covered by **300 tests**:
+Working, and covered by **318 tests**:
 
 - Detecting GPUs and measuring what they can really do
 - Splitting one batch across mismatched GPUs, proportional to real speed
@@ -475,7 +477,8 @@ Not built yet:
 - **Splitting one job across several people's machines.** Home internet is far
   too slow for that. One job runs on one person's machine, using all of that
   person's GPUs.
-- **Password recovery of any kind.** Your identity is a key file. Lose it and
+- **Password recovery of any kind.** Your identity is a key file. Both pages
+  warn you while that key exists only in your browser. Lose it and
   the jobs and models it owns are gone.
 
 ### What privacy you actually get

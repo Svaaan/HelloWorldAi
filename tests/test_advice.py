@@ -22,7 +22,7 @@ from backend.service.artifacts import (          # noqa: E402
     TEXT_COMFORTABLE_BYTES, TEXT_THIN_BYTES, text_size_advice,
 )
 from backend.service.jobSpec import (            # noqa: E402
-    MAX_COMFORTABLE_PASSES, advise,
+    MAX_SUGGESTED_STEPS, MIN_COVERAGE, TARGET_PASSES, advise, suggest_steps,
 )
 from backend.service.verification import (       # noqa: E402
     STRENGTH_CLEAR, STRENGTH_STRONG, STRENGTH_WEAK,
@@ -69,15 +69,7 @@ TEXT_JOB = {"model_spec": {"architecture": "transformer"},
             "hyperparameters": {"steps": 1000, "batch_size": 32}}
 
 
-def test_too_many_passes_over_too_little_data_is_flagged():
-    notes = advise(TEXT_JOB, {"rows": 897})
-
-    assert len(notes) == 1
-    assert "36 times" in notes[0]
-    assert str(MAX_COMFORTABLE_PASSES) in notes[0]
-
-
-def test_a_run_that_barely_reads_the_data_is_flagged_too():
+def test_a_run_that_barely_reads_the_data_is_flagged():
     notes = advise({"model_spec": {"architecture": "transformer"},
                     "hyperparameters": {"steps": 20, "batch_size": 8}},
                    {"rows": 5000})
@@ -86,19 +78,70 @@ def test_a_run_that_barely_reads_the_data_is_flagged_too():
     assert "3%" in notes[0]
 
 
-def test_a_well_proportioned_run_is_left_alone():
-    # 1000 steps x batch 32 = 32,000 samples; over 4,000 rows that is 8 passes.
+def test_a_run_that_reads_all_of_it_is_left_alone():
+    # 1000 steps x batch 32 = 32,000 draws over 897 rows: every row many times.
+    assert advise(TEXT_JOB, {"rows": 897}) == []
     assert advise(TEXT_JOB, {"rows": 4000}) == []
 
 
-def test_a_classifier_is_not_nagged_about_epochs():
-    # Measured, not assumed: 240 rows over 53 passes scored 100% on the
-    # holdout. Many epochs over a small table is normal practice.
-    notes = advise({"model_spec": {"architecture": "mlp"},
-                    "hyperparameters": {"steps": 400, "batch_size": 32}},
-                   {"rows": 240})
+def test_training_for_a_long_time_is_not_called_a_mistake():
+    """The claim that was measured and found false.
 
-    assert notes == []
+    Same 897 sequences, same model, only the step count changed:
+
+        8 passes   holdout accuracy 0.349, captured 0.225
+       36 passes   holdout accuracy 0.407, captured 0.295
+
+    Training longer over the same small corpus made the held-back score
+    better. There used to be a warning here saying it would make it worse.
+    """
+    assert advise(TEXT_JOB, {"rows": 897}) == []
+    assert advise({"model_spec": {"architecture": "transformer"},
+                   "hyperparameters": {"steps": 100_000, "batch_size": 32}},
+                  {"rows": 897}) == []
+
+
+def test_coverage_accounts_for_sampling_with_replacement():
+    # 4,000 draws over 5,000 rows is not 80% of the rows: repeats mean the
+    # expected share reached is 1 - e^(-0.8), about 55%.
+    notes = advise({"model_spec": {"architecture": "transformer"},
+                    "hyperparameters": {"steps": 500, "batch_size": 8}},
+                   {"rows": 5000})
+
+    assert len(notes) == 1
+    assert "55%" in notes[0]
+
+
+# --- sizing a run to the data it was given -------------------------------
+
+def test_a_big_corpus_raises_the_step_count():
+    # 3 passes over 15,750 rows at batch 32.
+    assert suggest_steps(15_750, 32, 1000) == 1477
+
+
+def test_a_small_corpus_leaves_the_default_alone():
+    # Lowering it was the obvious other half, and the measurement says no:
+    # training less over too little data gives a worse model, not a safer one.
+    assert suggest_steps(897, 32, 1000) == 1000
+
+
+def test_a_suggestion_never_proposes_an_endless_job():
+    assert suggest_steps(50_000_000, 32, 1000) == MAX_SUGGESTED_STEPS
+
+
+def test_sizing_survives_nonsense_input():
+    assert suggest_steps(0, 32, 1000) == 1000
+    assert suggest_steps(500, 0, 1000) == 1000
+
+
+def test_the_form_is_told_the_same_numbers():
+    from backend.service.jobSpec import job_schema
+
+    guidance = job_schema()["guidance"]
+
+    assert guidance["target_passes"] == TARGET_PASSES
+    assert guidance["min_coverage"] == MIN_COVERAGE
+    assert guidance["max_suggested_steps"] == MAX_SUGGESTED_STEPS
 
 
 def test_advice_needs_a_dataset_to_say_anything():
@@ -110,6 +153,7 @@ def test_advice_never_raises_on_a_malformed_job():
     # It runs after validation, but it must not be the thing that breaks a
     # submission -- none of this makes a job wrong.
     assert advise({}, {"rows": 100}) == []
+    assert advise({"hyperparameters": None}, {"rows": 100}) == []
     assert advise({"hyperparameters": {"steps": 0, "batch_size": 0}},
                   {"rows": 100}) == []
 
@@ -226,3 +270,131 @@ def test_the_summary_says_the_grade_out_loud():
 
     assert "weak" in line
     assert "0.405" in line
+
+
+# --- what a large corpus costs, and who pays it --------------------------
+
+def test_byte_ids_are_stored_as_bytes():
+    """The cap on a text upload was never about disk.
+
+    Packed, a corpus compresses to a fraction of its source. The cost is memory
+    on the contributor's machine, and it used to be 16x the source file there:
+    int32 arrays for x and y, widened to int64 in one go before the first
+    batch. A byte id fits in a uint8, and the widening belongs on the batch.
+    """
+    from backend.service.artifacts import parse_text_dataset
+
+    text = "the quick brown fox jumps over the lazy dog. " * 400
+    x, y, _ = parse_text_dataset(text, seq_len=64)
+
+    assert x.dtype == np.uint8
+    assert y.dtype == np.uint8
+
+    source = len(text.encode("utf-8"))
+    assert (x.nbytes + y.nbytes) / source <= 2.1
+
+
+def test_batches_are_widened_rather_than_the_corpus():
+    torch = pytest.importorskip("torch")
+    from backend.service.artifacts import parse_text_dataset
+    from backend.service.trainer import dataset_sampler, infer_spec_from_dataset
+
+    x, y, _ = parse_text_dataset("the quick brown fox. " * 800, seq_len=32)
+    spec = infer_spec_from_dataset(x, y, {"architecture": "transformer"})
+
+    make_batch, _rows = dataset_sampler(x, y, spec)
+    batch_x, batch_y = make_batch(8, torch.Generator().manual_seed(0),
+                                  torch.device("cpu"))
+
+    # The batch is what an embedding lookup needs...
+    assert batch_x.dtype == torch.int64
+    assert batch_y.dtype == torch.int64
+    # ...and the corpus behind it is untouched.
+    assert x.dtype == np.uint8
+
+
+def test_a_classifier_still_gets_float_features():
+    torch = pytest.importorskip("torch")
+    from backend.service.trainer import dataset_sampler
+
+    x = np.zeros((64, 4), dtype=np.float32)
+    y = np.zeros(64, dtype=np.int64)
+
+    make_batch, _rows = dataset_sampler(x, y, {"architecture": "mlp"})
+    batch_x, batch_y = make_batch(8, torch.Generator().manual_seed(0),
+                                  torch.device("cpu"))
+
+    assert batch_x.dtype == torch.float32
+    assert batch_y.dtype == torch.int64
+
+
+def test_the_holdout_stops_growing_with_the_dataset():
+    """Verification has to cost the same on any size of corpus.
+
+    A flat 20% of a 200,000 sequence dataset is five million predictions, and
+    scoring it took longer on the coordinator's CPU than the training did on a
+    GPU -- while pinning every core. Everything above the cap goes to the node
+    instead, so a bigger dataset buys more training, not a slower check.
+    """
+    from backend.service.verification import MAX_HOLDOUT_ROWS, split_holdout
+
+    small_x = np.zeros((300, 4), dtype=np.float32)
+    small_y = np.zeros(300, dtype=np.int64)
+    _tx, _ty, hx, _hy = split_holdout(small_x, small_y)
+    assert hx.shape[0] == 60          # still a plain 20% when that is small
+
+    big_x = np.zeros((204_800, 8), dtype=np.uint8)
+    big_y = np.zeros((204_800, 8), dtype=np.uint8)
+    tx, _ty, hx, _hy = split_holdout(big_x, big_y)
+
+    assert hx.shape[0] == MAX_HOLDOUT_ROWS
+    assert tx.shape[0] == 204_800 - MAX_HOLDOUT_ROWS
+
+
+def test_a_strict_fraction_is_still_available():
+    from backend.service.verification import split_holdout
+
+    x = np.zeros((10_000, 4), dtype=np.float32)
+    y = np.zeros(10_000, dtype=np.int64)
+
+    _tx, _ty, hx, _hy = split_holdout(x, y, max_rows=None)
+
+    assert hx.shape[0] == 2000
+
+
+def test_scoring_in_chunks_matches_scoring_all_at_once():
+    """The batched path has to give the same numbers, not similar ones.
+
+    Weighted by predictions per chunk rather than averaged over chunks -- the
+    two differ whenever the last chunk is short, which is almost always.
+    """
+    torch = pytest.importorskip("torch")
+    from backend.service.trainer import build_workload
+    from backend.service.verification import EVAL_BATCH_ROWS, _score_batched
+
+    spec = {"architecture": "mlp", "input_dim": 4, "output_dim": 3,
+            "hidden_dim": 8, "depth": 1}
+    torch.manual_seed(0)
+    model = build_workload(spec)["factory"]()
+    model.eval()
+
+    rng = np.random.default_rng(1)
+    # Deliberately not a multiple of the chunk size.
+    rows = EVAL_BATCH_ROWS * 2 + 37
+    x = rng.normal(size=(rows, 4)).astype(np.float32)
+    y = rng.integers(0, 3, size=rows).astype(np.int64)
+
+    chunked = _score_batched(model, build_workload(spec), x, y, "mlp")
+
+    with torch.no_grad():
+        outputs = model(torch.as_tensor(x))
+        whole_loss = float(torch.nn.functional.cross_entropy(
+            outputs, torch.as_tensor(y)).item())
+        whole_accuracy = float(
+            (outputs.argmax(dim=-1) == torch.as_tensor(y)).float().mean().item())
+
+    assert chunked["loss"] == pytest.approx(whole_loss, abs=1e-5)
+    # Not exact to the last bit, and the chunked value is the better one: it
+    # counts matches as integers, where the single-pass version takes a float32
+    # mean over every prediction and loses precision doing it.
+    assert chunked["accuracy"] == pytest.approx(whole_accuracy, abs=1e-6)
