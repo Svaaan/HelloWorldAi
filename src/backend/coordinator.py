@@ -11,6 +11,8 @@ import asyncio
 from backend.database.nodedb import db 
 from backend.service.authNodeService import verify_signature 
 from backend.service.tokenService import issue_node_token, read_node_token, NODE_TOKEN_TTL
+from backend.service.submitterService import read_submitter_key
+from backend.service.jobSpec import JobSpecError, job_schema, validate_job
 import logging
 from motor.motor_asyncio import (
     AsyncIOMotorClient,
@@ -131,6 +133,28 @@ def authenticated_node(authorization: Optional[str] = Header(default=None)) -> s
         )
 
     return token_node_id
+
+
+def optional_node(authorization: Optional[str] = Header(default=None)) -> Optional[str]:
+    """The node a token belongs to, or None when there is no usable token.
+
+    The raising version cannot be used where either a node or a submitter is
+    acceptable, because FastAPI resolves every dependency before the endpoint
+    body runs -- a missing node token would 401 a perfectly good submitter.
+    """
+    if not authorization:
+        return None
+    try:
+        return authenticated_node(authorization)
+    except HTTPException:
+        return None
+
+
+def optional_submitter(
+    x_submitter_key: Optional[str] = Header(default=None),
+) -> Optional[str]:
+    """The submitter id proved by the X-Submitter-Key header, if any."""
+    return read_submitter_key(x_submitter_key)
 
 
 def require_node_token(node_id: str, caller: str = Depends(authenticated_node)) -> str:
@@ -639,6 +663,7 @@ async def submit_task(
     task_data: dict = Body(...),
     request: Request = None,
     db: Database = Depends(get_db),
+    submitter: Optional[str] = Depends(optional_submitter),
 ):
     """Queue work for a node. Called by whoever needs compute (person B).
 
@@ -657,7 +682,19 @@ async def submit_task(
 
     # Optional: a dataset the node should download before training. It is split
     # here so the node only ever receives the training half.
+    #
+    # Taken out before validation: it is not part of the model description, and
+    # validate_job returns only the fields it knows about.
     dataset_id = task_data.pop("dataset_id", None)
+
+    # Check the job before it is queued. Without this a typo was accepted,
+    # waited out the approval window, was claimed by a contributor, span up
+    # their GPU and only then failed -- and a value that would not parse was
+    # silently replaced by a default, so the job "succeeded" undertrained.
+    try:
+        task_data, spec_notes = validate_job(task_data)
+    except JobSpecError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     holdout_id = None
 
     if dataset_id:
@@ -679,17 +716,31 @@ async def submit_task(
         "attempts": 0,
         "submitted_at": datetime.utcnow(),
         "submitted_from": request.client.host if request else None,
+        # Only the digest of the submitter's key. Without this a finished job
+        # had no owner, so there was nobody to hand the trained model back to.
+        "submitter_id": submitter,
     }
 
     await db.tasks_collection.insert_one(task)
     logger.info(f"Queued task {task['_id']} for node {node_id}")
+
+    if not submitter:
+        logger.info(f"Task {task['_id']} was submitted without a key; nobody can claim its result.")
 
     return {
         "status": "success",
         "task_id": task["_id"],
         "task_status": "pending",
         "verifiable": bool(holdout_id),
+        "claimable": bool(submitter),
+        "notes": spec_notes,
     }
+
+
+@app.get("/job-schema")
+async def get_job_schema():
+    """What a job may contain, so the form and the validator agree."""
+    return job_schema()
 
 
 @app.get("/next-task/{node_id}")
@@ -806,7 +857,9 @@ async def _verify_quietly(task_id: str):
 # The id of a holdout must not leave this service. Anyone holding it could ask
 # for the rows their work is scored against; publishing it in a task listing
 # was how that became possible in the first place.
-INTERNAL_TASK_FIELDS = ("holdout_artifact_id",)
+# A submitter id is a digest, not a credential, but a node has no business
+# learning which submitters exist or correlating jobs across them.
+INTERNAL_TASK_FIELDS = ("holdout_artifact_id", "submitter_id")
 
 
 def public_task(task: dict) -> dict:
@@ -833,6 +886,37 @@ async def list_tasks(
 
     limit = max(1, min(limit, 200))
     cursor = db.tasks_collection.find(query).sort("submitted_at", -1).limit(limit)
+    tasks = await cursor.to_list(length=limit)
+
+    for task in tasks:
+        task["task_id"] = task.pop("_id")
+
+    return [public_task(t) for t in tasks]
+
+
+@app.get("/my-tasks")
+async def list_my_tasks(
+    limit: int = 25,
+    db: Database = Depends(get_db),
+    submitter: Optional[str] = Depends(optional_submitter),
+):
+    """The jobs submitted with this key, newest first.
+
+    /tasks answers "what has this node run", which is the contributor's view.
+    Until now the person who supplied the data had no view at all: they sent a
+    job and lost sight of it. This is the other half.
+    """
+    if not submitter:
+        raise HTTPException(
+            status_code=401,
+            detail="Send your submitter key in the X-Submitter-Key header.",
+        )
+
+    limit = max(1, min(limit, 100))
+    cursor = (db.tasks_collection
+              .find({"submitter_id": submitter})
+              .sort("submitted_at", -1)
+              .limit(limit))
     tasks = await cursor.to_list(length=limit)
 
     for task in tasks:
@@ -946,7 +1030,8 @@ async def upload_artifact(request: Request, db: Database = Depends(get_db)):
 async def download_artifact(
     artifact_id: str,
     db: Database = Depends(get_db),
-    caller: str = Depends(authenticated_node),
+    caller: Optional[str] = Depends(optional_node),
+    submitter: Optional[str] = Depends(optional_submitter),
 ):
     """Return a stored blob to the node entitled to it.
 
@@ -961,9 +1046,16 @@ async def download_artifact(
       * a holdout is never served over HTTP to anybody, whatever token they
         hold. Verification reads it in-process via _read_artifact; nothing
         outside this service has any reason to see it.
-      * every other blob is served only to a node with a task of its own that
-        references it, so one node cannot read another's dataset or weights.
+      * every other blob is served only to a party with a claim on the task
+        that references it: the node that ran the job, or the submitter who
+        asked for it and is collecting the trained model.
     """
+    if not caller and not submitter:
+        raise HTTPException(
+            status_code=401,
+            detail="Send a node session token or a submitter key.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     try:
         object_id = ObjectId(artifact_id)
     except Exception:
@@ -981,22 +1073,26 @@ async def download_artifact(
 
     if kind == "holdout":
         logger.warning(
-            f"Node {caller} asked for holdout {artifact_id}; refused. "
+            f"{caller or 'submitter'} asked for holdout {artifact_id}; refused. "
             f"A holdout is only ever read inside the coordinator."
         )
         raise HTTPException(status_code=403, detail="Artifact not available.")
 
-    # The caller must own a task that references this blob.
-    owns = await db.tasks_collection.find_one(
-        {
-            "node_id": caller,
-            "$or": [{"dataset_id": artifact_id}, {"weights_id": artifact_id}],
-        },
-        {"_id": 1},
-    )
+    # A node may read the training data and weights of its own task; a
+    # submitter may read the weights their own job produced -- but never the
+    # dataset by id, which they already hold.
+    if caller:
+        claim = {"node_id": caller,
+                 "$or": [{"dataset_id": artifact_id}, {"weights_id": artifact_id}]}
+    else:
+        claim = {"submitter_id": submitter, "weights_id": artifact_id}
+
+    owns = await db.tasks_collection.find_one(claim, {"_id": 1})
 
     if not owns:
-        logger.warning(f"Node {caller} asked for artifact {artifact_id}, which is not theirs.")
+        logger.warning(
+            f"{caller or 'A submitter'} asked for artifact {artifact_id}, which is not theirs."
+        )
         # 404 rather than 403: whether an id exists is itself worth not leaking.
         raise HTTPException(status_code=404, detail="Artifact not found.")
 

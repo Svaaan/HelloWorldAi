@@ -118,6 +118,8 @@ def _run_llm_training(task_data: Dict[str, Any], log: Callable[[str], None],
         ),
         "metrics": metrics,
         "state_dict": outcome["state_dict"],
+        # Travels with the weights so the submitter can rebuild the model.
+        "manifest": outcome.get("manifest"),
     }
 
 

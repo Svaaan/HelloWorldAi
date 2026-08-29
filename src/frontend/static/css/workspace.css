@@ -1,0 +1,213 @@
+/* The AI builder's home.
+
+   Deliberately shaped like /node: the two sides of the network get the same
+   kind of page, one about a machine and one about the work sent to machines.
+   Panel chrome matches node.css so the pair reads as one product.
+*/
+
+.workspace-container {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 2rem 1.5rem 4rem;
+}
+
+.page-intro {
+  margin-bottom: 1.75rem;
+}
+
+.page-intro h1 {
+  margin: 0 0 0.4rem;
+  font-size: 1.5rem;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.page-intro .lede {
+  margin: 0;
+  max-width: 62ch;
+  color: var(--text-muted);
+  font-size: 0.9375rem;
+  line-height: 1.6;
+}
+
+.workspace-grid {
+  display: grid;
+  grid-template-columns: 1.6fr 1fr;
+  gap: 1.25rem;
+  margin-bottom: 1.25rem;
+}
+
+/* --- panels --- */
+
+.panel {
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow);
+  padding: 1.5rem;
+}
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+  padding-bottom: 0.9rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.panel-head h2 {
+  margin: 0;
+  padding: 0;
+  border: none;
+  font-size: 1.05rem;
+  font-weight: 600;
+  position: relative;
+  padding-left: 0.7rem;
+}
+
+/* The accent tick that marks a panel title on /node. */
+.panel-head h2::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.15em;
+  bottom: 0.15em;
+  width: 3px;
+  border-radius: var(--r-pill);
+  background-color: var(--accent);
+}
+
+.panel-count {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* --- the results figures --- */
+
+.ws-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.85rem;
+}
+
+.ws-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.95rem 1rem;
+  background-color: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+
+.ws-stat-label {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.ws-stat-value {
+  font-size: 1.5rem;
+  font-weight: 650;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+/* The first figure is the one they came for. */
+.ws-stat:first-child .ws-stat-value {
+  color: var(--accent);
+}
+
+.ws-stat-hint {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.ws-empty {
+  margin: 0;
+  padding: 1.5rem 0;
+  color: var(--text-muted);
+  font-size: 0.9375rem;
+  line-height: 1.6;
+}
+
+.ws-warning {
+  margin: 1rem 0 0;
+  padding: 0.8rem 1rem;
+  border-radius: var(--r-md);
+  background-color: var(--warning-wash);
+  border: 1px solid rgba(251, 191, 36, 0.22);
+  border-left: 3px solid var(--warning);
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+  line-height: 1.55;
+}
+
+/* --- identity --- */
+
+.ws-identity-detail {
+  margin: 0 0 0.75rem;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+.ws-note {
+  margin: 0 0 1.25rem;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  color: var(--text-faint);
+}
+
+.ws-identity-actions {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.ws-identity-actions .btn {
+  width: 100%;
+}
+
+.ws-file-label {
+  margin-top: 0.5rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.field-status:not(:empty) {
+  margin-top: 0.85rem;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+/* --- responsive --- */
+
+@media (max-width: 900px) {
+  .workspace-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 600px) {
+  .workspace-container {
+    padding: 1.5rem 1rem 3rem;
+  }
+
+  .panel {
+    padding: 1.25rem;
+  }
+
+  .panel-head {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.6rem;
+  }
+}

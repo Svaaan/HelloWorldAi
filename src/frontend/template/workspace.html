@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Your Workspace</title>
+    <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="/static/css/theme.css">
+    <link rel="stylesheet" href="/static/css/workspace.css">
+    <link rel="stylesheet" href="/static/css/jobs.css">
+</head>
+
+<body>
+    <div id="header-placeholder"></div>
+
+    <main class="workspace-container">
+        <div class="page-intro">
+            <h1>Your workspace</h1>
+            <p class="lede">
+                Everything you have sent to the network, and the models that came
+                back. This is the data side of the same picture a GPU owner sees
+                on their node page.
+            </p>
+        </div>
+
+        <div class="workspace-grid">
+            <!-- Left: what the network has done for you -->
+            <section class="panel ws-results">
+                <div class="panel-head">
+                    <h2>Results</h2>
+                    <a href="/distribution" class="btn-ghost">Send a job →</a>
+                </div>
+
+                <div id="workspaceSummary">
+                    <p class="ws-empty">Loading…</p>
+                </div>
+            </section>
+
+            <!-- Right: the key that owns all of it -->
+            <section class="panel ws-identity">
+                <div class="panel-head">
+                    <h2>Your key</h2>
+                    <span id="identityState" class="status-pill">Checking…</span>
+                </div>
+
+                <p id="identityDetail" class="ws-identity-detail"></p>
+
+                <p class="ws-note">
+                    This key is your account. It never leaves your browser — the
+                    coordinator only stores a one-way digest of it, so it cannot
+                    be recovered for you. Save it to use another computer.
+                </p>
+
+                <div class="ws-identity-actions">
+                    <button id="saveKeyButton" type="button" class="btn">
+                        Save key to a file
+                    </button>
+
+                    <label class="ws-file-label" for="keyFileInput">
+                        Or load a key you saved earlier
+                    </label>
+                    <input type="file" id="keyFileInput" accept=".json,application/json">
+                </div>
+
+                <div id="identityStatus" class="field-status"></div>
+            </section>
+        </div>
+
+        <section class="panel ws-jobs">
+            <div class="panel-head">
+                <h2>Your jobs</h2>
+                <span id="myJobsCount" class="panel-count"></span>
+            </div>
+
+            <div id="myJobsList">
+                <!-- Filled in by loadMyJobs. -->
+            </div>
+        </section>
+    </main>
+
+    <script type="module">
+        import { loadHeader } from "/static/js/component/header.js";
+        import { initIdentity } from "/static/js/workspace/identity.js";
+        import { renderSummary } from "/static/js/workspace/summary.js";
+        import {
+            loadMyJobs,
+            setJobsListener,
+            startMyJobsPolling,
+        } from "/static/js/distribution/myJobs.js";
+
+        loadHeader();
+
+        // One fetch feeds both the summary and the rows underneath it.
+        setJobsListener(renderSummary);
+
+        initIdentity({ onChange: loadMyJobs });
+        startMyJobsPolling();
+    </script>
+</body>
+
+</html>
