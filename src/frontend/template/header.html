@@ -2,12 +2,19 @@
 <link rel="stylesheet" href="/static/css/header.css">
 
 <header class="header">
-    <div class="header-logo">
-        <span>AI Node Network</span>
-    </div>
+    <a class="header-logo" href="/connect">
+        <span class="node-icon" aria-hidden="true"></span>
+        <span>HelloWorldAi</span>
+    </a>
+
+    <nav class="header-nav" aria-label="Main">
+        <a href="/connect">Connect</a>
+        <a href="/node">Your node</a>
+        <a href="/distribution">Send work</a>
+        <a href="/setup">Setup</a>
+    </nav>
+
     <div class="header-details">
-        <p class="info">Connected Nodes: <span id="connectedNodesCount">Loading...</span></p>
+        <p class="info">Nodes online: <span id="connectedNodesCount">&mdash;</span></p>
     </div>
 </header>
-
-<script type="module" src="/static/js/component/header.js"></script>

@@ -1,67 +1,183 @@
+// The list of nodes offering their GPUs, on the distribution page.
+//
+// Everything here is built with createElement + textContent rather than
+// innerHTML. Node ids, CPU brands and GPU names are reported by whoever
+// registered the node, so treating them as markup would let a machine register
+// itself under a name like `<img onerror=...>` and run script in the dashboard
+// of everyone browsing this page.
+
 import { showNodeModal } from "./modalHandler.js";
 
-export async function fetchAvailableNodes() {
-    try {
-        const res = await fetch("/available-nodes"); // ✅ Changed from /nodes to /available-nodes
-        const availableNodes = await res.json();
+const POLL_INTERVAL_MS = 60000;
 
-        const nodesList = document.getElementById("nodesList");
-        nodesList.innerHTML = "";
+let pollTimer = null;
+let inFlight = false;
 
-        if (availableNodes.length === 0) {
-            nodesList.innerHTML = `<div class="empty-message">
-                <p>No nodes currently available.</p>
-            </div>`;
-            return;
-        }
+function el(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined && text !== null) node.textContent = String(text);
+  return node;
+}
 
-        availableNodes.forEach(node => {
-            const gpuList = Array.isArray(node.capabilities?.gpu) ? node.capabilities.gpu : [];
-const gpuInfo = gpuList.length > 0
-    ? gpuList.map(g => g.name || "Unknown GPU").join(", ")
-    : "None";
+function describeGpus(node) {
+  const gpus = node.capabilities?.gpu;
+  if (Array.isArray(gpus) && gpus.length) {
+    return gpus.map((g) => g.name || "Unknown GPU").join(", ");
+  }
+  return gpus?.name || "None";
+}
 
+function countGpus(node) {
+  const gpus = node.capabilities?.gpu;
+  return Array.isArray(gpus) ? gpus.length : (gpus ? 1 : 0);
+}
 
-            const nodeHTML = `
-                <div class="node-item" data-node-id="${node.node_id}">
-                    <div class="node-header">
-                        <span class="node-id">${node.node_id}</span>
-                        <span class="node-status status-online">Online</span>
-                    </div>
-                    <div class="node-specs">
-                        <div class="node-spec">
-                            <span class="spec-label">CPU:</span>
-                            <span>${node.capabilities?.cpu?.brand || "Unknown"}</span>
-                        </div>
-                        <div class="node-spec">
-                            <span class="spec-label">Cores:</span>
-                            <span>${node.capabilities?.cpu?.cores ?? "-"}</span>
-                        </div>
-                        <div class="node-spec">
-                            <span class="spec-label">GPU:</span>
-                            <span>${(gpuInfo && gpuInfo !== "No GPU") ? gpuInfo : "None"}</span>
-                        </div>
-                        <div class="node-spec">
-                            <span class="spec-label">Price/h:</span>
-                            <span>${node.price_per_hour != null ? node.price_per_hour + " SEK/h" : "N/A"}</span>
-                        </div>
-                    </div>
-                </div>
-            `;
-            nodesList.insertAdjacentHTML("beforeend", nodeHTML);
-        });
+function specRow(label, value) {
+  const row = el("div", "node-spec");
+  row.appendChild(el("span", "spec-label", label));
+  row.appendChild(el("span", null, value));
+  return row;
+}
 
-        document.querySelectorAll(".node-item").forEach(item => {
-            item.addEventListener("click", () => {
-                const nodeId = item.dataset.nodeId;
-                const node = availableNodes.find(n => n.node_id === nodeId);
-                if (node) {
-                    showNodeModal(node);
-                }
-            });
-        });
+function notice(title, detail, kind) {
+  const box = el("div", kind ? `empty-message ${kind}` : "empty-message");
+  box.appendChild(el("strong", null, title));
+  if (detail) box.appendChild(el("p", null, detail));
+  return box;
+}
 
-    } catch (error) {
-        console.error("Error loading available nodes:", error);
+// The headline number: what this machine can actually contribute. It is the
+// reason someone is on this page, so it belongs on the card and not only
+// behind a click into the modal.
+function computeBadge(node) {
+  const tflops = Number(node.total_gpu_tflops);
+  if (!tflops || Number.isNaN(tflops)) return null;
+
+  const badge = el("span", "node-compute");
+  badge.appendChild(el("strong", null, tflops.toFixed(1)));
+  badge.appendChild(el("span", null, " TFLOPS"));
+  return badge;
+}
+
+function buildNodeCard(node) {
+  const card = el("article", "node-item");
+  card.tabIndex = 0;
+  card.setAttribute("role", "button");
+  card.dataset.nodeId = node.node_id;
+
+  const gpuCount = countGpus(node);
+  card.setAttribute(
+    "aria-label",
+    `Send work to node ${node.node_id}, ${gpuCount} GPU${gpuCount === 1 ? "" : "s"}`
+  );
+
+  const head = el("div", "node-header");
+  head.appendChild(el("span", "node-id", node.node_id));
+  head.appendChild(el("span", "node-status status-online", "Online"));
+  card.appendChild(head);
+
+  const badge = computeBadge(node);
+  if (badge) card.appendChild(badge);
+
+  const specs = el("div", "node-specs");
+  specs.appendChild(specRow("GPU", describeGpus(node)));
+  if (gpuCount > 1) specs.appendChild(specRow("GPUs pooled", gpuCount));
+
+  const cpu = node.capabilities?.cpu || {};
+  specs.appendChild(specRow("CPU", cpu.brand || "Unknown"));
+  specs.appendChild(specRow("Cores", cpu.cores ?? "—"));
+  specs.appendChild(specRow(
+    "Price/h",
+    node.price_per_hour != null ? `${node.price_per_hour} SEK` : "Free"
+  ));
+  card.appendChild(specs);
+
+  card.appendChild(el("span", "node-cta", "Send a job →"));
+
+  const open = () => showNodeModal(node);
+  card.addEventListener("click", open);
+  card.addEventListener("keydown", (event) => {
+    // A card that only responds to a mouse is unreachable by keyboard.
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      open();
     }
+  });
+
+  return card;
+}
+
+function updateCount(nodes) {
+  const label = document.getElementById("nodeCount");
+  if (!label) return;
+
+  if (!nodes || !nodes.length) {
+    label.textContent = "";
+    return;
+  }
+
+  const tflops = nodes.reduce((sum, n) => sum + (Number(n.total_gpu_tflops) || 0), 0);
+  label.textContent = tflops > 0
+    ? `${nodes.length} online · ${tflops.toFixed(1)} TFLOPS available`
+    : `${nodes.length} online`;
+}
+
+export async function fetchAvailableNodes() {
+  const list = document.getElementById("nodesList");
+  if (!list || inFlight) return;
+
+  inFlight = true;
+
+  // Only show a spinner on the first paint. Replacing a populated list with
+  // "Loading…" every minute makes a working page look like it keeps resetting.
+  if (!list.childElementCount) {
+    list.replaceChildren(notice("Looking for nodes…", null, "is-loading"));
+  }
+
+  try {
+    const res = await fetch("/available-nodes");
+    if (!res.ok) throw new Error(`Server returned ${res.status}`);
+
+    const nodes = await res.json();
+    if (!Array.isArray(nodes)) {
+      throw new Error(nodes?.error || "Unexpected response from the coordinator.");
+    }
+
+    updateCount(nodes);
+
+    if (!nodes.length) {
+      list.replaceChildren(notice(
+        "No nodes are online",
+        "A contributor needs to connect a machine before work can be sent."
+      ));
+      return;
+    }
+
+    const cards = nodes.map(buildNodeCard);
+    list.replaceChildren(...cards);
+  } catch (error) {
+    // This used to only reach the console, leaving an empty panel that looked
+    // like "nobody is online" rather than "the request failed".
+    console.error("Error loading available nodes:", error);
+    updateCount([]);
+    list.replaceChildren(notice(
+      "Could not reach the coordinator",
+      error.message,
+      "is-error"
+    ));
+  } finally {
+    inFlight = false;
+  }
+}
+
+export function startNodePolling() {
+  if (pollTimer) clearInterval(pollTimer);
+  fetchAvailableNodes();
+  pollTimer = setInterval(fetchAvailableNodes, POLL_INTERVAL_MS);
+}
+
+export function stopNodePolling() {
+  if (pollTimer) clearInterval(pollTimer);
+  pollTimer = null;
 }

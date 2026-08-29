@@ -1,57 +1,62 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
-    <title>Distribution Center</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Send Work</title>
+    <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="/static/css/theme.css">
     <link rel="stylesheet" href="/static/css/distribution.css">
     <link rel="stylesheet" href="/static/css/modalHandler.css">
 </head>
+
 <body>
-    <!-- Dynamic Header Include -->
     <div id="header-placeholder"></div>
 
-    <div class="distribution-container">
-        <a href="node" class="back-link">← Back to Node Overview</a>
-        
-        <div class="distribution-panel">
-            <h2>Available Nodes</h2>
-            <div id="nodesList">
-                <!-- Dynamic content inserted by fetchAvailableNodes -->
-            </div>
+    <main class="distribution-container">
+        <div class="page-intro">
+            <h1>Send work to a node</h1>
+            <p>
+                These machines have offered their GPUs to the network. Pick one to
+                see what it can do and hand it a training job.
+            </p>
         </div>
-    </div>
 
-      <div id="nodeModal" class="modal hidden">
+        <section class="distribution-panel">
+            <div class="panel-header">
+                <h2>Available nodes</h2>
+                <div class="panel-actions">
+                    <span id="nodeCount" class="panel-count"></span>
+                    <button id="refreshNodes" type="button" class="btn-ghost">Refresh</button>
+                </div>
+            </div>
+
+            <div id="nodesList" class="nodes-list">
+                <!-- Filled in by fetchAvailableNodes. -->
+            </div>
+        </section>
+    </main>
+
+    <div id="nodeModal" class="modal hidden">
         <div class="modal-content">
-            <span id="modalClose" class="close-button">&times;</span>
+            <button id="modalClose" class="close-button" type="button" aria-label="Close">&times;</button>
             <div id="modalNodeDetails"></div>
         </div>
     </div>
 
     <script type="module">
         import { loadHeader } from "/static/js/component/header.js";
-        import { fetchAvailableNodes } from "/static/js/distribution/fetchNode.js";
+        import { fetchAvailableNodes, startNodePolling } from "/static/js/distribution/fetchNode.js";
         import { initModalCloseHandler } from "/static/js/distribution/modalHandler.js";
-        import { showNodeModal } from "/static/js/distribution/modalHandler.js"; // ✅ Add this import
-    
+
         loadHeader();
-        fetchAvailableNodes();
-        setInterval(fetchAvailableNodes, 60000);
-    
-        // Modal close handler
-        document.addEventListener("DOMContentLoaded", () => {
-            const closeBtn = document.getElementById("modalClose");
-            if (closeBtn) {
-                closeBtn.addEventListener("click", () => {
-                    document.getElementById("nodeModal").classList.add("hidden");
-                });
-            }
-    
-            // ✅ Optional safety: initialize modal close handling properly
-            initModalCloseHandler();
-        });
+        initModalCloseHandler();
+        startNodePolling();
+
+        document.getElementById("refreshNodes")
+            .addEventListener("click", () => fetchAvailableNodes());
     </script>
-    
 </body>
+
 </html>
