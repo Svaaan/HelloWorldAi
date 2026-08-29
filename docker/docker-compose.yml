@@ -1,28 +1,63 @@
+# The central stack: the coordinator, its database, and the public dashboard.
+#
+# This is what you run on a server, once, for everyone. Contributors do NOT run
+# this -- they run docker-compose.node.yml, which points at whatever address
+# this is reachable on.
+#
+#   cp env/.env.example env/.env.production   # then fill it in
+#   docker compose -f docker/docker-compose.yml up -d --build
+#
+# Both services bind to 127.0.0.1 on purpose. Node session tokens and submitter
+# keys travel in request headers, so anything serving this to the internet
+# directly over plain HTTP would expose them in transit. Put a reverse proxy
+# with TLS in front (see the deployment section of the README), or set
+# BIND_ADDRESS=0.0.0.0 if you genuinely mean to publish it unencrypted.
+
 services:
-  dashboard:
+  mongo:
+    image: mongo:7
+    restart: always
+    # Reachable only from the other containers; never published to the host.
+    expose:
+      - "27017"
+    volumes:
+      # Without this, every node registration and job history is lost the next
+      # time the container is replaced.
+      - mongo-data:/data/db
+
+  coordinator:
     build:
-      context: ../  
-      dockerfile: docker/Dockerfile  
+      context: ../
+      dockerfile: docker/Dockerfile
     ports:
-      - "3000:3000"
+      - "${BIND_ADDRESS:-127.0.0.1}:8100:8100"
     env_file:
-      - ../env/.env.production  
+      - ../env/.env.production
     environment:
       - USE_DOCKER=true
+      - ENV=production
+      - MONGO_URI=${MONGO_URI:-mongodb://mongo:27017}
+    depends_on:
+      - mongo
+    command: uvicorn src.backend.coordinator:app --host 0.0.0.0 --port 8100
+    restart: always
+
+  dashboard:
+    build:
+      context: ../
+      dockerfile: docker/Dockerfile
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:3000:3000"
+    env_file:
+      - ../env/.env.production
+    environment:
+      - USE_DOCKER=true
+      - ENV=production
+      - COORDINATOR_URL=http://coordinator:8100
     depends_on:
       - coordinator
     command: uvicorn src.app:app --host 0.0.0.0 --port 3000
     restart: always
 
-  coordinator:
-    build:
-      context: ../  
-      dockerfile: docker/Dockerfile 
-    ports:
-      - "8100:8100"
-    env_file:
-      - ../env/.env.production  
-    environment:
-      - USE_DOCKER=true
-    command: uvicorn src.backend.coordinator:app --host 0.0.0.0 --port 8100
-    restart: always
+volumes:
+  mongo-data:

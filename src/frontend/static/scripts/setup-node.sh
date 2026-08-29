@@ -15,6 +15,11 @@
 
 set -euo pipefail
 
+# Never let git stop to ask for credentials. This runs unattended on someone
+# else's machine; a private repository must fail with an explanation, not sit
+# on a username prompt.
+export GIT_TERMINAL_PROMPT=0
+
 REPO_URL="${REPO_URL:-https://github.com/Svaaan/HelloWorldAi.git}"
 REPO_BRANCH="${REPO_BRANCH:-main}"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/helloworldai-node}"
@@ -65,12 +70,19 @@ EOF
 
 # --- arguments -----------------------------------------------------------
 
+# An option that takes a value must actually have been given one. Without this
+# check `shift 2` runs out of arguments, and under `set -e` the script exits
+# silently with status 1 -- no message, nothing to act on.
+require_value() {
+    [ "$2" -ge 2 ] || die "$1 needs a value."
+}
+
 while [ $# -gt 0 ]; do
     case "$1" in
-        --coordinator) COORDINATOR_URL="${2:-}"; shift 2 ;;
-        --dir)         INSTALL_DIR="${2:-}"; shift 2 ;;
-        --branch)      REPO_BRANCH="${2:-}"; shift 2 ;;
-        --repo)        REPO_URL="${2:-}"; shift 2 ;;
+        --coordinator) require_value "$1" $#; COORDINATOR_URL="$2"; shift 2 ;;
+        --dir)         require_value "$1" $#; INSTALL_DIR="$2"; shift 2 ;;
+        --branch)      require_value "$1" $#; REPO_BRANCH="$2"; shift 2 ;;
+        --repo)        require_value "$1" $#; REPO_URL="$2"; shift 2 ;;
         --no-start)    START_STACK=0; shift ;;
         --yes|-y)      ASSUME_YES=1; shift ;;
         -h|--help)     usage; exit 0 ;;
@@ -143,7 +155,7 @@ fi
 
 restart_docker() {
     if have systemctl && systemctl list-units >/dev/null 2>&1; then
-        $SUDO systemctl restart docker
+        $SUDO systemctl restart docker >/dev/null 2>&1 || true
     else
         # WSL without systemd
         $SUDO service docker restart >/dev/null 2>&1 || true
@@ -163,6 +175,15 @@ if ! docker info >/dev/null 2>&1; then
         warn "Your user cannot reach the Docker socket, so sudo will be used."
         warn "To fix permanently: sudo usermod -aG docker $USER   (then log out and back in)"
     else
+        if [ "$IS_WSL" -eq 1 ]; then
+            die "The docker command works but no Docker daemon is running in this distro.
+
+    If you use Docker Desktop, turn this distro on under
+      Settings -> Resources -> WSL Integration, then run this again.
+
+    Otherwise start a daemon inside WSL with:
+      sudo service docker start"
+        fi
         die "Docker is installed but the daemon is not running. Start Docker Desktop, or: sudo service docker start"
     fi
 fi
@@ -238,6 +259,16 @@ elif [ -e "$INSTALL_DIR" ]; then
 else
     have git || { confirm "git is needed. Install it?" && $SUDO apt-get install -y git; }
     have git || die "git is required."
+
+    # Check before cloning, so a private or misspelled repository produces a
+    # sentence the contributor can act on rather than a git credential error.
+    if ! git ls-remote --exit-code "$REPO_URL" >/dev/null 2>&1; then
+        die "Cannot read $REPO_URL.
+    The repository is private, does not exist, or this machine is offline.
+    A contributor cannot install from a private repository -- ask whoever
+    sent you here to publish it, or to give you a --repo URL you can read."
+    fi
+
     info "Cloning into $INSTALL_DIR"
     git clone --depth 1 --branch "$REPO_BRANCH" "$REPO_URL" "$INSTALL_DIR"
 fi

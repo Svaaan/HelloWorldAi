@@ -227,6 +227,110 @@ exactly like Step 6 above.
 
 ---
 
+# Part 4 — Put it on a server
+
+Parts 1 to 3 run everything on your own machine. This part is about running the
+coordinator centrally, once, so contributors and people with data can reach it
+without you being switched on.
+
+Contributors do **not** follow this. They run the one-liner from Part 3.
+
+### What you need
+
+- A Linux server with a public address and a domain pointing at it.
+- Docker with Compose v2.
+- A TLS certificate. This is not optional -- see below.
+
+No GPU is needed on this machine. The coordinator hands work out; it never
+trains anything itself.
+
+### Step 1 — Settings
+
+```bash
+git clone https://github.com/Svaaan/HelloWorldAi.git
+cd HelloWorldAi
+cp env/.env.example env/.env.production
+```
+
+Open `env/.env.production` and generate the two secrets it asks for:
+
+```bash
+python3 -c "import secrets;print(secrets.token_urlsafe(32))"                 # NODE_TOKEN_SECRET
+python3 -c "import base64,os;print(base64.b64encode(os.urandom(32)).decode())" # ARTIFACT_ENCRYPTION_KEY
+```
+
+`NODE_TOKEN_SECRET` signs the tokens nodes use to prove who they are. Leave it
+empty and a throwaway key is made at startup, which logs every node out every
+time you restart.
+
+`ARTIFACT_ENCRYPTION_KEY` encrypts submitted datasets before they are written to
+the database. Leave it empty and they are stored in the clear, and the
+coordinator says so in its log at startup. **Back this key up.** Encrypted
+datasets cannot be read without it and there is no recovery path.
+
+The file is gitignored. Keep it that way.
+
+### Step 2 — Start it
+
+```bash
+docker compose -f docker/docker-compose.yml up -d --build
+```
+
+That runs three containers: the coordinator, the public dashboard, and a
+MongoDB with a named volume so registrations and job history survive a restart.
+
+Check it came up:
+
+```bash
+docker compose -f docker/docker-compose.yml ps
+curl -s localhost:3000/available-nodes
+```
+
+### Step 3 — Put TLS in front of it
+
+Both services deliberately bind to `127.0.0.1`, so nothing is reachable from
+the internet until you place a reverse proxy in front of them.
+
+This matters more than it used to. Node session tokens and submitter keys now
+travel in request headers on every call. Over plain HTTP anyone on the path can
+read them, and a stolen submitter key hands over that person's jobs and their
+trained models. Parts of the interface also quietly stop working without a
+secure context -- the copy buttons on the setup page, for one.
+
+With Caddy, the whole configuration is:
+
+```
+your-domain.com {
+    reverse_proxy 127.0.0.1:3000
+}
+
+coordinator.your-domain.com {
+    reverse_proxy 127.0.0.1:8100
+}
+```
+
+nginx with certbot works equally well; the requirement is TLS, not a particular
+proxy. If you genuinely mean to serve plain HTTP, set `BIND_ADDRESS=0.0.0.0`
+and accept what that means.
+
+### Step 4 — Send contributors to your site
+
+Point people at `https://your-domain.com/setup`. The install command on that
+page fills in your address automatically, so there is nothing for them to edit.
+
+### Keeping it running
+
+```bash
+docker compose -f docker/docker-compose.yml logs -f coordinator
+docker compose -f docker/docker-compose.yml restart coordinator
+docker compose -f docker/docker-compose.yml down          # keeps the database
+```
+
+Back up the `mongo-data` volume and `env/.env.production` together. The
+database is useless without the encryption key.
+
+---
+
 ## Running the tests
 
 No Docker needed. From the project folder:
@@ -235,15 +339,30 @@ No Docker needed. From the project folder:
 python tests/test_gpu_match.py
 ```
 
+Or all of them:
+
+```bash
+for f in tests/test_*.py; do python "$f"; done
+```
+
 Each test file runs on its own:
 
 | File | What it checks |
 |---|---|
 | `test_gpu_match.py` | Identifying a GPU model correctly |
 | `test_pool_planner.py` | Splitting work across mismatched GPUs |
+| `test_thermal_policy.py` | Stopping before a contributor's card cooks itself |
 | `test_artifacts.py` | That a malicious file cannot run code on your machine |
+| `test_artifact_crypto.py` | Datasets being unreadable in the database |
+| `test_artifact_access.py` | Who may download a dataset, holdout or model |
 | `test_trainer.py` | That training actually works and is mathematically sound |
 | `test_task_executor.py` | Job dispatch |
+| `test_job_spec.py` | Refusing a broken job before it reaches a GPU |
+| `test_job_control.py` | Stopping a running job cleanly |
+| `test_node_picker.py` | Choosing which machine gets the work |
+| `test_redispatch.py` | Moving a declined job to someone else |
+| `test_model_manifest.py` | That a downloaded model can be rebuilt and run |
+| `test_submitter.py` | Identity for the person sending work |
 | `test_verification.py` | Catching a contributor who fakes results |
 
 Tests needing PyTorch or NumPy skip themselves politely if you don't have them,
@@ -289,7 +408,7 @@ your settings file and the port mapping in the compose file.
 
 ## Honest status
 
-Working and covered by tests (**111 tests**):
+Working, and covered by **253 tests**:
 
 - Detecting GPUs and measuring what they can really do
 - Splitting one batch across mismatched GPUs, proportional to real speed
@@ -297,25 +416,42 @@ Working and covered by tests (**111 tests**):
 - Safe file format for data and weights — a hostile file cannot execute code
 - Catching contributors who return fabricated results
 - Job queue with retries for machines that vanish mid-job
+- Stopping a job on the submitter's word, and running it again
+- Choosing which machine gets a job, and moving it on if that machine declines
+- An identity for the person sending work, and a way to collect the model
+- Datasets encrypted in the database, and deleted once a job is done
 
 Built but **not yet run against a live server**, so expect rough edges:
 
-- The installer script (written and checked, never run on a real machine)
-- Uploading and downloading datasets through the coordinator
-- Automatic verification when a result arrives
+- The installer script (written and checked, never run on a fresh machine)
+- Everything in Part 4 — the central deployment has not been exercised end to
+  end on real hardware behind a real domain
 
 Not built yet:
 
-- **User accounts.** Your identity is the key file you downloaded, nothing more.
-- **Choosing a node for you.** You pick one by hand from the list.
 - **Payments.** The price shown in the interface is decoration.
-- **Privacy.** Uploaded data is stored unencrypted and lands on a stranger's
-  computer. Do not upload anything sensitive.
 - **Splitting one job across several people's machines.** Home internet is far
   too slow for that. One job runs on one person's machine, using all of that
   person's GPUs.
+- **Password recovery of any kind.** Your identity is a key file. Lose it and
+  the jobs and models it owns are gone.
 
----
+### What privacy you actually get
+
+Worth being exact about, because it is easy to assume more than is true.
+
+The contributor running your job **can read your training data**. Training
+needs the numbers in the clear on their GPU, and the techniques that would
+avoid that are far too slow or need hardware consumer cards do not have. Do not
+send anything you would not hand to a stranger.
+
+What is true:
+
+- Column names never leave your browser — the node receives unlabelled numbers.
+- Datasets are encrypted in the database, if you set an encryption key.
+- The node keeps data in memory only and never writes it to disk.
+- Both copies are deleted once the job has finished and been checked.
+- Part of your data is held back from the node and used to check the result.
 
 ## Where things live
 
