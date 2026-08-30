@@ -139,6 +139,75 @@ async def proxy_receive_task_result(result: dict):
     except Exception as e:
         return {"error": f"Unexpected error: {str(e)}"}
 
+# --- the rest of what a node agent needs -----------------------------------
+#
+# The setup page hands contributors an install command pointing at this
+# origin, because one public address is one thing to expose and one
+# certificate to keep. The heartbeat and the artifact store were forwarded
+# here; the three below were not, so a node installed from that command
+# registered, reported in, showed as Connected with the right graphics card,
+# and never received a single job. Nothing said why -- the one endpoint that
+# decides whether a machine looks healthy was the one that worked.
+#
+# The alternative was to tell people to reach the coordinator directly on its
+# own port, which the production compose binds to localhost, so that address
+# does not exist from outside anyway.
+
+
+@router.get("/next-task/{node_id}")
+async def proxy_next_task(node_id: str, request: Request):
+    """Hand a node its next job, if the coordinator has one for it."""
+    try:
+        async with httpx.AsyncClient() as client:
+            res = await client.get(
+                f"{COORDINATOR_URL}/next-task/{node_id}",
+                params=dict(request.query_params),
+                headers=auth_headers(request), timeout=20,
+            )
+            if res.status_code >= 400:
+                raise HTTPException(status_code=res.status_code, detail=safe_json(res))
+            return safe_json(res)
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=502, detail=f"Failed to reach coordinator: {e}")
+
+
+@router.post("/task-result/{task_id}")
+async def proxy_task_result(task_id: str, request: Request):
+    """Carry a finished job's weights, metrics and logs back."""
+    body = await request.body()
+    headers = auth_headers(request)
+    if body:
+        headers["Content-Type"] = "application/json"
+
+    try:
+        async with httpx.AsyncClient() as client:
+            res = await client.post(
+                f"{COORDINATOR_URL}/task-result/{task_id}",
+                content=body or None, headers=headers, timeout=60,
+            )
+            if res.status_code >= 400:
+                raise HTTPException(status_code=res.status_code, detail=safe_json(res))
+            return safe_json(res)
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=502, detail=f"Failed to reach coordinator: {e}")
+
+
+@router.get("/task-cancelled/{task_id}")
+async def proxy_task_cancelled(task_id: str, request: Request):
+    """Whether the submitter has asked for a running job to stop."""
+    try:
+        async with httpx.AsyncClient() as client:
+            res = await client.get(
+                f"{COORDINATOR_URL}/task-cancelled/{task_id}",
+                headers=auth_headers(request), timeout=15,
+            )
+            if res.status_code >= 400:
+                raise HTTPException(status_code=res.status_code, detail=safe_json(res))
+            return safe_json(res)
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=502, detail=f"Failed to reach coordinator: {e}")
+
+
 @router.post("/node-heartbeat/{node_id}")
 async def proxy_node_heartbeat(node_id: str, request: Request):
     try:

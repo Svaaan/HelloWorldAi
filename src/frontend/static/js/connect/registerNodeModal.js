@@ -101,21 +101,49 @@ function hideNodeNameInput() {
 
 // ✅ Show post-registration success actions
 function showSuccessActions() {
-    const resultMessageElement = document.getElementById("resultMessage");
-    resultMessageElement.innerHTML = "✅ Node registered successfully! Please download your private key for future authentication.";
-    resultMessageElement.className = "success-message";
+    // Finish in the dialog that started it.
+    //
+    // This used to write into a panel on the page behind, which was fine when
+    // registering had a page of its own and is not now: on the front door it
+    // landed inside one of the two cards, shoved the layout around, and left
+    // the buttons you had just pressed sitting above the result of pressing
+    // them.
+    const modal = document.getElementById("nodeNameModal");
+    const container = modal?.querySelector(".modal-container");
+    if (!container) return;
 
-    const downloadButton = document.createElement("button");
-    downloadButton.textContent = "⬇️ Download Private Key";
-    downloadButton.onclick = offerPrivateKeyDownload;
+    modal.style.display = "flex";
+    container.replaceChildren();
 
-    const continueButton = document.createElement("button");
-    continueButton.textContent = "➡️ Continue to Dashboard";
-    continueButton.onclick = () => window.location.href = "/node";
+    const title = document.createElement("h3");
+    title.textContent = "Node registered";
+    container.appendChild(title);
 
-    resultMessageElement.appendChild(document.createElement("br"));
-    resultMessageElement.appendChild(downloadButton);
-    resultMessageElement.appendChild(continueButton);
+    const lede = document.createElement("p");
+    lede.className = "modal-lede";
+    lede.textContent =
+        "Save the key file now. It is the only proof this node is yours, and "
+        + "nobody can issue you another one.";
+    container.appendChild(lede);
+
+    const download = document.createElement("button");
+    download.type = "button";
+    download.className = "btn-primary";
+    download.textContent = "Download key file";
+    download.addEventListener("click", offerPrivateKeyDownload);
+    container.appendChild(download);
+
+    const onward = document.createElement("button");
+    onward.type = "button";
+    onward.className = "btn-secondary";
+    onward.textContent = "Go to your node";
+    onward.addEventListener("click", () => { window.location.href = "/node"; });
+    container.appendChild(onward);
+
+    // Where the download confirmation lands, now that the page behind is no
+    // longer the place for it.
+    const result = document.getElementById("resultMessage");
+    if (result) container.appendChild(result);
 }
 
 // ✅ Register node flow

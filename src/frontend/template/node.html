@@ -80,12 +80,22 @@
                     your GPUs.
                 </p>
 
+                <!-- Registering ends here, on a switch that is off, and nothing
+                     used to say that was the last step. Turning it on by default
+                     would be worse: it is somebody's own hardware, and nobody
+                     should be opted into lending it. So the page asks, and only
+                     while it is off. -->
+                <p id="availabilityPrompt" class="availability-prompt" hidden>
+                    Your node is set up and idle. Turn this on and it starts
+                    picking up jobs.
+                </p>
+
                 <label class="approval-mode">
                     <input type="checkbox" id="approvalModeToggle">
                     <span>Ask me before each job</span>
                 </label>
                 <p class="availability-hint">
-                    Off means jobs start on their own, so the node keeps earning
+                    Off means jobs start on their own, so the node keeps working
                     while you are away.
                 </p>
                 <span id="toggleStatusMessage" class="toggle-status-message" role="status"

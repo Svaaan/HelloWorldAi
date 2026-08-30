@@ -226,7 +226,6 @@ class CPUCapabilities(BaseModel):
 class NodeConnection(BaseModel):
     node_id: Optional[str] = None  # ✅ Coordinator generates this!
     ip: str
-    country: Optional[str] = "Unknown"
     public_key: Optional[str] = None  # ✅ Provided by frontend (browser)
     capabilities: Dict = {
         "cpu": {},
@@ -332,7 +331,6 @@ async def sync_nodes_with_db():
                 connected_nodes[node_id] = NodeConnection(
                     node_id=node_id,
                     ip=node.get("ip", "unknown"),
-                    country=node.get("country", "Unknown"),
                     capabilities=node.get("capabilities", {"cpu": {}, "gpu": []}),
                     isConnected=True,
                     isAvailable=node.get("isAvailable", False),
@@ -426,7 +424,6 @@ async def connect_node(node: NodeConnection, request: Request, db: Database = De
         node_document = {
             "_id": node_id,
             "ip": node.ip,
-            "country": node.country,
             "public_key": node.public_key,
             "isConnected": True,
             "isAvailable": node.isAvailable,
@@ -476,7 +473,6 @@ async def node_heartbeat(
             connected_nodes[node_id] = NodeConnection(
                 node_id=node_id,
                 ip=node_doc.get("ip", "unknown"),
-                country=node_doc.get("country", "Unknown"),
                 isConnected=True,
                 isAvailable=node_doc.get("isAvailable", False)
             )
@@ -612,7 +608,6 @@ async def get_connected_nodes(node_id: Optional[str] = None, db: Database = Depe
             node_info = {
                 "node_id": node_id_from_db,
                 "ip": node.get("ip", "unknown"),
-                "country": node.get("country", "Unknown"),
                 "isConnected": node.get("isConnected", False),
                 "isAvailable": node.get("isAvailable", False),
                 "isAuthenticated": node.get("isAuthenticated", False),  # ✅ Already here!

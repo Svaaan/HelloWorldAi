@@ -124,15 +124,6 @@ class NodeRegistrationRequest(BaseModel):
     node_name: str
     public_key: str
 
-def get_country_from_ip(ip: str) -> str:
-    try:
-        res = requests.get(f"https://ipapi.co/{ip}/country_name/", timeout=5)
-        if res.status_code == 200:
-            return res.text.strip()
-    except Exception as e:
-        logger.warning(f"Failed to get country for IP {ip}: {e}")
-    return "Unknown"
-
 # === Routes ===
 
 @app.post("/connect-node")
@@ -776,7 +767,6 @@ def get_detailed_capabilities():
     return {
         "node_id": node_info.get("node_id", "unknown-node-id"),
         "system_info": capabilities,  # Use dynamically fetched capabilities
-        "country": node_info["country"],
         "status": {"connected": node_info["connected"]}
     }
 

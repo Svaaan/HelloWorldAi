@@ -67,7 +67,7 @@ function markAlreadySetUp() {
       node.hidden = false;
       node.className = "btn";
       connect.className = "btn-ghost";
-      connect.textContent = "Connect another GPU";
+      connect.textContent = "Connect GPU";
       connect.parentNode.insertBefore(node, connect);
     }
 

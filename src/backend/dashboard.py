@@ -22,7 +22,6 @@ async def get_node_info():
                 return {
                     "node_id": node.get("node_id"),
                     "ip": node.get("ip"),
-                    "country": node.get("country", "Unknown"),
                     "capabilities": node.get("capabilities"),
                     "isConnected": node.get("isConnected", True)
                 }

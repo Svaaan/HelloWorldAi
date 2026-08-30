@@ -293,12 +293,14 @@ installed **on Windows**.
 Inside their Ubuntu (WSL) terminal:
 
 ```bash
-bash <(curl -fsSL http://YOUR-SERVER:3000/static/scripts/setup-node.sh) --coordinator http://YOUR-SERVER:8100
+bash <(curl -fsSL http://YOUR-SERVER:3000/static/scripts/setup-node.sh) --coordinator http://YOUR-SERVER:3000
 ```
 
-Replace `YOUR-SERVER` with wherever your coordinator is reachable. The
-**Get Started** page on your site generates this line with the right address
-filled in already — send them that page.
+Replace `YOUR-SERVER` with wherever your site is reachable — one address,
+not two. Everything the node agent needs is forwarded through the dashboard, so
+the coordinator's own port never has to be exposed. The **Setup guide** page on
+your site generates this line with the address filled in already; send them that
+page.
 
 The script installs Docker and the GPU toolkit, checks a container can really
 see their GPUs, downloads the node, and starts it. It is safe to run twice.
@@ -451,6 +453,7 @@ Each test file runs on its own:
 | `test_export.py` | Converting a downloaded model to ONNX or TorchScript |
 | `test_model_bundle.py` | Packaging the finished model as weights, config and loader |
 | `test_scoring.py` | Answering a spreadsheet with a spreadsheet |
+| `test_node_reachability.py` | That everything a node agent calls is reachable from one address |
 | `test_dataset_growth.py` | Adding more files to a dataset, and merging their labels |
 | `test_sampling.py` | Asking a finished language model to write something |
 | `test_warm_start.py` | Continuing a run from a trained model, and the fraud that invites |
@@ -510,7 +513,7 @@ your settings file and the port mapping in the compose file.
 
 ## Honest status
 
-Working, and covered by **399 tests**:
+Working, and covered by **409 tests**:
 
 - Detecting GPUs and measuring what they can really do
 - Splitting one batch across mismatched GPUs, proportional to real speed
@@ -533,7 +536,9 @@ Built but **not yet run against a live server**, so expect rough edges:
 
 Not built yet:
 
-- **Payments.** The price shown in the interface is decoration.
+- **Payments.** Nobody is paid for anything yet. The interface no longer
+  implies otherwise: there is no price on a node and nothing claims a
+  contributor is earning.
 - **Splitting one job across several people's machines.** Home internet is far
   too slow for that. One job runs on one person's machine, using all of that
   person's GPUs.

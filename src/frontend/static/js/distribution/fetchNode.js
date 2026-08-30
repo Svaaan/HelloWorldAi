@@ -99,10 +99,12 @@ function buildNodeCard(node) {
   const cpu = node.capabilities?.cpu || {};
   specs.appendChild(specRow("CPU", cpu.brand || "Unknown"));
   specs.appendChild(specRow("Cores", cpu.cores ?? "—"));
-  specs.appendChild(specRow(
-    "Price/h",
-    node.price_per_hour != null ? `${node.price_per_hour} SEK` : "Free"
-  ));
+
+  // No price row. Nothing anywhere sets price_per_hour, so every card read
+  // "Price/h — Free", which is not a fact about this node but an advertisement
+  // for a payment system that does not exist. A row with the same value on
+  // every card is either a promise or noise, and this one managed both. It
+  // comes back when somebody can actually be paid.
 
   const queued = Number(node.queued) || 0;
   if (queued > 0) {

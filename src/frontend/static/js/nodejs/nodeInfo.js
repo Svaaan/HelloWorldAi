@@ -181,7 +181,6 @@ export function initNodeInfoManager() {
 
         const id = textSpan(node.node_id, "mono");
         group.append(detailRow("Node ID", id));
-        group.append(detailRow("Country", textSpan(node.country || "Unknown")));
 
         const status = document.createElement("span");
         status.append(textSpan(
@@ -338,11 +337,17 @@ export function initNodeInfoManager() {
 
     function updateAvailabilityStatus(isAvailable) {
         const el = document.getElementById("availabilityStatus");
-        if (!el) return;
-        el.replaceChildren(textSpan(
-            isAvailable ? "Available" : "Not available",
-            isAvailable ? "status-available" : "status-unavailable"
-        ));
+        if (el) {
+            el.replaceChildren(textSpan(
+                isAvailable ? "Available" : "Not available",
+                isAvailable ? "status-available" : "status-unavailable"
+            ));
+        }
+
+        // Registering finishes on this switch, off, and "Not available" beside
+        // it reads as a report rather than as the thing left to do.
+        const prompt = document.getElementById("availabilityPrompt");
+        if (prompt) prompt.hidden = Boolean(isAvailable);
     }
 
     async function toggleAvailability(isAvailable) {

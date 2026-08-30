@@ -13,7 +13,6 @@ logger = logging.getLogger(__name__)
 # Node info state (moved from node.py)
 public_ip = socket.gethostbyname(socket.gethostname())
 node_info = {
-    "country": "Unknown",
     "connected": False,
     "accept_tasks": True,
 }
@@ -55,7 +54,6 @@ def build_node_payload(system_capabilities) -> Dict[str, Any]:
 
     return {
         "ip": public_ip,
-        "country": node_info["country"],
         "capabilities": system_capabilities,
         "isConnected": node_info["connected"],
         "isAvailable": node_info.get("isAvailable", False),
