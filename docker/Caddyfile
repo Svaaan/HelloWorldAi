@@ -1,0 +1,36 @@
+# The one public door.
+#
+# Everything else in this stack binds to 127.0.0.1: the coordinator, the
+# database, and the dashboard itself. Caddy is the only service listening on
+# the outside, and it forwards to the dashboard over the internal network.
+#
+# That is the whole reason the three-port arrangement and the tunnel are gone.
+# A node agent, a browser and a submitter all speak to this one address, and
+# the dashboard proxies onward to the coordinator.
+#
+# DOMAIN decides what happens with certificates:
+#
+#   DOMAIN=hello.example.com   a real certificate from Let's Encrypt, renewed
+#                              automatically, nothing to remember
+#   DOMAIN unset               localhost with Caddy's own local certificate,
+#                              which is right for trying the production stack
+#                              on your own machine
+
+{$DOMAIN:localhost} {
+	encode zstd gzip
+
+	# Uploads are datasets. The coordinator caps them at 512 MB; there is no
+	# reason for the proxy to refuse smaller than that and produce a 413 the
+	# application never sees.
+	request_body {
+		max_size 512MB
+	}
+
+	# Training jobs and model downloads are slow by nature.
+	reverse_proxy dashboard:3000 {
+		transport http {
+			read_timeout 300s
+			write_timeout 300s
+		}
+	}
+}

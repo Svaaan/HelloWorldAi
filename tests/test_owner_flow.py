@@ -209,3 +209,60 @@ def test_deploy_pulls_rather_than_builds():
     assert "BUILD_ON_SERVER" in script
     # and the project name pinned, or `down` matches nothing (it once did not)
     assert '-p "$PROJECT_NAME"' in script
+
+
+# --- what it takes for the first deploy to work --------------------------
+
+def test_the_stack_waits_for_health_rather_than_for_start():
+    """"Up" is not "working".
+
+    The previous deployment sat Up for twelve months with no database container
+    at all, and `docker ps` looked perfectly happy about it.
+    """
+    compose = read("..", "docker", "docker-compose.yml")
+
+    assert compose.count("healthcheck:") >= 3, (
+        "mongo, the coordinator and the dashboard should each say whether they "
+        "actually answer"
+    )
+    assert compose.count("condition: service_healthy") >= 3, (
+        "depends_on without a condition waits for a container to start, not "
+        "for the service inside it to work"
+    )
+
+
+def test_only_one_service_faces_the_outside():
+    compose = read("..", "docker", "docker-compose.yml")
+
+    # Caddy holds 80/443; everything else stays on the loopback address.
+    assert '"80:80"' in compose and '"443:443"' in compose
+    assert compose.count("${BIND_ADDRESS:-127.0.0.1}") >= 2, (
+        "the coordinator and the dashboard should not publish beyond localhost"
+    )
+    assert "${MONGO_BIND:-127.0.0.1}" in compose, (
+        "an unauthenticated database must not be published to the world"
+    )
+
+
+def test_the_domain_is_never_handed_over_empty():
+    """An empty value is not the same as an unset one.
+
+    Caddy's {$DOMAIN:localhost} falls back only when the variable is unset. An
+    empty string made the site address vanish, Caddy read the block as global
+    options, and it crash-looped with "unrecognized global option: encode".
+    """
+    compose = read("..", "docker", "docker-compose.yml")
+
+    assert "DOMAIN=${DOMAIN:-localhost}" in compose
+    assert "DOMAIN=${DOMAIN:-}" not in compose
+
+
+def test_the_env_generator_will_not_overwrite_secrets():
+    """Rewriting this file swaps every node's session secret, and -- if
+    artifact encryption is on -- makes every stored dataset unreadable."""
+    script = read("..", "make-production-env.sh")
+
+    assert "Refusing to overwrite" in script
+    assert "chmod 600" in script
+    # and it must not depend on a particular Python being present
+    assert "openssl rand" in script

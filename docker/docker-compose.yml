@@ -14,6 +14,35 @@
 # BIND_ADDRESS=0.0.0.0 if you genuinely mean to publish it unencrypted.
 
 services:
+  # The only service reachable from outside. Everything below it binds to
+  # 127.0.0.1 and is reached over the internal network.
+  caddy:
+    image: caddy:2-alpine
+    container_name: caddy
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"          # HTTP/3
+    environment:
+      # Set to a real hostname for a real certificate. Left unset, Caddy serves
+      # localhost with its own local one, which is what you want when trying
+      # the production stack on your own machine.
+      # Defaulted here rather than in the Caddyfile: Caddy's {$DOMAIN:localhost}
+      # falls back only when the variable is *unset*, and an empty value made
+      # the site address disappear -- Caddy then read the whole block as global
+      # options and refused to start with "unrecognized global option: encode".
+      - DOMAIN=${DOMAIN:-localhost}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Certificates live here. Without this volume every restart asks Let's
+      # Encrypt for a new one, and they rate-limit that.
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      dashboard:
+        condition: service_healthy
+
   mongo_prod:
     image: mongo:7
     container_name: mongo_prod
@@ -35,6 +64,14 @@ services:
       # Without this, every node registration and job history is lost the next
       # time the container is replaced.
       - mongo-data:/data/db
+    # "Up" is not "working". The previous deployment sat Up for twelve months
+    # with no database container at all, and `docker ps` looked perfectly happy.
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
   coordinator:
     # Pulled, not built. CI publishes this on every push to main, so the
@@ -59,9 +96,21 @@ services:
       - MONGO_URI=${MONGO_URI:-mongodb://mongo_prod:27017}
       - MONGO_DB=${MONGO_DB:-NodeDbProd}
     depends_on:
-      - mongo_prod
+      mongo_prod:
+        # Not merely started. The coordinator connects on startup, and racing a
+        # database still opening its files fails in a way that reads as a bug in
+        # the coordinator.
+        condition: service_healthy
     command: uvicorn src.backend.coordinator:app --host 0.0.0.0 --port 8100
     restart: always
+    healthcheck:
+      # Unauthenticated, cheap, and it reads the database -- so a green light
+      # here means the whole chain answers, not just that uvicorn bound a port.
+      test: ["CMD", "curl", "-fsS", "http://localhost:8100/get-connected-nodes-count"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
   dashboard:
     # Pulled, not built. CI publishes this on every push to main, so the
@@ -85,9 +134,18 @@ services:
       - ENV=production
       - COORDINATOR_URL=http://coordinator:8100
     depends_on:
-      - coordinator
+      coordinator:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     command: uvicorn src.app:app --host 0.0.0.0 --port 3000
     restart: always
 
 volumes:
+  caddy-data:
+  caddy-config:
   mongo-data:
