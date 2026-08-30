@@ -91,7 +91,14 @@ export function showRoleNotice() {
   if (!page) return;                    // belongs to neither side
   if (hasRole(page.role)) return;       // it is yours; nothing to explain
 
-  const host = document.querySelector("main") || document.body;
+  // An entry page introduces itself. "Contribute your GPU -- join the network
+  // and put an idle graphics card to work" says everything a first-time
+  // visitor needs, and a banner above it saying "this page is for lending a
+  // GPU" is the same sentence twice. The notice earns its place only when
+  // somebody is signed in to the other side and would otherwise wonder why
+  // none of this is theirs.
+  if (page.entry && isNewHere()) return;
+
   const wrap = el("div", null);
   wrap.id = NOTICE_ID;
 
@@ -100,5 +107,11 @@ export function showRoleNotice() {
     ? forNewcomer(page, page.role)
     : forOtherSide(page, page.role, mine));
 
-  host.insertBefore(wrap, host.firstChild);
+  // Above <main>, not inside it. Pages lay their main element out as a grid or
+  // as a centring flex row, and a banner dropped in at the top became one more
+  // item competing for space -- on the connect page it landed beside the card
+  // rather than above it.
+  const main = document.querySelector("main");
+  if (main && main.parentNode) main.parentNode.insertBefore(wrap, main);
+  else document.body.insertBefore(wrap, document.body.firstChild);
 }

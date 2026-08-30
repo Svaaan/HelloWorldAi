@@ -192,4 +192,66 @@ check("storage being refused reads as no role, not as an error", () => {
   }
 });
 
+// --- when the notice is worth showing -----------------------------------
+//
+// The same rule showRoleNotice applies, kept here so the matrix is written
+// down: an entry page introduces itself, so a first-time visitor does not
+// need a banner above "Contribute your GPU" saying this page is for lending
+// a GPU. Somebody signed in to the other side does need one.
+
+function noticeShown(path) {
+  const page = role.pageRole(path);
+  if (!page) return false;
+  if (role.hasRole(page.role)) return false;
+  if (page.entry && role.isNewHere()) return false;
+  return true;
+}
+
+check("an entry page introduces itself to a newcomer", () => {
+  signedInAs();
+  assert.equal(noticeShown("/connect"), false);
+  assert.equal(noticeShown("/setup"), false);
+  assert.equal(noticeShown("/distribution"), false);
+});
+
+check("an interior page cannot introduce itself, so it is explained", () => {
+  // /node and /workspace are empty without the key. "No node connected yet"
+  // reads as a fault rather than as somebody else's half of the product.
+  signedInAs();
+  assert.equal(noticeShown("/node"), true);
+  assert.equal(noticeShown("/workspace"), true);
+});
+
+check("the other side is always told where it has landed", () => {
+  signedInAs("builder");
+  for (const path of ["/connect", "/setup", "/node"]) {
+    assert.equal(noticeShown(path), true, path);
+  }
+  for (const path of ["/distribution", "/workspace"]) {
+    assert.equal(noticeShown(path), false, path);
+  }
+
+  signedInAs("contributor");
+  for (const path of ["/distribution", "/workspace"]) {
+    assert.equal(noticeShown(path), true, path);
+  }
+  for (const path of ["/connect", "/setup", "/node"]) {
+    assert.equal(noticeShown(path), false, path);
+  }
+});
+
+check("somebody who is both is never interrupted anywhere", () => {
+  signedInAs("contributor", "builder");
+  for (const path of ["/connect", "/setup", "/node", "/distribution", "/workspace"]) {
+    assert.equal(noticeShown(path), false, path);
+  }
+});
+
+check("the front door never carries a notice", () => {
+  for (const who of [[], ["contributor"], ["builder"], ["contributor", "builder"]]) {
+    signedInAs(...who);
+    assert.equal(noticeShown("/"), false);
+  }
+});
+
 console.log(`  ${passed} checks passed`);

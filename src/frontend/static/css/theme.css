@@ -548,16 +548,16 @@ pre {
    has gone wrong, the visitor is simply somewhere that belongs to the other
    half of the product, and may well want to take up that half too. */
 
-/* Several pages lay their main element out as a grid, and a notice dropped in
-   at the top became one more cell in the first column. It has to span whatever
-   it lands in. */
+/* Sits between the header and the page rather than inside it: every page lays
+   its main element out differently, and a banner that joins that layout ends
+   up beside the content instead of above it. */
 #roleNotice {
-  grid-column: 1 / -1;
+  padding: 1.5rem 1.25rem 0;
 }
 
 .role-notice {
   max-width: 62rem;
-  margin: 0 auto 1.5rem;
+  margin: 0 auto;
   padding: 1rem 1.15rem;
   border: 1px solid var(--border-strong);
   border-left: 3px solid var(--accent);
