@@ -510,8 +510,25 @@ export async function setApprovalMode(ask) {
   }
 }
 
+/** Whether this browser holds a node identity at all. */
+function hasNode() {
+  try {
+    return Boolean(localStorage.getItem("currentNodeId"));
+  } catch {
+    return false;                        // private mode: assume not
+  }
+}
+
 export function startLiveWorkPolling() {
   stopLiveWorkPolling();
+
+  // Nothing to watch without a node of your own, and watching anyway showed
+  // somebody else's machine. A visitor with no node read "No node connected
+  // yet" in one panel while the one beside it reported a GeForce RTX 3070 at
+  // 35 degrees and offered to accept work on it -- the local agent's readings,
+  // which are not theirs and are not theirs to control.
+  if (!hasNode()) return;
+
   pollLiveWork();
   timer = setInterval(() => {
     if (!document.hidden) pollLiveWork();

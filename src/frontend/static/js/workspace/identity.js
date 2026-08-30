@@ -77,7 +77,7 @@ async function fingerprint(key) {
 
 // --- saving ---------------------------------------------------------------
 
-function downloadKeyFile() {
+export function downloadKeyFile() {
   const payload = {
     type: FILE_TYPE,
     version: FILE_VERSION,

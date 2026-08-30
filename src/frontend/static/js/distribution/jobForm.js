@@ -151,12 +151,24 @@ export async function buildJobForm(container, { modelName } = {}) {
     const passes = samples / rows;
     const thin = coverage < (schema.guidance?.min_coverage ?? 0.95);
 
+    // Say which rows these are. The panel above reports the number of rows in
+    // the file; this one counts only the training half, and the two numbers
+    // sitting a few centimetres apart with no explanation read as a bug rather
+    // than as a holdout.
+    const held = Math.max(0, datasetRows - rows);
+    const heldNote = held
+      ? ` The other ${held.toLocaleString()} ${held === 1 ? "row is" : "rows are"} `
+        + `held back to check the result.`
+      : "";
+
     runShape.classList.toggle("is-thin", thin);
-    runShape.textContent = thin
-      ? `Draws ${samples.toLocaleString()} samples from ${rows.toLocaleString()} rows — `
-        + `about ${Math.round(coverage * 100)}% of your data. More steps would use the rest.`
-      : `Reads your ${rows.toLocaleString()} rows about ${passes.toFixed(1)} times `
-        + `(${samples.toLocaleString()} samples).`;
+    runShape.textContent = (thin
+      ? `Draws ${samples.toLocaleString()} samples from ${rows.toLocaleString()} `
+        + `training rows — about ${Math.round(coverage * 100)}% of them. `
+        + `More steps would use the rest.`
+      : `Reads your ${rows.toLocaleString()} training rows about `
+        + `${passes.toFixed(1)} times (${samples.toLocaleString()} samples).`)
+      + heldNote;
   }
 
   function renderArchitecture() {

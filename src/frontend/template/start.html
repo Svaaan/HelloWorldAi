@@ -140,6 +140,32 @@
       </div>
     </div>
 
+    <!-- The data side's half of the same promise. "Create key file" used to
+         make a key and go straight to the workspace, so the button named a file
+         that never appeared; the GPU side has always insisted you save one
+         before moving on. -->
+    <div id="builderKeyModal" class="modal-backdrop" role="dialog" aria-modal="true"
+         aria-labelledby="builderKeyTitle">
+      <div class="modal-container">
+        <button class="modal-close" type="button" data-close="builderKeyModal"
+                aria-label="Close">&times;</button>
+        <h3 id="builderKeyTitle">Key file created</h3>
+        <p class="modal-lede">
+          Save it now. This key is your account &mdash; it is the only way back to
+          your jobs and the models they produce, and nobody can issue you another
+          one.
+        </p>
+        <button id="builderKeyDownload" type="button" class="btn-primary">
+          Download key file
+        </button>
+        <button id="builderKeyOnward" type="button" class="btn-secondary">
+          Open your workspace
+        </button>
+        <div id="builderKeyResult" class="field-status" role="status"
+             aria-live="polite"></div>
+      </div>
+    </div>
+
     <!-- Reconnect an existing node from its key file -->
     <div id="connectNodeModal" class="modal-backdrop" role="dialog" aria-modal="true"
          aria-labelledby="connectModalTitle">

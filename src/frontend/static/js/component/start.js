@@ -15,6 +15,7 @@ import { setupConnectExistingNodeModal }
     from "/static/js/connect/connectExistingNode.js";
 import { renderGpuStatus } from "/static/js/connect/gpuDetect.js";
 import { isContributor } from "./role.js";
+import { downloadKeyFile } from "/static/js/workspace/identity.js";
 
 function setStatus(message, kind) {
   const target = document.getElementById("builderStatus");
@@ -134,6 +135,43 @@ export function initStart() {
       // thing that owns your jobs exists before you have any, and can be saved
       // before there is anything to lose.
       getSubmitterKey();
+
+      // And then say so, rather than walking straight past it. The button says
+      // "Create key file"; it used to produce no file at all and land you in
+      // the workspace, where a panel you had to notice offered to save one.
+      // The GPU side has always stopped and insisted. Both sides now do.
+      const modal = document.getElementById("builderKeyModal");
+      if (!modal) {                       // markup missing: do not trap anyone
+        window.location.href = "/workspace";
+        return;
+      }
+      modal.style.display = "flex";
+    });
+  }
+
+  const keyDownload = document.getElementById("builderKeyDownload");
+  if (keyDownload) {
+    keyDownload.addEventListener("click", () => {
+      downloadKeyFile();
+      const said = document.getElementById("builderKeyResult");
+      if (said) {
+        said.textContent = "Saved. Keep it somewhere you will find it again.";
+        said.className = "field-status is-ok";
+      }
+    });
+  }
+
+  const keyClose = document.querySelector('[data-close="builderKeyModal"]');
+  if (keyClose) {
+    keyClose.addEventListener("click", () => {
+      const modal = document.getElementById("builderKeyModal");
+      if (modal) modal.style.display = "none";
+    });
+  }
+
+  const keyOnward = document.getElementById("builderKeyOnward");
+  if (keyOnward) {
+    keyOnward.addEventListener("click", () => {
       window.location.href = "/workspace";
     });
   }

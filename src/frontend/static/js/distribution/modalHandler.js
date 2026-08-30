@@ -134,6 +134,12 @@ export function showNodeModal(node) {
     "It is stored on the coordinator; whether that copy is encrypted "
       + "depends on how this service is run.",
     "The node keeps it in memory only and never writes it to disk.",
+    // Named because it is the one thing that does travel with a name on it.
+    // The point above says column names are not sent, which is true and which
+    // makes it easy to assume nothing legible goes; the job's name does, and a
+    // job called “hospital-readmission-risk” says plenty.
+    "The name you give the job is shown to the contributor running it. "
+      + "The data is not labelled, but that name is.",
     "Both copies are deleted once your job has finished and been checked.",
     "Part of it is held back from the node and used to verify the result.",
   ].forEach((text, index) => {
