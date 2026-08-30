@@ -197,6 +197,26 @@ async def _queue_task(db, node_id, task_data, submitter, client_host,
             if key in dataset_info:
                 spec[key] = dataset_info[key]
 
+        # How many classes the model predicts, for the same reason and with a
+        # sharper edge. Nobody wrote this down, so the node counted the classes
+        # in the half it was given and the verifier counted them in the holdout
+        # -- and on a small dataset the holdout can easily hold only one of
+        # them. The node then trained a two-output model, the verifier rebuilt
+        # a one-output model to score it, and the weights would not load:
+        #
+        #   size mismatch for 4.weight: checkpoint [2, 64], model [1, 64]
+        #
+        # which is reported as a failed verification. A perfectly good model,
+        # rejected because of where the split happened to fall. Counting once
+        # here, on the whole dataset before it is split, is what makes the two
+        # sides agree.
+        # class_names is the list the CSV parser built from the whole file, so
+        # its length is the number of classes in the data as uploaded -- not in
+        # whichever half a particular reader happens to hold.
+        class_names = dataset_info.get("class_names")
+        if class_names:
+            spec["output_dim"] = len(class_names)
+
         # A spreadsheet is rows of features with one label each; text is a
         # stream of tokens each predicting the next. Neither model can read
         # the other's shape, and the failure is an unreadable tensor error
@@ -677,6 +697,27 @@ async def submit_task_result(
     status = payload.get("status", "completed")
     if status not in ("completed", "failed", "rejected", "cancelled"):
         raise HTTPException(status_code=400, detail=f"Invalid task status: {status}")
+
+    # Nobody said no; nobody said anything. The owner was away from the screen,
+    # which is the ordinary case for a machine whose whole appeal is that it
+    # works while you are not there.
+    #
+    # This used to arrive as a plain "rejected", indistinguishable from the
+    # owner actually refusing the job. For work the submitter had addressed to
+    # one machine that meant the job died two minutes after it was sent, and
+    # the only sign was a row in their workspace that never started. So an
+    # unanswered peek puts the job back where it was rather than ending it:
+    # the node offers it again, and it is still waiting when the owner returns.
+    #
+    # Deliberately not recorded in declined_by. That list is what stops a node
+    # being offered the same job twice, and this node has not turned it down.
+    if status == "rejected" and payload.get("unanswered"):
+        await db.tasks_collection.update_one(
+            {"_id": task_id},
+            {"$set": {"status": "pending"}, "$unset": {"started_at": ""}},
+        )
+        logger.info(f"Task {task_id} went unanswered on {caller}; back to pending.")
+        return {"status": "success", "task_id": task_id, "task_status": "pending"}
 
     # A declined job is not necessarily finished: if the coordinator placed it,
     # another node may still want it.

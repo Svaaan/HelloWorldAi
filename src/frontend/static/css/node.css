@@ -600,6 +600,9 @@ input:disabled + .slider {
 }
 
 .approval-prompt {
+  /* Full width and first in the grid. As a plain child it would take the left
+     column and sit beside Node details, which is not where an eye lands. */
+  grid-column: 1 / -1;
   display: grid;
   gap: 0.4rem;
   margin-bottom: 1rem;

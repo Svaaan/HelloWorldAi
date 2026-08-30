@@ -155,7 +155,14 @@ pending_approval: Dict[str, Any] = {}
 
 # How long a peeked job waits for a human before it goes back to the queue.
 # Without this a submitter would wait forever on an owner who is asleep.
-APPROVAL_TIMEOUT_SECONDS = int(os.getenv("APPROVAL_TIMEOUT", 120))
+#
+# Two minutes was the old value, and it was the wrong shape for the
+# product: this agent is meant to earn its keep on a machine nobody is
+# sitting at, so two minutes meant most jobs expired before anyone saw
+# them. Going back to the queue is now cheap -- the job stays pending and
+# is offered again -- so the window can be long enough to catch somebody
+# who wandered off for a coffee.
+APPROVAL_TIMEOUT_SECONDS = int(os.getenv("APPROVAL_TIMEOUT", 900))
 
 # Task queues
 completed_tasks: List[dict] = []
@@ -868,7 +875,8 @@ async def _handle_approval_mode(node_id, headers) -> bool:
             task_id = pending_approval.get("task_id")
             logger.info(f"No answer on {task_id} after {int(waited)}s — returning it to the queue.")
             await _decline_task(task_id, headers,
-                                "No answer from the node owner in time.")
+                                "No answer from the node owner in time.",
+                                unanswered=True)
             pending_approval.clear()
         return False        # one decision at a time
 
@@ -889,13 +897,20 @@ async def _handle_approval_mode(node_id, headers) -> bool:
     return False
 
 
-async def _decline_task(task_id, headers, reason):
-    """Hand a peeked job back rather than leaving a submitter hanging."""
+async def _decline_task(task_id, headers, reason, unanswered: bool = False):
+    """Hand a peeked job back rather than leaving a submitter hanging.
+
+    `unanswered` separates "the owner said no" from "the owner was not there".
+    A refusal ends the job for this node; silence only returns it to the queue,
+    because a machine that runs while nobody watches it cannot treat absence as
+    an answer.
+    """
     try:
         async with httpx.AsyncClient() as client:
             res = await client.post(
                 f"{COORDINATOR_URL}/task-result/{task_id}",
-                json={"status": "rejected", "result": reason, "metrics": {}, "logs": []},
+                json={"status": "rejected", "result": reason, "metrics": {},
+                      "logs": [], "unanswered": unanswered},
                 headers=headers, timeout=15,
             )
             res.raise_for_status()

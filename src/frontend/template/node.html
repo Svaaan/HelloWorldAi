@@ -15,6 +15,15 @@
     <div id="header-placeholder"></div>
 
     <main class="dashboard-container">
+        <!-- A job waiting for the owner's answer, first and full width.
+             It used to sit in the "Running now" panel, which on an ordinary
+             laptop begins about 1200px down: an owner with the page open in
+             front of them saw nothing at all, and the job expired unanswered
+             while they looked at a screen that appeared idle. It is hidden
+             unless there is something to decide, so it costs nothing the rest
+             of the time. -->
+        <div id="approvalPrompt" class="approval-prompt" hidden></div>
+
         <!-- Left: what this node is -->
         <section class="panel node-info">
             <div class="panel-head">
@@ -144,7 +153,6 @@
             <div class="panel-head">
                 <h2>Running now</h2>
             </div>
-            <div id="approvalPrompt" class="approval-prompt" hidden></div>
             <div id="liveTask"></div>
         </section>
 

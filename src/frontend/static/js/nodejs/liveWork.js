@@ -114,7 +114,7 @@ function renderApproval(waiting) {
 
   // Says plainly what happens if nobody clicks.
   box.appendChild(el("p", "approval-note",
-    "If you do nothing it goes back to the queue for another node."));
+    "If you do nothing it goes back to the queue and you can still take it later."));
 
   const actions = el("div", "approval-actions");
   const accept = el("button", "btn-primary", "Accept and run");

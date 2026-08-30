@@ -193,7 +193,7 @@ export function initNodeInfoManager() {
             why.className = "status-hint";
             why.textContent =
                 "The node has not reported in for over 5 minutes. If it restarted, " +
-                "reconnect it from the connect page to hand it a new session.";
+                "reconnect it from the front page with your key file to hand it a new session.";
             status.append(why);
         }
         group.append(detailRow("Status", status));
@@ -268,7 +268,7 @@ export function initNodeInfoManager() {
         text.textContent =
             "Clear your site data and you lose control of this machine — it "
             + "keeps running and taking jobs, and this page can no longer see "
-            + "it. There is no reset. Save the key file from the connect page.";
+            + "it. There is no reset. Save the key file now, with the button below.";
         box.append(text);
 
         const link = document.createElement("a");
