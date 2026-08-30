@@ -22,12 +22,29 @@ function el(tag, className, text) {
   return node;
 }
 
-function describeGpus(node) {
+// Exported so the summarising can be tested directly; a four-card rig is
+// awkward to arrange otherwise.
+export function describeGpus(node) {
   const gpus = node.capabilities?.gpu;
-  if (Array.isArray(gpus) && gpus.length) {
-    return gpus.map((g) => g.name || "Unknown GPU").join(", ");
+  if (!Array.isArray(gpus) || !gpus.length) return gpus?.name || "None";
+
+  // Group identical cards and drop the vendor words every NVIDIA GPU shares.
+  // A four-card rig read as "NVIDIA GeForce RTX 3070, NVIDIA GeForce RTX 3060,
+  // NVIDIA GeForce RTX 3060, NVIDIA GeForce GTX 1660 Super", which is mostly
+  // the word NVIDIA and does not fit anywhere. "2x RTX 3060, RTX 3070,
+  // GTX 1660 Super" says the same thing and can be read at a glance.
+  const counts = new Map();
+  for (const g of gpus) {
+    const name = (g.name || "Unknown GPU")
+      .replace(/^NVIDIA\s+/i, "")
+      .replace(/^GeForce\s+/i, "");
+    counts.set(name, (counts.get(name) || 0) + 1);
   }
-  return gpus?.name || "None";
+
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([name, n]) => (n > 1 ? `${n}× ${name}` : name))
+    .join(", ");
 }
 
 function countGpus(node) {

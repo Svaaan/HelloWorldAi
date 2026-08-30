@@ -181,6 +181,11 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  /* Without this the ellipsis above never happens. A flex item will not shrink
+     below its content by default (min-width: auto), so a machine with four
+     graphics cards pushed its own row 443px past the edge of the card and
+     dragged the rows under it along. */
+  min-width: 0;
 }
 
 .empty-message {
