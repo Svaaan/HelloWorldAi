@@ -1,27 +1,44 @@
 #!/bin/bash
 #
-# Push this working copy to the server and restart the stack.
+# Push this working copy to a server and restart the stack.
+#
+#   HOST=1.2.3.4 KEY=~/.ssh/hw.key ./deploy.sh
+#
+# Nothing is hardcoded any more. The previous version carried one particular
+# Oracle VM's address, one particular Windows path to a key, and one particular
+# home directory, which meant it worked on one machine for one server and
+# quietly pointed at a box that had been retired.
 
-# Stop at the first failure. Without this a broken rsync still fell through to
-# the ssh block, which takes the live stack down and rebuilds it from whatever
-# managed to arrive.
 set -euo pipefail
 
 # === CONFIGURATION ===
-KEY_PATH="C:/ssh.key/ssh-key-2025-04-02.key"
-PROJECT_DIR="C:/Users/danie/Documents/programmering/HelloWorldAi/"
-REMOTE_USER="ubuntu"
-REMOTE_HOST="79.76.55.71"
-# rsync hands this to the remote shell, which does expand the tilde.
-# shellcheck disable=SC2088
-REMOTE_PATH="~/HelloWorldAi"
+# All overridable; HOST has no default on purpose. Deploying to whatever
+# address happened to be written down a year ago is how you end up updating a
+# server you thought was gone.
+HOST="${HOST:?set HOST to the server address, e.g. HOST=1.2.3.4 ./deploy.sh}"
+USER_NAME="${REMOTE_USER:-ubuntu}"
+KEY="${KEY:-$HOME/.ssh/id_rsa}"
+REMOTE_PATH="${REMOTE_PATH:-~/HelloWorldAi}"
+PROJECT_DIR="${PROJECT_DIR:-$(cd "$(dirname "$0")" && pwd)/}"
 
-# === STEP 1: Print status ===
-echo "🚀 Starting deploy to $REMOTE_USER@$REMOTE_HOST ..."
+# One name for the stack, always. `docker compose down` infers the project from
+# the directory holding the compose file -- "docker" -- so a stack first
+# started under a different name is not matched, and down reports success while
+# the old containers keep running. That happened: two containers served the
+# public internet for twelve months after a down that claimed to have worked.
+PROJECT_NAME="${PROJECT_NAME:-helloworldai}"
 
-# === STEP 2: Sync files (excludes venv, __pycache__, .git) ===
-echo "🔄 Syncing files to VM..."
-rsync -av --progress -e "ssh -i $KEY_PATH" \
+echo "🚀 Deploying to $USER_NAME@$HOST ($PROJECT_NAME)"
+
+# === STEP 1: Sync ===
+# --delete so a file removed here is removed there. Without it, deleted modules
+# linger on the server and can still be imported.
+#
+# Every env file is excluded. Secrets belong on the machine that uses them, and
+# syncing a local one over the server's would replace its keys with yours --
+# including the artifact encryption key, which cannot be recovered.
+echo "🔄 Syncing files..."
+rsync -av --delete --progress -e "ssh -i $KEY" \
   --exclude 'venv' \
   --exclude '.venv' \
   --exclude '__pycache__' \
@@ -30,15 +47,18 @@ rsync -av --progress -e "ssh -i $KEY_PATH" \
   --exclude 'node_modules' \
   --exclude '*.log' \
   --exclude 'docker/data' \
-  --exclude 'env/.env.test' \
-  "$PROJECT_DIR" "$REMOTE_USER@$REMOTE_HOST:$REMOTE_PATH"
+  --exclude 'env/.env.*' \
+  "$PROJECT_DIR" "$USER_NAME@$HOST:$REMOTE_PATH"
 
-# === STEP 3: SSH into server and restart docker ===
-echo "🐳 Rebuilding Docker and restarting services..."
-ssh -i "$KEY_PATH" "$REMOTE_USER@$REMOTE_HOST" << EOF
-  cd ~/HelloWorldAi/docker
-  docker compose -f docker-compose.yml down
-  docker compose -f docker-compose.yml up -d --build
+# === STEP 2: Restart ===
+echo "🐳 Rebuilding and restarting..."
+ssh -i "$KEY" "$USER_NAME@$HOST" bash -s <<EOF
+  set -euo pipefail
+  cd "$REMOTE_PATH/docker"
+  docker compose -p "$PROJECT_NAME" -f docker-compose.yml down
+  docker compose -p "$PROJECT_NAME" -f docker-compose.yml up -d --build
+  echo "--- running ---"
+  docker compose -p "$PROJECT_NAME" -f docker-compose.yml ps
 EOF
 
-echo "✅ Deploy complete!"
+echo "✅ Deploy complete"

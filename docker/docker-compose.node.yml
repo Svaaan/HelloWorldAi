@@ -24,6 +24,7 @@ services:
     build:
       context: ../
       dockerfile: docker/Dockerfile
+      target: node
       args:
         # Only what node.py reaches. The full set pulls in selenium,
         # playwright and the rest, which this never touches.
@@ -60,6 +61,7 @@ services:
     build:
       context: ../
       dockerfile: docker/Dockerfile
+      target: server
       args:
         # The contributor's local dashboard only proxies to the node and the
         # coordinator, so it needs the same slim set.

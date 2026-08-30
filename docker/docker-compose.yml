@@ -29,6 +29,7 @@ services:
     build:
       context: ../
       dockerfile: docker/Dockerfile
+      target: server
     ports:
       - "${BIND_ADDRESS:-127.0.0.1}:8100:8100"
     env_file:
@@ -46,6 +47,7 @@ services:
     build:
       context: ../
       dockerfile: docker/Dockerfile
+      target: server
     ports:
       - "${BIND_ADDRESS:-127.0.0.1}:3000:3000"
     env_file:

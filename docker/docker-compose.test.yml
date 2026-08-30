@@ -3,6 +3,7 @@ services:
     build:
       context: ../
       dockerfile: docker/Dockerfile
+      target: server
     ports:
       - "3000:3000"
     env_file:
@@ -31,6 +32,7 @@ services:
     build:
       context: ../
       dockerfile: docker/Dockerfile
+      target: server
     ports:
       - "8100:8100"
     env_file:
@@ -61,6 +63,7 @@ services:
     build:
       context: ../
       dockerfile: docker/Dockerfile
+      target: node
     ports:
       - "9100:9100"
     env_file:
