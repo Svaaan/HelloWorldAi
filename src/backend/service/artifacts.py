@@ -21,7 +21,7 @@ reasoned about on its own. Tensor conversion happens at the call site.
 import io
 import json
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, NamedTuple, Optional, Tuple
 
 import numpy as np
 
@@ -248,13 +248,29 @@ def _looks_numeric(value: str) -> bool:
         return False
 
 
-def parse_csv_dataset(text: str) -> Tuple[np.ndarray, np.ndarray, Optional[List[str]]]:
-    """Turn a CSV into (features, labels, class_names).
+class CsvDataset(NamedTuple):
+    """A parsed spreadsheet, and what its numbers were called.
+
+    The names matter more than they look. A model trained on six columns comes
+    back knowing it takes six floats and nothing about which is which, so
+    feeding them in a different order gives a confident wrong answer with no
+    error -- and the header row that would have prevented that was read, used
+    to decide "this is a header", and thrown away.
+    """
+    features: np.ndarray
+    labels: np.ndarray
+    class_names: Optional[List[str]]
+    feature_names: Optional[List[str]]
+    label_name: Optional[str]
+
+
+def parse_csv_dataset(text: str) -> CsvDataset:
+    """Turn a CSV into features, labels, and the names of both.
 
     Convention: every column is a feature except the LAST, which is the label.
-    A non-numeric first row is treated as a header and skipped. Labels may be
-    numbers or names; names are mapped to 0..n-1 and returned so the caller can
-    show which index means what.
+    A non-numeric first row is treated as a header, kept, and reported. Labels
+    may be numbers or names; names are mapped to 0..n-1 and returned so the
+    caller can show which index means what.
 
     This is plain text parsing -- nothing here evaluates or imports anything, so
     an uploaded file cannot execute code.
@@ -285,7 +301,24 @@ def parse_csv_dataset(text: str) -> Tuple[np.ndarray, np.ndarray, Optional[List[
         raise ArtifactError(f"CSV has {width} columns, over the {MAX_CSV_COLUMNS} limit.")
 
     # A first row whose feature cells are not numeric is a header.
+    feature_names: Optional[List[str]] = None
+    label_name: Optional[str] = None
+
     if not all(_looks_numeric(cell) for cell in rows[0][:-1]):
+        header = rows[0]
+        feature_names = [name.strip() for name in header[:-1]]
+        label_name = header[-1].strip()
+
+        # A column with no name is worse than no names at all: it would let a
+        # caller line rows up by name and be wrong about one of them.
+        if not all(feature_names) or not label_name:
+            feature_names = None
+            label_name = None
+        elif len(set(feature_names)) != len(feature_names):
+            # Two columns with the same name cannot be told apart either.
+            feature_names = None
+            label_name = None
+
         rows = rows[1:]
         if not rows:
             raise ArtifactError("CSV contains a header but no data rows.")
@@ -334,7 +367,119 @@ def parse_csv_dataset(text: str) -> Tuple[np.ndarray, np.ndarray, Optional[List[
             "The label column has only one distinct value; there is nothing to learn."
         )
 
-    return x, labels, class_names
+    return CsvDataset(x, labels, class_names, feature_names, label_name)
+
+
+# --- scoring a spreadsheet -----------------------------------------------
+
+MAX_SCORE_ROWS = 100_000
+
+
+def read_rows_for_scoring(text: Any, feature_names: Optional[List[str]] = None
+                          ) -> Tuple[np.ndarray, List[str], List[List[str]]]:
+    """Read a CSV of rows to be predicted, in the order the model expects.
+
+    Returns (features, header, original rows). The header and the rows are
+    handed back so the answer can be written beside the data it came from
+    rather than in place of it.
+
+    The person who uploaded a spreadsheet is a spreadsheet person. They are
+    not going to install PyTorch to use the thing they trained, so the model
+    has to come to the data rather than the other way round.
+
+    When the model knows what its columns were called, they are matched by
+    name and extra columns are ignored -- so the very file that was trained
+    on can be sent back, labels and all, and the answer appears next to the
+    truth. Only when the model has no names is position trusted, because
+    getting the order wrong is a confident wrong answer rather than an error.
+    """
+    if isinstance(text, (bytes, bytearray)):
+        try:
+            text = bytes(text).decode("utf-8-sig")
+        except UnicodeDecodeError as e:
+            raise ArtifactError(f"CSV must be UTF-8 text: {e}")
+
+    rows: List[List[str]] = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        delimiter = ";" if (line.count(";") > line.count(",")) else ","
+        rows.append([cell.strip() for cell in line.split(delimiter)])
+
+    if not rows:
+        raise ArtifactError("That file has no rows in it.")
+    if len(rows) > MAX_SCORE_ROWS:
+        raise ArtifactError(
+            f"That file has {len(rows):,} rows; the limit is {MAX_SCORE_ROWS:,}."
+        )
+
+    header: List[str] = []
+    if not all(_looks_numeric(cell) for cell in rows[0]):
+        header = [name.strip() for name in rows[0]]
+        rows = rows[1:]
+        if not rows:
+            raise ArtifactError("That file has a header but no rows under it.")
+
+    wanted = list(feature_names or [])
+
+    if wanted and header:
+        missing = [name for name in wanted if name not in header]
+        if missing:
+            raise ArtifactError(
+                f"This model needs {', '.join(wanted)}. "
+                f"Your file is missing {', '.join(missing)}."
+            )
+        picked = [header.index(name) for name in wanted]
+    else:
+        # No names on one side or the other, so position is all there is.
+        width = len(wanted) if wanted else len(rows[0])
+        if len(rows[0]) < width:
+            raise ArtifactError(
+                f"This model needs {width} columns; the first row has "
+                f"{len(rows[0])}."
+            )
+        picked = list(range(width))
+
+    features: List[List[float]] = []
+    for number, row in enumerate(rows, start=1):
+        if max(picked) >= len(row):
+            raise ArtifactError(
+                f"Row {number} has {len(row)} columns; it needs at least "
+                f"{max(picked) + 1}."
+            )
+        try:
+            features.append([float(row[i]) for i in picked])
+        except ValueError:
+            raise ArtifactError(
+                f"Row {number} has a value that is not a number in one of the "
+                f"columns this model reads."
+            )
+
+    return np.asarray(features, dtype=np.float32), header, rows
+
+
+def write_scored_csv(header: List[str], rows: List[List[str]],
+                     predictions: List[str], confidence: List[float],
+                     label_name: Optional[str] = None) -> str:
+    """The rows that came in, with the model's answer added on the end."""
+    answer = f"predicted_{label_name}" if label_name else "predicted"
+
+    def quote(value: str) -> str:
+        text = str(value)
+        if any(c in text for c in ',"\n'):
+            return '"' + text.replace('"', '""') + '"'
+        return text
+
+    lines = []
+    if header:
+        lines.append(",".join(quote(h) for h in header + [answer, "confidence"]))
+
+    for row, prediction, score in zip(rows, predictions, confidence):
+        lines.append(",".join(
+            quote(v) for v in list(row) + [prediction, f"{score:.4f}"]))
+
+    return "\n".join(lines) + "\n"
 
 
 # --- growing a dataset ---------------------------------------------------

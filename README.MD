@@ -210,12 +210,47 @@ and the result is graded **barely learned / learned / learned well** alongside
 the Verified badge — because "Verified" only means the model is genuine, not
 that it is good.
 
-The download is a `.npz` that describes itself, so you can load it anywhere with
-`src/frontend/static/scripts/load_model.py` and nothing else from this project:
+## Getting the model back
+
+The download is a zip laid out the way models normally are:
+
+```
+model.safetensors    the weights
+config.json          the shape, what the inputs are called, what the answers mean
+tokenizer.json       how text becomes token ids   (language models only)
+load_model.py        rebuilds it and runs it, needing nothing from this project
+README.md            the two commands
+```
 
 ```bash
-python load_model.py my-model.npz --prompt "Once upon a"
+unzip my-model.zip && cd my-model
+python load_model.py model.safetensors
+python load_model.py model.safetensors --prompt "Once upon a"
 ```
+
+safetensors rather than `.pt` for the same reason this project never used
+`torch.save`: loading a pickle executes whatever is in it, and these files are
+meant to be passed between people. To run the model outside Python at all,
+convert it once — `--export my-model.onnx`.
+
+**If you uploaded a spreadsheet you may not want a model file at all.** Send a
+CSV of new rows from the workspace and it comes back as the same file with a
+predicted column and a confidence added — no download, no Python. Columns are
+matched by name, so their order does not matter and extra columns are left
+alone; you can send back the very file you trained on and see the answer next
+to the truth.
+
+The `.npz` is this project's own arrangement of arrays — safe to load, and not
+a format anything else reads. To use the model somewhere else, convert it:
+
+```bash
+python load_model.py my-model.npz --export my-model.pt
+```
+
+`.pt` is TorchScript: it loads with `torch.jit.load` and needs no model code
+beside it. `.onnx` also works and runs almost anywhere without Python, though
+writing it needs one more package — the script names which one, because it
+differs between versions of torch.
 
 ### Where the GPU comes in
 
@@ -403,12 +438,29 @@ Each test file runs on its own:
 | `test_model_manifest.py` | That a downloaded model can be rebuilt and run |
 | `test_submitter.py` | Identity for the person sending work |
 | `test_verification.py` | Catching a contributor who fakes results |
+| `test_dataset_growth.py` | Adding more files to a dataset, and merging their labels |
+| `test_sampling.py` | Asking a finished language model to write something |
+| `test_warm_start.py` | Continuing a run from a trained model, and the fraud that invites |
+| `test_export.py` | Converting a downloaded model to ONNX or TorchScript |
+| `test_model_bundle.py` | Packaging the finished model as weights, config and loader |
+| `test_scoring.py` | Answering a spreadsheet with a spreadsheet |
+| `test_dataset_growth.py` | Adding more files to a dataset, and merging their labels |
+| `test_sampling.py` | Asking a finished language model to write something |
+| `test_warm_start.py` | Continuing a run from a trained model, and the fraud that invites |
+| `test_export.py` | Converting a downloaded model to ONNX or TorchScript |
 | `test_text_dataset.py` | Turning a text file into something a language model can train on |
 | `test_advice.py` | Warning that data is too small, and grading how well a model learned |
 | `test_retry.py` | Re-running a job on the same data with different settings |
 
 Tests needing PyTorch or NumPy skip themselves politely if you don't have them,
 so nothing here breaks on a plain Python install.
+
+The rules deciding which side of the network sees which page live in the
+browser, so they are checked with Node instead:
+
+```bash
+node tests/test_role_pages.js
+```
 
 ---
 
@@ -450,7 +502,7 @@ your settings file and the port mapping in the compose file.
 
 ## Honest status
 
-Working, and covered by **318 tests**:
+Working, and covered by **399 tests**:
 
 - Detecting GPUs and measuring what they can really do
 - Splitting one batch across mismatched GPUs, proportional to real speed

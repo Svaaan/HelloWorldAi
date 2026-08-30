@@ -44,16 +44,68 @@ export function isNewHere() {
   return !isContributor() && !isBuilder();
 }
 
+/** Whether this browser holds the key for `role`. */
+export function hasRole(role) {
+  if (role === "contributor") return isContributor();
+  if (role === "builder") return isBuilder();
+  return false;
+}
+
 /**
  * Whether a thing tagged for `role` should be shown.
  *
- * "any" is always shown. A page belonging to one side is shown to that side,
- * and also to somebody who is neither yet -- otherwise a new visitor could
- * never reach the page that would sign them in.
+ * "any" is always shown. Everything else is shown to the side that owns it,
+ * and to nobody else -- including a visitor who is neither yet. They are sent
+ * to the front door, which is the page that asks which side they are on;
+ * offering them both sides' navigation asks the same question twice and
+ * answers neither.
  */
 export function showsFor(role) {
   if (!role || role === "any") return true;
-  if (role === "contributor") return isContributor() || isNewHere();
-  if (role === "builder") return isBuilder() || isNewHere();
-  return true;
+  return hasRole(role);
+}
+
+// --- which pages belong to which side ------------------------------------
+//
+// Kept here rather than in the header, because two different things need it:
+// the navigation, which shows you your own side, and the notice that explains
+// where you have landed when you follow a link or a bookmark to the other one.
+//
+// `entry` marks a page whose purpose is to sign somebody up for that side.
+// Arriving there without the role is the point, not a mistake. The others are
+// interior pages, which without the key are an empty room.
+const PAGES = {
+  "/connect": { role: "contributor", entry: true },
+  "/setup": { role: "contributor", entry: true },
+  "/node": { role: "contributor" },
+  "/distribution": { role: "builder", entry: true },
+  "/workspace": { role: "builder" },
+};
+
+export const ROLE_LABEL = {
+  contributor: "lending a GPU",
+  builder: "training a model",
+};
+
+export const ROLE_HOME = {
+  contributor: "/node",
+  builder: "/workspace",
+};
+
+export const ROLE_ENTRY = {
+  contributor: "/connect",
+  builder: "/distribution",
+};
+
+/** What this path is for, or null if it belongs to neither side. */
+export function pageRole(path) {
+  const clean = String(path || "").replace(/\/+$/, "") || "/";
+  return PAGES[clean] || null;
+}
+
+/** The side this browser is on, when it is on exactly one. */
+export function currentRole() {
+  if (isContributor() && !isBuilder()) return "contributor";
+  if (isBuilder() && !isContributor()) return "builder";
+  return null;      // both, or neither
 }

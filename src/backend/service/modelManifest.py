@@ -47,6 +47,8 @@ def build_manifest(
     *,
     model_name: Optional[str] = None,
     class_names: Optional[List[str]] = None,
+    feature_names: Optional[List[str]] = None,
+    label_name: Optional[str] = None,
     tokenizer: Optional[str] = None,
     metrics: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
@@ -79,6 +81,12 @@ def build_manifest(
             "shape": ["batch", int(spec.get("input_dim", 256))],
             "dtype": "float32",
         }
+        # Which number is which. A model that knows it takes six floats and
+        # not that the fourth is a clock speed cannot be used by anyone who
+        # does not still have the spreadsheet open beside them -- and getting
+        # the order wrong produces a confident answer, not an error.
+        if feature_names:
+            manifest["input"]["names"] = list(feature_names)
         manifest["output"] = {
             "shape": ["batch", int(spec.get("output_dim", 10))],
             "meaning": "unnormalised class scores (logits); argmax for the label",
@@ -101,6 +109,11 @@ def build_manifest(
     # a classifier returns "2" and the owner has to remember what 2 was.
     if class_names:
         manifest["class_names"] = list(class_names)
+
+    # And what the label column was called, which is the question the model
+    # answers: "state", "diagnosis", "churned".
+    if label_name:
+        manifest["label_name"] = label_name
 
     # And what the token ids meant. A language model that cannot say how to
     # turn text into ids -- and its answer back into text -- is a lookup table

@@ -377,6 +377,22 @@
   cursor: not-allowed;
 }
 
+/* What is inside the download. */
+.job-usage-list {
+  display: grid;
+  gap: 0.3rem;
+  margin: 0.6rem 0;
+  padding-left: 1.1rem;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.job-usage-list code {
+  color: var(--text);
+  font-size: 0.75rem;
+}
+
 /* --- expanded detail --- */
 
 .job-body {

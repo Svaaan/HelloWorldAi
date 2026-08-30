@@ -542,3 +542,76 @@ pre {
   line-height: 1.55;
   color: var(--text-muted);
 }
+
+/* --- landing on the other side's page ------------------------------------ */
+/* Sits above the page it explains. Informative rather than alarming: nothing
+   has gone wrong, the visitor is simply somewhere that belongs to the other
+   half of the product, and may well want to take up that half too. */
+
+/* Several pages lay their main element out as a grid, and a notice dropped in
+   at the top became one more cell in the first column. It has to span whatever
+   it lands in. */
+#roleNotice {
+  grid-column: 1 / -1;
+}
+
+.role-notice {
+  max-width: 62rem;
+  margin: 0 auto 1.5rem;
+  padding: 1rem 1.15rem;
+  border: 1px solid var(--border-strong);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--r-sm, 8px);
+  background-color: var(--surface-2);
+}
+
+.role-notice strong {
+  display: block;
+  margin-bottom: 0.35rem;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.role-notice p {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
+.role-notice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-top: 0.85rem;
+}
+
+.role-notice-go {
+  padding: 0.4rem 0.85rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-xs);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text);
+  text-decoration: none;
+  transition: background-color var(--t-fast) var(--ease),
+              color var(--t-fast) var(--ease);
+}
+
+.role-notice-go:hover {
+  background-color: var(--surface-3);
+  color: var(--accent);
+}
+
+.role-notice-go.is-primary {
+  border-color: transparent;
+  background-color: var(--accent);
+  color: var(--bg);
+}
+
+.role-notice-go.is-primary:hover {
+  filter: brightness(1.08);
+  color: var(--bg);
+}
+

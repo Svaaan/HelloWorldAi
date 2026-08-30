@@ -350,6 +350,55 @@ async def proxy_upload_artifact(request: Request):
         return {"status": "error", "message": f"Failed to reach coordinator: {e}"}
 
 
+@router.get("/my-tasks/{task_id}/bundle")
+async def proxy_model_bundle(task_id: str, request: Request):
+    """Stream the packaged model back as a zip."""
+    try:
+        async with httpx.AsyncClient() as client:
+            res = await client.get(
+                f"{COORDINATOR_URL}/my-tasks/{task_id}/bundle",
+                headers=auth_headers(request), timeout=120,
+            )
+            if res.status_code >= 400:
+                raise HTTPException(status_code=res.status_code, detail=safe_json(res))
+            return Response(
+                content=res.content,
+                media_type="application/zip",
+                headers={"Content-Disposition":
+                         res.headers.get("content-disposition", "attachment")},
+            )
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=502, detail=f"Failed to reach coordinator: {e}")
+
+
+@router.post("/my-tasks/{task_id}/predict")
+async def proxy_predict_csv(task_id: str, request: Request):
+    """Send rows to a finished classifier and stream the answered CSV back."""
+    body = await request.body()
+    headers = auth_headers(request)
+    headers["Content-Type"] = "text/csv"
+
+    try:
+        async with httpx.AsyncClient() as client:
+            res = await client.post(
+                f"{COORDINATOR_URL}/my-tasks/{task_id}/predict",
+                content=body, headers=headers, timeout=300,
+            )
+            if res.status_code >= 400:
+                raise HTTPException(status_code=res.status_code, detail=safe_json(res))
+
+            # Passed through as a file rather than JSON: the whole point is
+            # that it lands in a spreadsheet.
+            return Response(
+                content=res.content,
+                media_type=res.headers.get("content-type", "text/csv"),
+                headers={"Content-Disposition":
+                         res.headers.get("content-disposition", "attachment")},
+            )
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=502, detail=f"Failed to reach coordinator: {e}")
+
+
 @router.post("/my-tasks/{task_id}/sample")
 async def proxy_sample_model(task_id: str, request: Request):
     """Ask a finished model to continue a prompt."""

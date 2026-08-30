@@ -173,37 +173,37 @@ SIMPLE_CSV = "1.0,2.0,0\n3.0,4.0,1\n5.0,6.0,0\n"
 
 
 def test_plain_numeric_csv_parses():
-    x, y, classes = parse_csv_dataset(SIMPLE_CSV)
+    x, y, classes, _names, _label = parse_csv_dataset(SIMPLE_CSV)
     assert x.shape == (3, 2)
     assert y.tolist() == [0, 1, 0]
     assert classes is None
 
 
 def test_header_row_is_detected_and_skipped():
-    x, y, _ = parse_csv_dataset("width,height,label\n1,2,0\n3,4,1\n")
+    x, y, _, _names, _label = parse_csv_dataset("width,height,label\n1,2,0\n3,4,1\n")
     assert x.shape == (2, 2)
     assert y.tolist() == [0, 1]
 
 
 def test_text_labels_are_mapped_to_indices():
-    x, y, classes = parse_csv_dataset("1,2,cat\n3,4,dog\n5,6,cat\n")
+    x, y, classes, _names, _label = parse_csv_dataset("1,2,cat\n3,4,dog\n5,6,cat\n")
     assert classes == ["cat", "dog"]
     assert y.tolist() == [0, 1, 0]
     assert x.shape == (3, 2)
 
 
 def test_semicolon_delimiter_is_handled():
-    x, y, _ = parse_csv_dataset("1;2;0\n3;4;1\n")
+    x, y, _, _names, _label = parse_csv_dataset("1;2;0\n3;4;1\n")
     assert x.shape == (2, 2) and y.tolist() == [0, 1]
 
 
 def test_blank_lines_and_comments_are_ignored():
-    x, _y, _c = parse_csv_dataset("# notes\n1,2,0\n\n3,4,1\n")
+    x, _y, _c, _names, _label = parse_csv_dataset("# notes\n1,2,0\n\n3,4,1\n")
     assert x.shape == (2, 2)
 
 
 def test_bytes_input_with_bom_is_accepted():
-    x, _y, _c = parse_csv_dataset("\ufeff1,2,0\n3,4,1\n".encode("utf-8"))
+    x, _y, _c, _names, _label = parse_csv_dataset("\ufeff1,2,0\n3,4,1\n".encode("utf-8"))
     assert x.shape == (2, 2)
 
 
@@ -228,7 +228,7 @@ def test_non_numeric_feature_is_rejected():
 
 def test_a_non_numeric_first_row_is_treated_as_a_header():
     """Documents the ambiguity above: row 1 is a header when it looks like one."""
-    x, y, _ = parse_csv_dataset("a,b,label\n1,2,0\n3,4,1\n")
+    x, y, _, _names, _label = parse_csv_dataset("a,b,label\n1,2,0\n3,4,1\n")
     assert x.shape == (2, 2) and y.tolist() == [0, 1]
 
 
@@ -255,7 +255,7 @@ def test_negative_class_indices_are_rejected():
 
 
 def test_csv_output_round_trips_through_the_wire_format():
-    x, y, _ = parse_csv_dataset(SIMPLE_CSV)
+    x, y, _, _names, _label = parse_csv_dataset(SIMPLE_CSV)
     rx, ry = unpack_dataset(pack_dataset(x, y))
     assert np.allclose(rx, x) and np.array_equal(ry, y)
 

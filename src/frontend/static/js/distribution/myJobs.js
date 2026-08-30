@@ -132,6 +132,47 @@ function notice(title, detail) {
 
 // The key travels in a header, so a plain <a href> cannot fetch this: the file
 // is pulled with fetch and handed to the browser as a blob.
+/** Hand a fetched response to the browser as a file. */
+function saveResponse(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 30000);
+}
+
+/** The model packaged the way models are normally shipped. */
+async function downloadBundle(job, button) {
+  const original = button.textContent;
+  button.disabled = true;
+  button.textContent = "Packaging…";
+
+  try {
+    const res = await fetch(`/my-tasks/${encodeURIComponent(job.task_id)}/bundle`, {
+      headers: submitterHeaders(),
+    });
+    if (!res.ok) {
+      const detail = await res.json().catch(() => null);
+      throw new Error(detail?.detail?.detail || detail?.detail
+                      || `Server returned ${res.status}`);
+    }
+
+    const name = (job.task_data?.model_name || "model")
+      .replace(/[^A-Za-z0-9._-]+/g, "-");
+    saveResponse(await res.blob(), `${name}.zip`);
+    button.textContent = original;
+  } catch (error) {
+    console.error("Could not package the model:", error);
+    button.textContent = error.message;
+  } finally {
+    button.disabled = false;
+  }
+}
+
+
 async function downloadModel(job, button) {
   const original = button.textContent;
   button.disabled = true;
@@ -209,45 +250,64 @@ function metric(label, value) {
   return row;
 }
 
-// What to actually do with the file once it is on disk.
+// What to actually do with the download once it is on disk.
 function buildUsage(job) {
-  const name = job.task_data?.model_name || "model";
-  const filename = `${name}-${job.task_id.slice(0, 12)}.npz`;
+  const name = (job.task_data?.model_name || "model")
+    .replace(/[^A-Za-z0-9._-]+/g, "-");
 
   const box = el("details", "job-usage");
   box.appendChild(el("summary", null, "How to use this model"));
 
   const body = el("div", "job-usage-body");
   body.appendChild(el("p", null,
-    "The file describes itself — the loader rebuilds the network and loads the "
-    + "weights without needing anything from this project."));
+    "The download is laid out the way models normally are — weights, a config "
+    + "describing them, and the loader — so it runs without anything from "
+    + "this project."));
 
-  const link = el("a", "job-usage-link", "Download load_model.py");
-  link.href = "/static/scripts/load_model.py";
-  link.setAttribute("download", "load_model.py");
-  body.appendChild(link);
+  const contents = el("ul", "job-usage-list");
+  [
+    ["model.safetensors", "the weights. Loading it cannot run code, so it is "
+      + "safe to pass to somebody else."],
+    ["config.json", "the shape of the model, what its inputs are called, and "
+      + "what its answers mean."],
+    ["load_model.py", "rebuilds it and runs it. Needs numpy and torch."],
+  ].forEach(([file, what]) => {
+    const item = el("li");
+    item.appendChild(el("code", null, file));
+    item.appendChild(el("span", null, ` — ${what}`));
+    contents.appendChild(item);
+  });
+  body.appendChild(contents);
 
-  // No example feature vector here on purpose. The submitter rarely states
-  // input_dim -- it is inferred from their CSV on the node -- so any number of
-  // values printed here would be a guess, and a command that fails is worse
-  // than one that explains itself. The first line reports what the model
-  // expects, read from the file.
-  //
-  // The second line has to match what was actually trained: --input is for a
+  // The example is real rather than a placeholder now: the column names come
+  // back with the model, so the number of values is known and the command can
+  // be pasted. It still has to match what was trained -- --input is for a
   // classifier, and printing it under a language model told people to run a
   // command that model refuses.
   const architecture = job.task_data?.model_spec?.architecture || "mlp";
   const isClassifier = ["mlp", "feedforward"].includes(architecture);
+  const columns = job.task_data?.dataset_info?.feature_names;
+  const example = columns ? columns.map(() => "0").join(" ")
+                          : "<one value per column>";
 
-  const code = el("pre", "job-usage-code",
-    `python load_model.py ${filename}\n`
+  body.appendChild(el("pre", "job-usage-code",
+    `unzip ${name}.zip && cd ${name}\n`
+    + `python load_model.py model.safetensors\n`
     + (isClassifier
-        ? `python load_model.py ${filename} --input <one value per feature>`
-        : `python load_model.py ${filename} --prompt "some text to continue"`));
-  body.appendChild(code);
+        ? `python load_model.py model.safetensors --input ${example}`
+        : 'python load_model.py model.safetensors --prompt "some text"')));
 
   body.appendChild(el("p", "job-usage-hint",
-    "The first command prints the model's inputs, outputs and training summary."));
+    "The first command prints what it reads, what it answers, and how it was "
+    + "trained."));
+
+  // safetensors is the format other tools read. ONNX is for the ones that are
+  // not Python at all.
+  body.appendChild(el("p", "job-field-hint",
+    "To run it outside Python, convert it once — .onnx works almost anywhere:"));
+
+  body.appendChild(el("pre", "job-usage-code",
+    `python load_model.py model.safetensors --export ${name}.onnx`));
 
   box.appendChild(body);
   return box;
@@ -339,6 +399,89 @@ function buildSeries(job, byId) {
   body.appendChild(el("p", "job-field-hint",
     "How much of the possible improvement over guessing each run captured, "
     + "all scored on the same held-back rows."));
+
+  box.appendChild(body);
+  return box;
+}
+
+
+// Answer a spreadsheet with a spreadsheet.
+//
+// The person who uploads a CSV is a spreadsheet person. Handing them a weights
+// file -- in any format -- hands them something they cannot open, and telling
+// them to export it to ONNX needs the Python and PyTorch they do not have.
+// Using the model has to be possible without leaving the page, so the model
+// comes to the data instead of the other way round.
+function buildScorer(job) {
+  const info = job.task_data?.dataset_info || {};
+  const columns = info.feature_names || [];
+
+  const box = el("details", "job-prompt");
+  box.appendChild(el("summary", null, "Use it on new rows"));
+
+  box.addEventListener("toggle", () => {
+    if (box.open) beginEditing(job.task_id, "score");
+    else endEditing(job.task_id, "score");
+  });
+
+  const body = el("div", "job-prompt-body");
+  body.appendChild(el("p", "job-field-hint",
+    "Send a CSV of rows and get the same file back with the answer added. "
+    + "No download, no Python."));
+
+  if (columns.length) {
+    const needed = el("p", "job-field-hint");
+    needed.appendChild(el("strong", null, "Columns it reads: "));
+    needed.appendChild(el("span", null, columns.join(", ")));
+    needed.appendChild(el("span", null,
+      " — matched by name, so the order does not matter and extra columns are "
+      + "left alone. You can send the file you trained on."));
+    body.appendChild(needed);
+  }
+
+  const file = document.createElement("input");
+  file.type = "file";
+  file.accept = ".csv,text/csv";
+  body.appendChild(file);
+
+  const status = el("div", "field-status");
+
+  file.addEventListener("change", async () => {
+    const chosen = file.files?.[0];
+    if (!chosen) return;
+
+    status.replaceChildren(el("span", null, `Reading ${chosen.name}…`));
+
+    try {
+      const res = await fetch(`/my-tasks/${encodeURIComponent(job.task_id)}/predict`, {
+        method: "POST",
+        headers: submitterHeaders({ "Content-Type": "text/csv" }),
+        body: await chosen.text(),
+      });
+
+      if (!res.ok) {
+        const detail = await res.json().catch(() => null);
+        throw new Error(detail?.detail?.detail || detail?.detail
+                        || `Server returned ${res.status}`);
+      }
+
+      const name = chosen.name.replace(/\.csv$/i, "");
+      saveResponse(await res.blob(), `${name}-answered.csv`);
+      status.replaceChildren(el("span", "success-message",
+        "Downloaded. Every row has a predicted column and a confidence."));
+    } catch (error) {
+      console.error("Could not score the file:", error);
+      status.replaceChildren(el("span", "error-message", error.message));
+    } finally {
+      file.value = "";
+    }
+  });
+
+  body.appendChild(status);
+  body.appendChild(el("p", "job-field-hint",
+    "The rows are read on the coordinator to answer them, exactly as your "
+    + "training data was: held in memory, never written down, gone when the "
+    + "answer is sent."));
 
   box.appendChild(body);
   return box;
@@ -728,15 +871,17 @@ function buildJobRow(job, byId) {
   if (actions.childElementCount) body.appendChild(actions);
 
   if (job.status === "completed" && job.weights_id) {
-    const download = el("button", "btn", "Download trained model");
+    const download = el("button", "btn", "Download model");
     download.type = "button";
-    download.addEventListener("click", () => downloadModel(job, download));
+    download.addEventListener("click", () => downloadBundle(job, download));
     body.appendChild(download);
 
-    // Before the download, not after it: what this thing writes is the reason
-    // to want the file at all.
+    // Before the download, not after it: using the thing is the reason to
+    // want the file at all, and for half of these people the file is no use.
     const architecture = job.task_data?.model_spec?.architecture || "mlp";
-    if (!["mlp", "feedforward"].includes(architecture)) {
+    if (["mlp", "feedforward"].includes(architecture)) {
+      body.appendChild(buildScorer(job));
+    } else {
       body.appendChild(buildPrompt(job));
     }
 

@@ -5,6 +5,7 @@
 // are on, and fail visibly rather than leaving a page with no header at all.
 
 import { isContributor, isNewHere, showsFor } from "./role.js";
+import { showRoleNotice } from "./roleNotice.js";
 
 const COUNT_INTERVAL_MS = 60000;
 
@@ -51,6 +52,7 @@ export async function loadHeader() {
 function refreshNav() {
   markCurrentPage();
   applyRoles();
+  showRoleNotice();
 }
 
 // Highlight the link for the page being viewed. Compared on pathname so query
@@ -64,22 +66,19 @@ function markCurrentPage() {
 
 // Show each side of the network only its own pages.
 //
-// Two extra rules keep this from hiding something someone needs:
+// The navigation describes who you are, not where you happen to be standing.
+// It used to un-hide the current page's link so that something was always
+// marked -- which meant a GPU owner who opened /workspace grew a "Your
+// workspace" link, and a builder who opened /node grew a "Your node". Half of
+// the other side's navigation, appearing because of where they had clicked.
+// Being on somebody else's page is now explained by the page (see
+// roleNotice.js) rather than by the header quietly changing shape.
 //
-//   * the page you are on is never hidden, or the header ends up with nothing
-//     marked, which reads as a bug;
-//   * "Connect" disappears once a node is registered, because it is an entry
-//     point already used -- unless you are standing on it.
+// "Connect" still disappears once a node is registered: it is an entry point
+// that has been used.
 function applyRoles() {
-  const here = currentPath();
-
   document.querySelectorAll(".header-nav a").forEach((link) => {
     const path = linkPath(link);
-
-    if (path === here) {
-      link.hidden = false;
-      return;
-    }
 
     if (path === "/connect" && isContributor()) {
       link.hidden = true;
@@ -89,13 +88,12 @@ function applyRoles() {
     link.hidden = !showsFor(link.dataset.role);
   });
 
-  // The pages that sign somebody in. Until they have, the nav offers
-  // destinations that mean nothing to them and competes with the one question
-  // the page is actually asking.
-  const ENTRY_PAGES = ["/", "/connect"];
-
+  // Somebody who has set nothing up has no side, so there is nothing to
+  // navigate. This used to apply only on the front door and the connect page,
+  // so a first-time visitor who followed a link to /node was shown both
+  // sides' navigation at once -- five destinations, none of them theirs.
   const nav = document.querySelector(".header-nav");
-  if (nav) nav.hidden = isNewHere() && ENTRY_PAGES.includes(here);
+  if (nav) nav.hidden = isNewHere();
 }
 
 function currentPath() {

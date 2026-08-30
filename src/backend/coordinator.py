@@ -1412,8 +1412,15 @@ def public_task(task: dict, owner: bool = False) -> dict:
     # the manifest it packs with the weights. The node reads the task through
     # /next-task, which does not come through here, so nothing needs it in an
     # HTTP response. The submitter gets it back inside their model file.
+    # dataset_info describes what the submitter's numbers meant -- the class
+    # names from their label column, and what the columns were called. /tasks
+    # needs no key, so leaving it in published every submitter's labels to
+    # anyone who asked: harmless for "setosa, versicolor", not for "relapsed".
+    #
+    # The owner is a different matter. It is their own description of their
+    # own data, and the page needs it to tell them which columns a model reads.
     task_data = clean.get("task_data")
-    if isinstance(task_data, dict) and "dataset_info" in task_data:
+    if isinstance(task_data, dict) and "dataset_info" in task_data and not owner:
         clean["task_data"] = {k: v for k, v in task_data.items()
                               if k != "dataset_info"}
 
@@ -1593,6 +1600,198 @@ async def sample_from_model(
         "continuation": continuation,
         "tokens": length,
     }
+
+
+# The standalone loader, shipped inside the bundle so the download runs
+# without hunting for anything. Read from disk once rather than on every
+# request, and tolerated as missing: a bundle without it is still a model.
+LOADER_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "frontend", "static", "scripts", "load_model.py",
+)
+
+
+def _loader_source() -> Optional[str]:
+    try:
+        with open(LOADER_PATH, encoding="utf-8") as handle:
+            return handle.read()
+    except OSError as e:
+        logger.warning(f"Could not read {LOADER_PATH} for the bundle: {e}")
+        return None
+
+
+@app.get("/my-tasks/{task_id}/bundle")
+async def download_bundle(
+    task_id: str,
+    db: Database = Depends(get_db),
+    submitter: Optional[str] = Depends(optional_submitter),
+):
+    """The finished model as a folder, the way models are normally shipped.
+
+    Weights in safetensors, a config.json describing them, a tokenizer when
+    there is one, and the loader. The `.npz` remains available for anyone who
+    wants the raw arrays, but it is this project's own arrangement and nothing
+    else reads it.
+    """
+    task = await _owned_task(db, task_id, submitter)
+
+    weights_id = task.get("weights_id")
+    if not weights_id:
+        raise HTTPException(status_code=409, detail="This job produced no model.")
+
+    from backend.service.artifacts import read_manifest, unpack_state_dict
+    from backend.service.modelBundle import build_bundle
+
+    try:
+        payload = await _read_artifact(db, str(weights_id))
+        state_dict = unpack_state_dict(payload)
+        manifest = read_manifest(payload) or {}
+    except Exception as e:
+        logger.error(f"Could not read weights {weights_id}: {e}")
+        raise HTTPException(status_code=400, detail="Could not read the model file.")
+
+    manifest.setdefault("model_name",
+                        (task.get("task_data") or {}).get("model_name") or "model")
+
+    try:
+        archive = await asyncio.to_thread(
+            build_bundle, state_dict, manifest, _loader_source()
+        )
+    except Exception as e:
+        logger.error(f"Could not build a bundle for {task_id}: {e}")
+        raise HTTPException(status_code=500, detail="Could not package the model.")
+
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "-", str(manifest["model_name"])) or "model"
+    logger.info(f"Packaged {task_id} as {safe}.zip ({len(archive)} bytes)")
+
+    return Response(
+        content=archive,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{safe}.zip"'},
+    )
+
+
+# A spreadsheet sent for scoring is the submitter's data, exactly like the
+# training set was. It is read, answered and dropped: never written to the
+# database, never kept after the response.
+MAX_SCORE_BYTES = 32 * 1024 * 1024
+SCORE_BATCH_ROWS = 1024
+
+
+@app.post("/my-tasks/{task_id}/predict")
+async def predict_from_csv(
+    task_id: str,
+    request: Request,
+    db: Database = Depends(get_db),
+    submitter: Optional[str] = Depends(optional_submitter),
+):
+    """Run a finished classifier over a CSV and hand back the same rows, answered.
+
+    The person who uploads a spreadsheet is a spreadsheet person. Handing them
+    a weights file -- in any format -- hands them something they cannot open,
+    and "export it to ONNX" needs the Python and PyTorch they do not have.
+    Using the model has to be possible without leaving the page.
+    """
+    task = await _owned_task(db, task_id, submitter)
+
+    weights_id = task.get("weights_id")
+    if not weights_id:
+        raise HTTPException(status_code=409, detail="This job has no model to run.")
+
+    spec = (task.get("task_data") or {}).get("model_spec") or {}
+    if str(spec.get("architecture", "mlp")).lower() not in ("mlp", "feedforward"):
+        raise HTTPException(
+            status_code=400,
+            detail="This model writes text rather than sorting rows. "
+                   "Ask it to continue something instead.",
+        )
+
+    payload = await request.body()
+    if not payload:
+        raise HTTPException(status_code=400, detail="That file is empty.")
+    if len(payload) > MAX_SCORE_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"That file is {len(payload):,} bytes; the limit is "
+                   f"{MAX_SCORE_BYTES:,}.",
+        )
+
+    from backend.service.artifacts import (
+        ArtifactError, read_manifest, read_rows_for_scoring, unpack_state_dict,
+        write_scored_csv,
+    )
+    from backend.service.trainer import build_workload
+
+    try:
+        weights = await _read_artifact(db, str(weights_id))
+        state_dict = unpack_state_dict(weights)
+        manifest = read_manifest(weights) or {}
+    except Exception as e:
+        logger.error(f"Could not read weights {weights_id}: {e}")
+        raise HTTPException(status_code=400, detail="Could not read the model file.")
+
+    resolved = manifest.get("spec") or spec
+    class_names = manifest.get("class_names") or []
+    feature_names = (manifest.get("input") or {}).get("names")
+
+    try:
+        features, header, rows = read_rows_for_scoring(payload, feature_names)
+    except ArtifactError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    expected = int(resolved.get("input_dim", features.shape[1]))
+    if features.shape[1] != expected:
+        raise HTTPException(
+            status_code=400,
+            detail=f"This model reads {expected} columns; that file gave "
+                   f"{features.shape[1]}.",
+        )
+
+    def run():
+        import torch
+
+        model = build_workload(resolved)["factory"]()
+        model.load_state_dict(
+            {name: torch.as_tensor(np.asarray(value))
+             for name, value in state_dict.items()},
+            strict=True,
+        )
+        model.eval()
+
+        chosen, scores = [], []
+        with torch.no_grad():
+            for start in range(0, features.shape[0], SCORE_BATCH_ROWS):
+                chunk = torch.as_tensor(features[start:start + SCORE_BATCH_ROWS])
+                probabilities = torch.softmax(model(chunk), dim=-1)
+                best = probabilities.argmax(dim=-1)
+                chosen.extend(int(i) for i in best)
+                scores.extend(
+                    float(p[i]) for p, i in zip(probabilities, best))
+        return chosen, scores
+
+    try:
+        # A forward pass over up to a hundred thousand rows is real work, and
+        # the coordinator still has heartbeats to answer while it runs.
+        indices, scores = await asyncio.to_thread(run)
+    except Exception as e:
+        logger.error(f"Could not score for task {task_id}: {e}")
+        raise HTTPException(status_code=500, detail="The model could not be run.")
+
+    named = [class_names[i] if i < len(class_names) else str(i) for i in indices]
+    body = write_scored_csv(header, rows, named, scores,
+                            manifest.get("label_name"))
+
+    name = str((task.get("task_data") or {}).get("model_name") or "model")
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "-", name) or "model"
+
+    logger.info(f"Scored {len(rows)} rows with task {task_id}.")
+
+    return Response(
+        content=body,
+        media_type="text/csv",
+        headers={"Content-Disposition":
+                 f'attachment; filename="{safe}-predictions.csv"'},
+    )
 
 
 async def _forget_dataset(db, task: dict) -> int:
@@ -1939,7 +2138,9 @@ async def upload_artifact(request: Request, db: Database = Depends(get_db)):
     if fmt == "csv":
         from backend.service.artifacts import ArtifactError, pack_dataset, parse_csv_dataset
         try:
-            features, labels, class_names = parse_csv_dataset(payload)
+            parsed = parse_csv_dataset(payload)
+            features, labels, class_names = (
+                parsed.features, parsed.labels, parsed.class_names)
             payload = pack_dataset(features, labels)
         except ArtifactError as e:
             raise HTTPException(status_code=400, detail=str(e))
@@ -1949,11 +2150,18 @@ async def upload_artifact(request: Request, db: Database = Depends(get_db)):
             "features": int(features.shape[1]),
             "classes": len(set(labels.tolist())),
             "class_names": class_names,
+            "feature_names": parsed.feature_names,
         }
         info["format"] = "csv"
         info["rows"] = int(features.shape[0])
         if class_names:
             info["class_names"] = class_names
+        # What the columns were called. Without these the finished model takes
+        # N numbers and cannot say which is which, so presenting them in a
+        # different order gives a confident wrong answer rather than an error.
+        if parsed.feature_names:
+            info["feature_names"] = parsed.feature_names
+            info["label_name"] = parsed.label_name
         logger.info(
             f"Converted CSV upload: {summary['rows']} rows x {summary['features']} features, "
             f"{summary['classes']} classes"

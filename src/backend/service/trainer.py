@@ -724,6 +724,8 @@ def train(task_data: Dict[str, Any], log: Callable[[str], None],
         state_dict,
         model_name=task_data.get("model_name"),
         class_names=dataset_info.get("class_names"),
+        feature_names=dataset_info.get("feature_names"),
+        label_name=dataset_info.get("label_name"),
         tokenizer=dataset_info.get("tokenizer"),
         metrics=metrics,
     )
