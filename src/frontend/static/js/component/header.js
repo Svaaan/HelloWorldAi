@@ -35,7 +35,11 @@ export async function loadHeader() {
   }
 
   refreshNav();
-  startCountPolling();
+
+  // The front door is a sign-in page: two doors, and nothing else to do. A
+  // count of machines online means nothing to somebody who has not yet chosen
+  // a side, and polling for it is a request per minute nobody asked for.
+  if (!isFrontDoor()) startCountPolling();
 
   // Another tab connecting or disconnecting a node changes what this nav
   // should show, and so does coming back to a tab left open for a while.
@@ -93,8 +97,21 @@ function applyRoles() {
   // navigate. This used to apply only on the front door and the connect page,
   // so a first-time visitor who followed a link to /node was shown both
   // sides' navigation at once -- five destinations, none of them theirs.
+  //
+  // And the front door has none either, whoever you are. The two cards on it
+  // say "Open your workspace" and "Open your node" in full sentences; a row of
+  // links above them saying the same thing smaller is the same choice offered
+  // twice, on the one page whose whole job is asking it once.
   const nav = document.querySelector(".header-nav");
-  if (nav) nav.hidden = isNewHere();
+  if (nav) nav.hidden = isNewHere() || isFrontDoor();
+
+  // Nothing to count for somebody deciding which side they are on.
+  const count = document.querySelector(".header-details");
+  if (count) count.hidden = isFrontDoor();
+}
+
+function isFrontDoor() {
+  return currentPath() === "/";
 }
 
 function currentPath() {

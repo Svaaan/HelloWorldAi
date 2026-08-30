@@ -41,3 +41,10 @@ docker/docker-compose.override.yml
 # ─── Keep Source Folder ─────────────────────────────────────────────────
 !src/
 !src/**/*
+
+# ...but not the caches Python drops there. The rule above re-includes
+# everything under src/, which quietly overrode the __pycache__ rule at the top
+# of this file -- gitignore takes the last match, not the most specific one.
+# That is how twenty-six .pyc files came to be committed, and why a local test
+# run used to leave the working tree dirty.
+src/**/__pycache__/

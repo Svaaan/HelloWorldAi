@@ -107,6 +107,12 @@
   background-color: var(--accent-wash);
 }
 
+/* The attribute alone does not hide a flex container, and this one is
+   flex -- the same trap the nav links fell into. */
+.header-details[hidden] {
+  display: none;
+}
+
 .header-details {
   display: flex;
   align-items: center;

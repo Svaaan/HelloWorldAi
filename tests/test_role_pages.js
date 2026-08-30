@@ -277,6 +277,13 @@ const NAV = [
 /** Exactly what applyRoles() decides, for one page. */
 function navOn(path) {
   if (role.isNewHere()) return [];
+
+  // The front door carries no navigation for anybody. Its two cards say
+  // "Open your workspace" and "Connect to node" in full sentences; a row of
+  // links above them saying the same thing smaller is the same choice offered
+  // twice, on the one page whose whole job is asking it once.
+  if ((path.replace(/\/+$/, "") || "/") === "/") return [];
+
   const here = role.pageRole(path);
   return NAV.filter(([, linkRole]) => {
     if (!role.showsFor(linkRole)) return false;
@@ -307,17 +314,28 @@ check("each side keeps its own links on its own pages", () => {
   assert.deepEqual(navOn("/workspace"), ["Send work", "Your workspace"]);
 });
 
-check("the front door is where both sides appear", () => {
-  // It belongs to neither side, so it is the one place to change sides.
-  signedInAs("contributor", "builder");
-  assert.deepEqual(navOn("/"),
-    ["Your node", "Setup", "Send work", "Your workspace"]);
+check("the front door carries no navigation for anybody", () => {
+  // Changing sides happens through the two cards, which are the page. The
+  // header there is the logo and the name.
+  for (const who of [[], ["contributor"], ["builder"], ["contributor", "builder"]]) {
+    signedInAs(...who);
+    assert.deepEqual(navOn("/"), [], who.join("+") || "nobody");
+  }
 });
 
 check("somebody who is both still sees one side at a time on a page", () => {
   signedInAs("contributor", "builder");
   assert.deepEqual(navOn("/node"), ["Your node", "Setup"]);
   assert.deepEqual(navOn("/workspace"), ["Send work", "Your workspace"]);
+});
+
+check("registering happens where there is nothing else to click", () => {
+  // Both halves of the front door's quietness, together: no links, and no
+  // count of machines online, which means nothing to somebody who has not
+  // chosen a side.
+  signedInAs("builder");
+  assert.deepEqual(navOn("/"), []);
+  assert.equal(role.ROLE_ENTRY.contributor, "/");
 });
 
 check("a newcomer is offered nothing anywhere", () => {

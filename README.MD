@@ -416,19 +416,38 @@ database is useless without the encryption key.
 
 ## Running the tests
 
-No Docker needed. From the project folder:
+No Docker needed, but the tests do need their own packages -- pytest above all,
+which the main `requirements.txt` does not list. Once per machine:
 
 ```bash
-python tests/test_gpu_match.py
+python -m venv .venv
 ```
-
-Or all of them:
 
 ```bash
-for f in tests/test_*.py; do python "$f"; done
+.venv/Scripts/python -m pip install -r requirements-dev.txt
 ```
 
-Each test file runs on its own:
+On macOS or Linux that second path is `.venv/bin/python`. Then, from the
+project folder:
+
+```bash
+.venv/Scripts/python -m pytest tests/ -q
+```
+
+That should say `409 passed`. A single file, when you are working on one:
+
+```bash
+.venv/Scripts/python -m pytest tests/test_gpu_match.py -q
+```
+
+Run them through pytest rather than as plain scripts. Ten of these files have
+no `__main__` block, so `python tests/test_scoring.py` exits successfully
+having run nothing at all -- which looks exactly like passing.
+
+Watch the count for the same reason. Tests needing PyTorch, ONNX Runtime or
+NumPy skip themselves rather than fail, so an incomplete environment reports
+a cheerful `passed` with about fifty tests quietly missing. `requirements-dev.txt`
+installs all of them; if the number is short of 409, something did not install.
 
 | File | What it checks |
 |---|---|
@@ -454,19 +473,12 @@ Each test file runs on its own:
 | `test_model_bundle.py` | Packaging the finished model as weights, config and loader |
 | `test_scoring.py` | Answering a spreadsheet with a spreadsheet |
 | `test_node_reachability.py` | That everything a node agent calls is reachable from one address |
-| `test_dataset_growth.py` | Adding more files to a dataset, and merging their labels |
-| `test_sampling.py` | Asking a finished language model to write something |
-| `test_warm_start.py` | Continuing a run from a trained model, and the fraud that invites |
-| `test_export.py` | Converting a downloaded model to ONNX or TorchScript |
 | `test_text_dataset.py` | Turning a text file into something a language model can train on |
 | `test_advice.py` | Warning that data is too small, and grading how well a model learned |
 | `test_retry.py` | Re-running a job on the same data with different settings |
 
-Tests needing PyTorch or NumPy skip themselves politely if you don't have them,
-so nothing here breaks on a plain Python install.
-
-The rules deciding which side of the network sees which page — and which
-navigation belongs on it — live in the browser, so they are checked with Node
+The rules deciding which side of the network sees which page -- and which
+navigation belongs on it -- live in the browser, so they are checked with Node
 instead:
 
 ```bash
