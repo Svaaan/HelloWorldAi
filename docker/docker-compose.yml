@@ -14,18 +14,37 @@
 # BIND_ADDRESS=0.0.0.0 if you genuinely mean to publish it unencrypted.
 
 services:
-  mongo:
+  mongo_prod:
     image: mongo:7
+    container_name: mongo_prod
     restart: always
-    # Reachable only from the other containers; never published to the host.
-    expose:
-      - "27017"
+    ports:
+      # Localhost only, and on a different host port from the development
+      # database so both can run at once without colliding.
+      #
+      # From this machine, MongoDB Compass attaches with:
+      #   mongodb://localhost:27019
+      #
+      # On a real server, do NOT change this to 0.0.0.0 -- there is no
+      # authentication on this instance. Reach it over an SSH tunnel instead,
+      # which needs nothing published beyond localhost:
+      #   ssh -L 27019:localhost:27019 user@server
+      # and then point Compass at mongodb://localhost:27019 as usual.
+      - "${MONGO_BIND:-127.0.0.1}:27019:27017"
     volumes:
       # Without this, every node registration and job history is lost the next
       # time the container is replaced.
       - mongo-data:/data/db
 
   coordinator:
+    # Pulled, not built. CI publishes this on every push to main, so the
+    # server downloads a finished image instead of compiling one while it is
+    # also meant to be serving. Override SERVER_IMAGE to pin a specific commit:
+    #   SERVER_IMAGE=ghcr.io/svaaan/helloworldai-server:sha-abc123 docker compose up -d
+    image: ${SERVER_IMAGE:-ghcr.io/svaaan/helloworldai-server:latest}
+    # Kept so the stack can still be built from source on a machine with no
+    # access to the registry: `docker compose build` uses this and tags the
+    # result with the name above.
     build:
       context: ../
       dockerfile: docker/Dockerfile
@@ -37,13 +56,22 @@ services:
     environment:
       - USE_DOCKER=true
       - ENV=production
-      - MONGO_URI=${MONGO_URI:-mongodb://mongo:27017}
+      - MONGO_URI=${MONGO_URI:-mongodb://mongo_prod:27017}
+      - MONGO_DB=${MONGO_DB:-NodeDbProd}
     depends_on:
-      - mongo
+      - mongo_prod
     command: uvicorn src.backend.coordinator:app --host 0.0.0.0 --port 8100
     restart: always
 
   dashboard:
+    # Pulled, not built. CI publishes this on every push to main, so the
+    # server downloads a finished image instead of compiling one while it is
+    # also meant to be serving. Override SERVER_IMAGE to pin a specific commit:
+    #   SERVER_IMAGE=ghcr.io/svaaan/helloworldai-server:sha-abc123 docker compose up -d
+    image: ${SERVER_IMAGE:-ghcr.io/svaaan/helloworldai-server:latest}
+    # Kept so the stack can still be built from source on a machine with no
+    # access to the registry: `docker compose build` uses this and tags the
+    # result with the name above.
     build:
       context: ../
       dockerfile: docker/Dockerfile

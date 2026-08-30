@@ -50,13 +50,29 @@ rsync -av --delete --progress -e "ssh -i $KEY" \
   --exclude 'env/.env.*' \
   "$PROJECT_DIR" "$USER_NAME@$HOST:$REMOTE_PATH"
 
-# === STEP 2: Restart ===
-echo "🐳 Rebuilding and restarting..."
+# === STEP 2: Pull and restart ===
+#
+# Pull, not build. CI publishes the server image on every push to main, so the
+# server downloads a finished one rather than compiling a multi-gigabyte image
+# while it is also meant to be serving. A build on the box is slow, needs build
+# tooling in production, and leaves the stack down if it fails.
+#
+# If the registry is unreachable, or you are deploying a branch CI has not
+# built, fall back with:  BUILD_ON_SERVER=1 ./deploy.sh
+echo "🐳 Restarting..."
 ssh -i "$KEY" "$USER_NAME@$HOST" bash -s <<EOF
   set -euo pipefail
-  cd "$REMOTE_PATH/docker"
-  docker compose -p "$PROJECT_NAME" -f docker-compose.yml down
-  docker compose -p "$PROJECT_NAME" -f docker-compose.yml up -d --build
+  # Unquoted on purpose: REMOTE_PATH defaults to ~/HelloWorldAi, and a tilde
+  # inside double quotes is a literal, so the quoted form fails to cd.
+  cd $REMOTE_PATH/docker
+
+  if [ "${BUILD_ON_SERVER:-0}" = "1" ]; then
+    docker compose -p "$PROJECT_NAME" -f docker-compose.yml build
+  else
+    docker compose -p "$PROJECT_NAME" -f docker-compose.yml pull
+  fi
+
+  docker compose -p "$PROJECT_NAME" -f docker-compose.yml up -d
   echo "--- running ---"
   docker compose -p "$PROJECT_NAME" -f docker-compose.yml ps
 EOF

@@ -31,14 +31,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl \
 ARG REQUIREMENTS=requirements.txt
 COPY ./${REQUIREMENTS} ./requirements-install.txt
 
-# torch first, from the index that publishes CPU-only wheels. The default
-# wheel on PyPI bundles the CUDA libraries and is most of the image size;
-# 2.6.0+cpu satisfies the `torch==2.6.0` pin that follows, so the second
-# install leaves it alone.
+# One install, with PyTorch's CPU index searched first.
+#
+# Installing CPU torch and then running `pip install -r` as a separate command
+# does not work: the requirements pin `torch==2.6.0`, pip resolves that against
+# PyPI, and the CUDA wheel replaces the CPU one. That produced an image holding
+# torch 2.6.0+cu124 and 3.6 GB of NVIDIA libraries -- nvidia/, triton/,
+# cusparselt/ -- inside a service that does all its arithmetic on the CPU.
+#
+# With the CPU index primary, `2.6.0+cpu` is found there and satisfies the pin
+# (a local version sorts above the plain one); everything else falls through to
+# PyPI via the extra index.
 RUN python -m pip install --no-cache-dir --upgrade pip \
  && python -m pip install --no-cache-dir \
-      --index-url https://download.pytorch.org/whl/cpu torch \
- && python -m pip install --no-cache-dir -r requirements-install.txt
+      --index-url https://download.pytorch.org/whl/cpu \
+      --extra-index-url https://pypi.org/simple \
+      -r requirements-install.txt
 
 COPY ./src ./src
 COPY ./src/frontend/static ./static

@@ -131,7 +131,7 @@ docker compose -f docker/docker-compose.test.yml -f docker/docker-compose.gpu.ym
 docker compose -f docker/docker-compose.test.yml ps
 ```
 
-You want four things listed — `dashboard`, `coordinator`, `node`, `mongo_test` —
+You want four things listed — `dashboard`, `coordinator`, `node`, `mongo_dev` —
 all saying `running`. If something says `exited`, jump to
 [Troubleshooting](#troubleshooting).
 
@@ -416,6 +416,63 @@ docker compose -f docker/docker-compose.yml logs -f coordinator
 docker compose -f docker/docker-compose.yml restart coordinator
 docker compose -f docker/docker-compose.yml down          # keeps the database
 ```
+
+### Where the images come from
+
+The coordinator and the dashboard run a published image rather than one built
+on the server. CI builds it on every push to `main` and pushes it to
+`ghcr.io/svaaan/helloworldai-server`, tagged `latest` and with the commit sha,
+so a deployment can be traced to the code in it and rolled back to a specific
+one rather than to whatever `latest` was yesterday.
+
+`deploy.sh` pulls it. Building on the box made the smallest machine in the
+system do the most expensive job, needed build tooling in production, and left
+the stack down when a build failed.
+
+To pin a particular build:
+
+```bash
+SERVER_IMAGE=ghcr.io/svaaan/helloworldai-server:sha-<commit> ./deploy.sh
+```
+
+To build on the server anyway -- no registry access, or a branch CI has not
+built:
+
+```bash
+BUILD_ON_SERVER=1 ./deploy.sh
+```
+
+The node image is not published. It builds on `nvidia/cuda` and comes to about
+12.5 GB, which does not fit a GitHub-hosted runner, and a contributor builds it
+once when they start their node.
+
+### Looking at the data
+
+Both databases are published on the loopback address so a GUI client can
+attach. They are on different ports, so development and production can run side
+by side without one pretending to be the other.
+
+| Stack | Compass connection string | Database |
+|---|---|---|
+| development (`docker-compose.test.yml`) | `mongodb://localhost:27018` | `NodeDbDev` |
+| production (`docker-compose.yml`) | `mongodb://localhost:27019` | `NodeDbProd` |
+
+Neither instance has authentication, so neither is bound to anything but
+`127.0.0.1`. To read a production database on a remote server, forward the port
+rather than publishing it:
+
+```bash
+ssh -L 27019:localhost:27019 user@server
+```
+
+Compass then connects to `mongodb://localhost:27019` as though it were local.
+
+The database name comes from `MONGO_DB` and the server from `MONGO_URI`, so an
+environment is a matter of configuration. It used to be the literal string
+`NodeDbTest` in the source, which meant a production deployment would have
+written its real registrations and job history into a database called Test.
+
+---
 
 Back up the `mongo-data` volume and `env/.env.production` together. The
 database is useless without the encryption key.

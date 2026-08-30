@@ -1,0 +1,83 @@
+# Build the server image here, so the server does not have to.
+#
+# deploy.sh used to rsync the source up and run `docker compose up --build` on
+# the box. That makes the smallest machine in the system do the most expensive
+# job: a small VM building a multi-gigabyte image while it is also meant to be
+# serving. It is slow, it needs build tooling in production, and a failed build
+# leaves the stack down.
+#
+# Building here and pulling there turns a deploy into a download and a restart.
+#
+# Only the server image. The node image is built on nvidia/cuda and comes to
+# about 12.5 GB, and a GitHub-hosted runner has roughly 14 GB free -- there is
+# no room for it, and contributors build it locally anyway when they start
+# their node. If that ever needs to be published, it wants a larger runner and
+# a step that reclaims the runner's preinstalled tooling first.
+
+name: images
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:        # so a deploy can be prepared without a commit
+
+env:
+  REGISTRY: ghcr.io
+  # ghcr requires a lowercase path, and the repository owner is not.
+  IMAGE: ghcr.io/svaaan/helloworldai-server
+
+jobs:
+  server:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write       # the default token can publish to ghcr with this
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Sign in to the registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Work out the tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          # `latest` for the usual case, and the commit sha so a deployment can
+          # always be traced back to the code in it -- and rolled back to a
+          # specific one rather than to "whatever latest was yesterday".
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,format=long
+            type=ref,event=tag
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          target: server
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # Layer cache between runs, so only the layers that changed are
+          # rebuilt. The dependency layer is the expensive one and changes only
+          # when requirements.txt does.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Say what was published
+        run: |
+          echo "### Published" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "Pull on the server with: docker compose pull" >> $GITHUB_STEP_SUMMARY

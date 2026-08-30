@@ -166,3 +166,46 @@ def test_nothing_sends_people_to_a_page_that_was_removed():
         "these tell somebody to visit the connect page, which was merged into "
         f"the front door: {', '.join(offenders)}"
     )
+
+
+# --- where the production images come from -------------------------------
+
+def test_production_runs_a_published_image():
+    """The server should download a finished image, not compile one.
+
+    deploy.sh used to rsync source up and run `up --build`, which made the
+    smallest machine in the system do the most expensive job: a small VM
+    building a multi-gigabyte image while it was also meant to be serving. A
+    failed build left the stack down.
+    """
+    compose = read("..", "docker", "docker-compose.yml")
+
+    assert compose.count("image: ${SERVER_IMAGE:-ghcr.io/") == 2, (
+        "the coordinator and the dashboard should both run a published image"
+    )
+    # build: stays, so the stack can still be built from source somewhere with
+    # no access to the registry.
+    assert "target: server" in compose
+
+
+def test_ci_publishes_only_what_fits_a_runner():
+    """The node image is 12.5 GB and a hosted runner has about 14 GB free.
+
+    Building it there fails late and confusingly, so the workflow builds the
+    server target and says why it stops there.
+    """
+    workflow = read("..", ".github", "workflows", "images.yml")
+
+    assert "target: server" in workflow
+    assert "target: node" not in workflow
+    assert "12.5 GB" in workflow, "the reason should be written down"
+
+
+def test_deploy_pulls_rather_than_builds():
+    script = read("..", "deploy.sh")
+
+    assert "docker-compose.yml pull" in script
+    # with a way out when the registry is unreachable
+    assert "BUILD_ON_SERVER" in script
+    # and the project name pinned, or `down` matches nothing (it once did not)
+    assert '-p "$PROJECT_NAME"' in script

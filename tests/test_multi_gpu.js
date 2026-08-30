@@ -1,0 +1,181 @@
+// A contributor with more than one graphics card, and what a data trainer sees.
+//
+// The compute side has handled this for a while: the node enumerates every
+// device through NVML, poolPlanner splits a batch proportionally rather than
+// evenly so a fast card is not held to the pace of a slow one, and the trainer
+// has a property test showing uneven shards train identically to one big batch.
+//
+// The part nobody had exercised was the other end. Putting a four-card rig into
+// the network -- an RTX 3070, two RTX 3060s and a GTX 1660 Super -- the node
+// card on the send-work page read:
+//
+//   NVIDIA GeForce RTX 3070, NVIDIA GeForce RTX 3060, NVIDIA GeForce RTX 3060,
+//   NVIDIA GeForce GTX 1660 Super
+//
+// which is mostly the word NVIDIA, and it pushed its own row 443 pixels past
+// the edge of the card, dragging CPU and Cores out with it. Two separate
+// problems: the text was not summarised, and the CSS could not truncate it
+// because a flex item will not shrink below its content by default.
+//
+// Run with:  node tests/test_multi_gpu.js
+
+import assert from "node:assert";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = path.join(HERE, "..");
+
+let failures = 0;
+function check(name, fn) {
+  try {
+    fn();
+    console.log(`  ok   ${name}`);
+  } catch (error) {
+    failures += 1;
+    console.error(`  FAIL ${name}\n       ${error.message}`);
+  }
+}
+
+function gpu(name) {
+  return { name, total_memory: 8192, theoretical_tflops: 10 };
+}
+
+function node(names) {
+  return { capabilities: { gpu: names.map(gpu) } };
+}
+
+const { describeGpus } = await import(
+  path.join(ROOT, "src/frontend/static/js/distribution/fetchNode.js")
+    .replace(/\\/g, "/")
+    .replace(/^([A-Za-z]):/, "file:///$1:")
+);
+
+// --- summarising an array ------------------------------------------------
+
+check("one card reads as its model, without the vendor boilerplate", () => {
+  assert.equal(describeGpus(node(["NVIDIA GeForce RTX 3070"])), "RTX 3070");
+});
+
+check("identical cards are counted rather than repeated", () => {
+  const text = describeGpus(node([
+    "NVIDIA GeForce RTX 3060", "NVIDIA GeForce RTX 3060",
+  ]));
+  assert.equal(text, "2× RTX 3060");
+});
+
+check("a mixed rig lists the commonest first", () => {
+  const text = describeGpus(node([
+    "NVIDIA GeForce RTX 3070",
+    "NVIDIA GeForce RTX 3060",
+    "NVIDIA GeForce RTX 3060",
+    "NVIDIA GeForce GTX 1660 Super",
+  ]));
+  assert.equal(text, "2× RTX 3060, GTX 1660 Super, RTX 3070");
+});
+
+check("the summary is far shorter than the raw list", () => {
+  const names = [
+    "NVIDIA GeForce RTX 3070", "NVIDIA GeForce RTX 3060",
+    "NVIDIA GeForce RTX 3060", "NVIDIA GeForce GTX 1660 Super",
+  ];
+  const raw = names.join(", ");
+  const summarised = describeGpus(node(names));
+
+  assert.ok(summarised.length < raw.length / 2,
+    `summary is ${summarised.length} chars against ${raw.length} raw`);
+});
+
+check("a card from another vendor keeps its whole name", () => {
+  // Only the words every NVIDIA card shares are dropped; nothing else is
+  // assumed about how a device is named.
+  assert.equal(describeGpus(node(["AMD Radeon RX 7900"])), "AMD Radeon RX 7900");
+});
+
+check("a machine with no GPU says so", () => {
+  assert.equal(describeGpus({ capabilities: { gpu: [] } }), "None");
+  assert.equal(describeGpus({ capabilities: {} }), "None");
+});
+
+check("an unnamed device does not render as undefined", () => {
+  assert.equal(describeGpus({ capabilities: { gpu: [{}] } }), "Unknown GPU");
+});
+
+// --- and the row can actually shrink -------------------------------------
+
+check("the value column is allowed to truncate", () => {
+  // ellipsis without this does nothing: a flex item's default min-width is
+  // auto, so it refuses to shrink below its content and overflows instead.
+  const css = fs.readFileSync(
+    path.join(ROOT, "src/frontend/static/css/distribution.css"), "utf8");
+
+  const start = css.indexOf(".node-spec > span:last-child");
+  assert.ok(start !== -1, "the spec value rule is gone");
+  const rule = css.slice(start, css.indexOf("}", start));
+
+  assert.ok(/min-width:\s*0/.test(rule),
+    "without min-width: 0 the text-overflow rule above it never applies");
+  assert.ok(/text-overflow:\s*ellipsis/.test(rule));
+});
+
+// --- the four things a walkthrough turned up -----------------------------
+//
+// Appended here rather than in a file of their own: they are all "what the
+// page says versus what is true", which is what this file is already about.
+
+check("the data side produces the file its button promises", () => {
+  // "Create key file" made a key and went straight to the workspace, so no
+  // file appeared and the label was a small lie. The GPU side has always
+  // stopped and insisted you download one first.
+  const html = fs.readFileSync(
+    path.join(ROOT, "src/frontend/template/start.html"), "utf8");
+  const js = fs.readFileSync(
+    path.join(ROOT, "src/frontend/static/js/component/start.js"), "utf8");
+
+  assert.ok(html.includes('id="builderKeyModal"'), "no confirmation modal");
+  assert.ok(html.includes('id="builderKeyDownload"'), "no download button");
+  assert.ok(js.includes("downloadKeyFile()"),
+    "the button does not actually write a file");
+  // and it must not slip past to the workspace without offering
+  assert.ok(!/getSubmitterKey\(\);\s*window\.location\.href = "\/workspace"/.test(js),
+    "still navigating away without offering the file");
+});
+
+check("the two row counts explain themselves", () => {
+  // "Ready: 12 rows" and "Reads your 10 rows" a few centimetres apart, with
+  // the holdout invisible, reads as a bug rather than as a split.
+  const js = fs.readFileSync(
+    path.join(ROOT, "src/frontend/static/js/distribution/jobForm.js"), "utf8");
+
+  assert.ok(js.includes("training rows"),
+    "the second number should say which rows it counts");
+  assert.ok(js.includes("held back to check the result"),
+    "nothing accounts for the difference between the two numbers");
+});
+
+check("the privacy note mentions the one thing that carries a name", () => {
+  // It says column names are not sent, which is true and which makes it easy
+  // to assume nothing legible travels. The job's name does.
+  const js = fs.readFileSync(
+    path.join(ROOT, "src/frontend/static/js/distribution/modalHandler.js"), "utf8");
+
+  assert.ok(js.includes("name you give the job"),
+    "the disclosure does not mention that the model name reaches the contributor");
+});
+
+check("a visitor with no node is not shown somebody else's GPU", () => {
+  // "No node connected yet" sat beside a live RTX 3070 at 35 degrees and an
+  // offer to accept work on it -- the local agent's readings, which are
+  // neither theirs nor theirs to control.
+  const js = fs.readFileSync(
+    path.join(ROOT, "src/frontend/static/js/nodejs/liveWork.js"), "utf8");
+
+  const start = js.indexOf("export function startLiveWorkPolling");
+  const body = js.slice(start, start + 700);
+  assert.ok(/if \(!hasNode\(\)\) return;/.test(body),
+    "live work polling is not gated on holding a node identity");
+});
+
+console.log(failures ? `\n  ${failures} failed` : "\n  all checks passed");
+process.exit(failures ? 1 : 0);
