@@ -136,7 +136,7 @@ export function initNodeInfoManager() {
                 "No node connected yet",
                 "Register a node, or reconnect one with its key file.",
                 false,
-                { label: "Go to connect", href: "/connect" }
+                { label: "Set up a node", href: "/" }
             );
             if (toggle) toggle.disabled = true;
             return;
@@ -274,7 +274,7 @@ export function initNodeInfoManager() {
 
         const link = document.createElement("a");
         link.className = "panel-notice-action";
-        link.href = "/connect";
+        link.href = "/";
         link.textContent = "Save the key file →";
         box.append(link);
 
@@ -323,7 +323,7 @@ export function initNodeInfoManager() {
         // its Connect link once a node id is stored, so without this there is
         // no obvious way out of a node that will never come back.
         showNotice("Node unavailable", "Retrying…", true,
-                   { label: "Connect a different node", href: "/connect" });
+                   { label: "Connect a different node", href: "/" });
 
         const toggle = document.getElementById("availabilityToggle");
         if (toggle) toggle.disabled = true;

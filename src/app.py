@@ -80,10 +80,20 @@ async def start_page():
     path = os.path.join(TEMPLATE_DIR, "start.html")
     return FileResponse(path) if os.path.exists(path) else HTMLResponse("<h1>404 - start.html not found</h1>", status_code=404)
 
-@dashboard_app.get("/connect", response_class=HTMLResponse)
+@dashboard_app.get("/connect", include_in_schema=False)
 def render_connect():
-    path = os.path.join(TEMPLATE_DIR, "connect.html")
-    return FileResponse(path) if os.path.exists(path) else HTMLResponse("<h1>404 - connect.html not found</h1>", status_code=404)
+    """Registering a node happens on the front door now.
+
+    This was a second page doing the same job the front door already did for
+    the other side of the network: one screen said "here are the two things
+    you can be", the next said "and here is how you become one of them". The
+    data side never had that step -- it made a key and went straight to a
+    workspace -- so the GPU side took two screens for one decision.
+
+    Kept as a redirect rather than deleted: the setup guide, the installer's
+    instructions and anybody's bookmarks all point here.
+    """
+    return RedirectResponse("/", status_code=308)
 
 @dashboard_app.get("/setup", response_class=HTMLResponse)
 def render_setup_page():

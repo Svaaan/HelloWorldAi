@@ -38,6 +38,57 @@ export function cleanRendererName(raw) {
 /**
  * @returns {{supported: boolean, name: string, raw: string|null}}
  */
+/**
+ * Draw the result of a GPU check into `box`.
+ *
+ * Lived inline on the connect page. Now that registering happens on the front
+ * door, it runs when somebody actually asks to register -- a visitor with data
+ * and a MacBook must never be shown a hardware check for a thing they are not
+ * doing.
+ */
+export function renderGpuStatus(box) {
+  if (!box) return { supported: false, name: "" };
+
+  const result = detectGpu();
+  const { supported, name } = result;
+
+  box.classList.remove("is-checking");
+  box.classList.toggle("is-ok", supported);
+  box.classList.toggle("is-bad", !supported);
+
+  const title = supported ? "GPU ready" : "No supported GPU found";
+  const detail = supported
+    ? name
+    : (name
+        ? `${name} is not an NVIDIA card. The node only accepts NVIDIA GPUs.`
+        : "Your browser did not report a GPU. Check your drivers.");
+
+  // Built as nodes rather than markup: the renderer string comes from the
+  // driver, and it is never worth trusting a driver string to innerHTML.
+  box.replaceChildren();
+
+  const dot = document.createElement("span");
+  dot.className = "gpu-status-dot";
+  dot.setAttribute("aria-hidden", "true");
+
+  const text = document.createElement("span");
+  text.className = "gpu-status-text";
+
+  const strong = document.createElement("strong");
+  strong.className = "gpu-status-title";
+  strong.textContent = title;
+
+  const small = document.createElement("span");
+  small.className = "gpu-status-detail";
+  small.textContent = detail;
+
+  text.append(strong, small);
+  box.append(dot, text);
+
+  return result;
+}
+
+
 export function detectGpu() {
   let raw = null;
 

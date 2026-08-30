@@ -75,7 +75,6 @@ export function showsFor(role) {
 // Arriving there without the role is the point, not a mistake. The others are
 // interior pages, which without the key are an empty room.
 const PAGES = {
-  "/connect": { role: "contributor", entry: true },
   "/setup": { role: "contributor", entry: true },
   "/node": { role: "contributor" },
   "/distribution": { role: "builder", entry: true },
@@ -93,7 +92,9 @@ export const ROLE_HOME = {
 };
 
 export const ROLE_ENTRY = {
-  contributor: "/connect",
+  // Registering a node happens on the front door, where taking up the other
+  // side does too. There is no separate connect page any more.
+  contributor: "/",
   builder: "/distribution",
 };
 

@@ -141,7 +141,14 @@ Go to **http://localhost:3000** in your browser.
 
 ### Step 6 — Register your node
 
-1. Click **Register New Node**
+Everything happens on the front door. There are two cards — **I have data** and
+**I have a GPU** — and each offers the same two things: make the key that is
+your account, or load the one you already made. Registering a graphics card
+used to be a second page; it is a dialog on this one now, and the GPU check
+only runs when you ask to register, so somebody arriving with a dataset and a
+laptop never meets it.
+
+1. Click **Create key file** on the **I have a GPU** card
 2. Type any name
 3. Click **Confirm Registration**
 4. **Download the key file and keep it.** It is the only proof the node is yours.
@@ -297,7 +304,7 @@ The script installs Docker and the GPU toolkit, checks a container can really
 see their GPUs, downloads the node, and starts it. It is safe to run twice.
 
 Then they open **http://localhost:3000** on their own machine and register,
-exactly like Step 6 above.
+exactly like Step 6 above — the **I have a GPU** card, **Create key file**.
 
 ---
 
@@ -455,8 +462,9 @@ Each test file runs on its own:
 Tests needing PyTorch or NumPy skip themselves politely if you don't have them,
 so nothing here breaks on a plain Python install.
 
-The rules deciding which side of the network sees which page live in the
-browser, so they are checked with Node instead:
+The rules deciding which side of the network sees which page — and which
+navigation belongs on it — live in the browser, so they are checked with Node
+instead:
 
 ```bash
 node tests/test_role_pages.js

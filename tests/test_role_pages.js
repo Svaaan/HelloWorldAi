@@ -109,7 +109,6 @@ check("untagged links are always shown", () => {
 
 check("every page is attributed to the side that owns it", () => {
   assert.equal(role.pageRole("/node").role, "contributor");
-  assert.equal(role.pageRole("/connect").role, "contributor");
   assert.equal(role.pageRole("/setup").role, "contributor");
   assert.equal(role.pageRole("/workspace").role, "builder");
   assert.equal(role.pageRole("/distribution").role, "builder");
@@ -130,7 +129,7 @@ check("a trailing slash is the same page", () => {
 check("entry pages are marked apart from interior ones", () => {
   // Arriving at an entry page without the role is the point of the page.
   // Arriving at an interior one means an empty room.
-  assert.equal(role.pageRole("/connect").entry, true);
+  assert.equal(role.pageRole("/setup").entry, true);
   assert.equal(role.pageRole("/distribution").entry, true);
   assert.equal(role.pageRole("/node").entry, undefined);
   assert.equal(role.pageRole("/workspace").entry, undefined);
@@ -141,8 +140,13 @@ check("every side has somewhere to send people back to", () => {
     assert.ok(role.ROLE_HOME[side], `no home for ${side}`);
     assert.ok(role.ROLE_ENTRY[side], `no entry for ${side}`);
     assert.ok(role.ROLE_LABEL[side], `no label for ${side}`);
+    // Home is always that side's own page.
     assert.equal(role.pageRole(role.ROLE_HOME[side]).role, side);
-    assert.equal(role.pageRole(role.ROLE_ENTRY[side]).role, side);
+
+    // The way in is either that side's own page, or the front door -- which
+    // belongs to neither side and is where both are taken up.
+    const entry = role.pageRole(role.ROLE_ENTRY[side]);
+    assert.ok(entry === null || entry.role === side, `bad entry for ${side}`);
   }
 });
 
@@ -166,9 +170,11 @@ check("landing on the other side's page needs explaining", () => {
 
 check("somebody who is both is never told they are in the wrong place", () => {
   signedInAs("contributor", "builder");
-  for (const path of ["/node", "/workspace", "/connect", "/distribution", "/setup"]) {
+  for (const path of ["/node", "/workspace", "/distribution", "/setup"]) {
     assert.equal(role.hasRole(role.pageRole(path).role), true, path);
   }
+  // And the front door belongs to nobody, so there is nothing to be wrong.
+  assert.equal(role.pageRole("/"), null);
 });
 
 check("storage being refused reads as no role, not as an error", () => {
@@ -209,7 +215,6 @@ function noticeShown(path) {
 
 check("an entry page introduces itself to a newcomer", () => {
   signedInAs();
-  assert.equal(noticeShown("/connect"), false);
   assert.equal(noticeShown("/setup"), false);
   assert.equal(noticeShown("/distribution"), false);
 });
@@ -224,7 +229,7 @@ check("an interior page cannot introduce itself, so it is explained", () => {
 
 check("the other side is always told where it has landed", () => {
   signedInAs("builder");
-  for (const path of ["/connect", "/setup", "/node"]) {
+  for (const path of ["/setup", "/node"]) {
     assert.equal(noticeShown(path), true, path);
   }
   for (const path of ["/distribution", "/workspace"]) {
@@ -235,14 +240,14 @@ check("the other side is always told where it has landed", () => {
   for (const path of ["/distribution", "/workspace"]) {
     assert.equal(noticeShown(path), true, path);
   }
-  for (const path of ["/connect", "/setup", "/node"]) {
+  for (const path of ["/setup", "/node"]) {
     assert.equal(noticeShown(path), false, path);
   }
 });
 
 check("somebody who is both is never interrupted anywhere", () => {
   signedInAs("contributor", "builder");
-  for (const path of ["/connect", "/setup", "/node", "/distribution", "/workspace"]) {
+  for (const path of ["/setup", "/node", "/distribution", "/workspace"]) {
     assert.equal(noticeShown(path), false, path);
   }
 });
@@ -252,6 +257,83 @@ check("the front door never carries a notice", () => {
     signedInAs(...who);
     assert.equal(noticeShown("/"), false);
   }
+});
+
+// --- and which links belong on the page you are standing on -------------
+//
+// A link is yours if you hold the key for its side, and it belongs here if it
+// is for the same side as the page. Standing on /connect -- which asks you to
+// register a graphics card -- while the header offers "Send work" and "Your
+// workspace" puts both profiles in front of somebody at the moment they are
+// being asked about one of them.
+
+const NAV = [
+  ["/node", "contributor", "Your node"],
+  ["/setup", "contributor", "Setup"],
+  ["/distribution", "builder", "Send work"],
+  ["/workspace", "builder", "Your workspace"],
+];
+
+/** Exactly what applyRoles() decides, for one page. */
+function navOn(path) {
+  if (role.isNewHere()) return [];
+  const here = role.pageRole(path);
+  return NAV.filter(([, linkRole]) => {
+    if (!role.showsFor(linkRole)) return false;
+    if (here && linkRole !== here.role) return false;
+    return true;
+  }).map(([, , label]) => label);
+}
+
+check("a data person on the GPU side is offered nothing else", () => {
+  // The reported problem: being shown the other profile's navigation while
+  // standing on a page that belongs to this one.
+  signedInAs("builder");
+  assert.deepEqual(navOn("/setup"), []);
+  assert.deepEqual(navOn("/node"), []);
+});
+
+check("a GPU owner is not offered the data side while on it", () => {
+  signedInAs("contributor");
+  assert.deepEqual(navOn("/distribution"), []);
+  assert.deepEqual(navOn("/workspace"), []);
+});
+
+check("each side keeps its own links on its own pages", () => {
+  signedInAs("contributor");
+  assert.deepEqual(navOn("/node"), ["Your node", "Setup"]);
+
+  signedInAs("builder");
+  assert.deepEqual(navOn("/workspace"), ["Send work", "Your workspace"]);
+});
+
+check("the front door is where both sides appear", () => {
+  // It belongs to neither side, so it is the one place to change sides.
+  signedInAs("contributor", "builder");
+  assert.deepEqual(navOn("/"),
+    ["Your node", "Setup", "Send work", "Your workspace"]);
+});
+
+check("somebody who is both still sees one side at a time on a page", () => {
+  signedInAs("contributor", "builder");
+  assert.deepEqual(navOn("/node"), ["Your node", "Setup"]);
+  assert.deepEqual(navOn("/workspace"), ["Send work", "Your workspace"]);
+});
+
+check("a newcomer is offered nothing anywhere", () => {
+  signedInAs();
+  for (const path of ["/", "/setup", "/node", "/distribution", "/workspace"]) {
+    assert.deepEqual(navOn(path), [], path);
+  }
+});
+
+check("registering happens on the front door, not on a page of its own", () => {
+  // /connect was a second screen doing the job the front door already did for
+  // the other side. It redirects now, so it belongs to no side and appears in
+  // no navigation.
+  assert.equal(role.pageRole("/connect"), null);
+  assert.ok(!NAV.some(([, , label]) => label === "Connect"));
+  assert.equal(role.ROLE_ENTRY.contributor, "/");
 });
 
 console.log(`  ${passed} checks passed`);

@@ -8,6 +8,9 @@
     <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="/static/css/theme.css">
     <link rel="stylesheet" href="/static/css/start.css">
+  <!-- The node registration modals moved here from the page that used to hold
+       them, and they bring their styles with them. -->
+  <link rel="stylesheet" href="/static/css/connect.css">
 </head>
 
 <body>
@@ -42,9 +45,13 @@
                     the training happens on somebody else's.
                 </p>
 
+                <!-- Two ways in, the same two on both cards: make the key
+                     that is your account, or load the one you already made.
+                     "Get started" beside "I have a key file" read as two doors
+                     for the same person. -->
                 <div class="start-actions">
                     <button id="builderStart" type="button" class="btn">
-                        Get started
+                        Create key file
                     </button>
                     <button id="builderReturning" type="button" class="btn-ghost">
                         I have a key file
@@ -71,14 +78,24 @@
                     Needs an <strong>NVIDIA GPU</strong> on Windows with WSL 2, or Linux.
                 </p>
 
+                <!-- The same two doors as the other card. Connecting stays
+                     reachable once a node exists, so somebody with one card can
+                     add a second and is not stranded if the stored node is
+                     stale. -->
                 <div class="start-actions">
-                    <!-- Connecting a card stays available whether or not one is
-                         already set up: this used to be replaced by "Open your
-                         node", which left somebody with one node no way to add
-                         a second, and no way back if the stored one was stale. -->
-                    <a href="/connect" class="btn" id="contributorPrimary">Connect a GPU</a>
+                    <button id="registerNodeButton" type="button" class="btn">
+                        Create key file
+                    </button>
+                    <button id="connectNodeButton" type="button" class="btn-ghost">
+                        I have a key file
+                    </button>
                     <a href="/node" class="btn-ghost" id="contributorNode" hidden>Open your node</a>
                 </div>
+                <div id="processingMessage" class="processing" role="status" aria-live="polite">
+                    <span class="loading-spinner" aria-hidden="true"></span>
+                    <span>Working…</span>
+                </div>
+                <div id="resultMessage" role="status" aria-live="polite"></div>
             </section>
         </div>
 
@@ -87,6 +104,61 @@
             taken straight through.
         </p>
     </main>
+
+    <!-- Registering a node used to live on its own page, which made the GPU
+         side of the product take two screens where the data side took one.
+         Both now start and finish here: either you have a key or you make one. -->
+
+    <!-- Register a brand new node -->
+    <div id="nodeNameModal" class="modal-backdrop" role="dialog" aria-modal="true"
+         aria-labelledby="registerModalTitle">
+      <div class="modal-container">
+        <button class="modal-close" type="button" data-close="nodeNameModal"
+                aria-label="Close">&times;</button>
+        <h3 id="registerModalTitle">Register a new node</h3>
+        <p class="modal-lede">
+          This creates a key pair in your browser. The key file it produces is the
+          only proof this node is yours &mdash; there is no password reset.
+        </p>
+
+        <!-- Checked here rather than on page load: somebody who came for the
+             other side must never meet a hardware test for a thing they are
+             not doing. -->
+        <div id="gpuInfo" class="gpu-status is-checking" role="status" aria-live="polite">
+          <span class="gpu-status-dot" aria-hidden="true"></span>
+          <span class="gpu-status-text">
+            <strong class="gpu-status-title">Checking for a GPU…</strong>
+          </span>
+        </div>
+
+        <label for="nodeName">Node name</label>
+        <input type="text" id="nodeName" placeholder="e.g. daniel-desktop"
+               autocomplete="off" spellcheck="false" />
+        <button id="confirmRegisterNodeButton" type="button" class="btn-primary">
+          Create node
+        </button>
+      </div>
+    </div>
+
+    <!-- Reconnect an existing node from its key file -->
+    <div id="connectNodeModal" class="modal-backdrop" role="dialog" aria-modal="true"
+         aria-labelledby="connectModalTitle">
+      <div class="modal-container">
+        <button class="modal-close" type="button" data-close="connectNodeModal"
+                aria-label="Close">&times;</button>
+        <h3 id="connectModalTitle">Connect an existing node</h3>
+        <p class="modal-lede">
+          Upload the <code>node_key_pair.json</code> you downloaded when you first
+          registered. It never leaves your browser.
+        </p>
+        <label for="privateKeyFile">Key file</label>
+        <input type="file" id="privateKeyFile" accept=".json,.txt,application/json" />
+        <button id="confirmConnectNodeButton" type="button" class="btn-primary">
+          Connect node
+        </button>
+      </div>
+    </div>
+
 
     <script type="module">
         import { loadHeader } from "/static/js/component/header.js";

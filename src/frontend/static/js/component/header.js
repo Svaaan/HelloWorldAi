@@ -4,7 +4,7 @@
 // app's navigation lives. Two things it has to get right: mark the page you
 // are on, and fail visibly rather than leaving a page with no header at all.
 
-import { isContributor, isNewHere, showsFor } from "./role.js";
+import { isNewHere, pageRole, showsFor } from "./role.js";
 import { showRoleNotice } from "./roleNotice.js";
 
 const COUNT_INTERVAL_MS = 60000;
@@ -66,26 +66,27 @@ function markCurrentPage() {
 
 // Show each side of the network only its own pages.
 //
-// The navigation describes who you are, not where you happen to be standing.
-// It used to un-hide the current page's link so that something was always
-// marked -- which meant a GPU owner who opened /workspace grew a "Your
-// workspace" link, and a builder who opened /node grew a "Your node". Half of
-// the other side's navigation, appearing because of where they had clicked.
-// Being on somebody else's page is now explained by the page (see
-// roleNotice.js) rather than by the header quietly changing shape.
+// Two rules, and both of them are about not asking two questions at once.
 //
-// "Connect" still disappears once a node is registered: it is an entry point
-// that has been used.
+// A link is yours if you hold the key for its side. It used to also un-hide
+// the current page's own link so that something was always marked, which meant
+// a GPU owner who opened /workspace grew a "Your workspace" link. Being
+// somewhere that is not yours is explained by the page now (roleNotice.js)
+// rather than by the header changing shape.
+//
+// And a link belongs *here* if it is for the same side as the page. Standing
+// on /connect -- which asks you to register a graphics card -- while the
+// header offers "Send work" and "Your workspace" puts the two profiles in
+// front of somebody at the moment they are being asked about one of them.
+// The front door belongs to neither side, so it is where both appear and
+// where you go to change sides.
+//
 function applyRoles() {
+  const here = pageRole(currentPath());
+
   document.querySelectorAll(".header-nav a").forEach((link) => {
-    const path = linkPath(link);
-
-    if (path === "/connect" && isContributor()) {
-      link.hidden = true;
-      return;
-    }
-
-    link.hidden = !showsFor(link.dataset.role);
+    const role = link.dataset.role;
+    link.hidden = !showsFor(role) || Boolean(here && role && role !== here.role);
   });
 
   // Somebody who has set nothing up has no side, so there is nothing to
@@ -98,8 +99,8 @@ function applyRoles() {
 
 function currentPath() {
   // "/" must survive: stripping its slash leaves an empty string, and the old
-  // fallback to "/connect" made the front door look like the connect page --
-  // which is exactly the conflation this split is undoing.
+  // fallback made the front door look like another page -- which matters more
+  // now that the front door is where both sides are taken up.
   const path = window.location.pathname.replace(/\/+$/, "");
   return path || "/";
 }
@@ -114,7 +115,7 @@ function fallbackHeader() {
 
   const brand = document.createElement("a");
   brand.className = "header-logo";
-  brand.href = "/connect";
+  brand.href = "/";
   brand.textContent = "HelloWorldAi";
   header.appendChild(brand);
 

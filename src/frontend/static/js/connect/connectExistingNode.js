@@ -22,10 +22,19 @@ export function setupConnectExistingNodeModal() {
     resultMessage.className = "";
   }
 
-  openButton.addEventListener("click", () => {
+  function open() {
     clearModalState();
     modal.style.display = "flex";
-  });
+  }
+
+  openButton.addEventListener("click", open);
+
+  // Arriving from "I have a key file" on the front door. Without this, that
+  // button would land somebody on a page offering to register a new node --
+  // which is the opposite of what they said they wanted.
+  if (new URLSearchParams(window.location.search).get("key") === "1") {
+    open();
+  }
 
   confirmButton.addEventListener("click", async () => {
     if (!fileInput.files.length) {
