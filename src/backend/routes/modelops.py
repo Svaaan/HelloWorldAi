@@ -43,7 +43,7 @@ from backend.service.tokenService import (
     NODE_TOKEN_TTL, issue_node_token, read_node_token,
 )
 
-logger = logging.getLogger("NodeDbTest")
+logger = logging.getLogger("coordinator")
 
 from backend.routes.deps import (
     DATASET_RETENTION_MINUTES, Database, HOLDOUT_FRACTION, MAX_TASK_ATTEMPTS,

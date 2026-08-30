@@ -30,6 +30,7 @@ from pymongo import ReturnDocument
 
 from backend.database.nodedb import db
 from backend.service import artifactCrypto
+from backend.service import quota
 from backend.service.artifacts import MAX_ARTIFACT_BYTES
 from backend.service.authNodeService import verify_signature
 from backend.service.jobSpec import (
@@ -43,7 +44,7 @@ from backend.service.tokenService import (
     NODE_TOKEN_TTL, issue_node_token, read_node_token,
 )
 
-logger = logging.getLogger("NodeDbTest")
+logger = logging.getLogger("coordinator")
 
 from backend.routes.deps import (
     DATASET_RETENTION_MINUTES, Database, HOLDOUT_FRACTION, MAX_TASK_ATTEMPTS,
@@ -252,6 +253,13 @@ async def append_to_artifact(artifact_id: str, request: Request,
             detail=f"Artifact is {len(payload)} bytes; the limit is {MAX_ARTIFACT_BYTES}.",
         )
 
+    # One file may be under the size cap and the hundredth still be a problem.
+    # 429 rather than 413: the request is not too large, it is too soon.
+    try:
+        await quota.check_upload(db, uploader, len(payload))
+    except quota.QuotaExceeded as e:
+        raise HTTPException(status_code=429, detail=str(e))
+
     stored = await db.db["artifacts.files"].find_one(
         {"_id": _object_id(artifact_id)}, {"metadata": 1}
     )
@@ -305,7 +313,8 @@ async def append_to_artifact(artifact_id: str, request: Request,
         raise HTTPException(status_code=400, detail=str(e))
 
     combined = pack_dataset(features, labels)
-    new_id = await _write_artifact(db, combined, "dataset", info)
+    new_id = await _write_artifact(db, combined, "dataset", info,
+                                   uploader=uploader)
 
     logger.info(
         f"Appended to dataset {artifact_id}: "
@@ -344,6 +353,13 @@ async def upload_artifact(
             status_code=413,
             detail=f"Artifact is {len(payload)} bytes; the limit is {MAX_ARTIFACT_BYTES}.",
         )
+
+    # One file may be under the size cap and the hundredth still be a problem.
+    # 429 rather than 413: the request is not too large, it is too soon.
+    try:
+        await quota.check_upload(db, uploader, len(payload))
+    except quota.QuotaExceeded as e:
+        raise HTTPException(status_code=429, detail=str(e))
 
     kind = request.query_params.get("kind", "dataset")
     if kind not in ("dataset", "weights"):
@@ -439,7 +455,8 @@ async def upload_artifact(
     # Through _write_artifact rather than its own upload: this path had its own
     # copy of the write, so encryption reached the split halves but not the
     # original upload the submitter sent.
-    artifact_id = await _write_artifact(db, payload, kind, info)
+    artifact_id = await _write_artifact(db, payload, kind, info,
+                                        uploader=uploader)
 
     logger.info(f"Stored {kind} artifact {artifact_id} ({len(payload)} bytes)")
     return {
@@ -534,7 +551,8 @@ async def _read_artifact(db, artifact_id: str) -> bytes:
     return artifactCrypto.decrypt(await stream.read())
 
 async def _write_artifact(db, payload: bytes, kind: str,
-                          info: Optional[dict] = None) -> str:
+                          info: Optional[dict] = None,
+                          uploader: Optional[str] = None) -> str:
     bucket = AsyncIOMotorGridFSBucket(db.db, bucket_name="artifacts")
 
     # Encrypted before it reaches storage, so a database dump does not hand
@@ -547,6 +565,11 @@ async def _write_artifact(db, payload: bytes, kind: str,
         "bytes": len(payload),
         "encrypted": artifactCrypto.is_enabled(),
     }
+    # Who stored it. Uploading needed a caller before this, but nothing wrote
+    # the caller down, so there was a name at the door and no name on the box:
+    # nothing to count against, attribute, or clean up by.
+    if uploader:
+        metadata["uploader"] = uploader
     # What the numbers in this dataset stood for: the class names behind the
     # label column, or the tokeniser behind the ids. Small, non-secret, and
     # useless without the artifact itself -- but without it the trained model

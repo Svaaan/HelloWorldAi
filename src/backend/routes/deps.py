@@ -48,7 +48,7 @@ from backend.service.tokenService import (
     NODE_TOKEN_TTL, issue_node_token, read_node_token,
 )
 
-logger = logging.getLogger("NodeDbTest")
+logger = logging.getLogger("coordinator")
 
 
 # ✅ Database configuration (using env variable with default fallback)

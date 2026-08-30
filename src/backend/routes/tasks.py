@@ -30,6 +30,7 @@ from pymongo import ReturnDocument
 
 from backend.database.nodedb import db
 from backend.service import artifactCrypto
+from backend.service import quota
 from backend.service.artifacts import MAX_ARTIFACT_BYTES
 from backend.service.authNodeService import verify_signature
 from backend.service.jobSpec import (
@@ -43,7 +44,7 @@ from backend.service.tokenService import (
     NODE_TOKEN_TTL, issue_node_token, read_node_token,
 )
 
-logger = logging.getLogger("NodeDbTest")
+logger = logging.getLogger("coordinator")
 
 from backend.routes.deps import (
     DATASET_RETENTION_MINUTES, Database, HOLDOUT_FRACTION, MAX_TASK_ATTEMPTS,
@@ -58,6 +59,11 @@ from backend.routes.artifacts import (
 from backend.routes.nodes import _node_loads
 
 router = APIRouter()
+
+# A node is treated as gone once it has been silent for well past the
+# heartbeat interval. Generous on purpose: a contributor's laptop closing
+# its lid for ten minutes should not cost them the job they were given.
+NODE_GONE_MINUTES = int(os.getenv("NODE_GONE_MINUTES", 15))
 
 
 @router.get("/get-task-results")
@@ -127,8 +133,15 @@ async def _queue_task(db, node_id, task_data, submitter, client_host,
     """Validate a job and put it on a node's queue.
 
     Shared by both submit paths so a change to validation, dataset splitting or
-    the stored shape cannot apply to one and not the other.
+    the stored shape cannot apply to one and not the other -- which is also why
+    the quota is checked here rather than on each endpoint.
     """
+    # Before the dataset is split and written, so a refused job costs nothing
+    # and leaves nothing behind.
+    try:
+        await quota.check_new_job(db, submitter)
+    except quota.QuotaExceeded as e:
+        raise HTTPException(status_code=429, detail=str(e))
     # Optional: a dataset the node should download before training. It is split
     # here so the node only ever receives the training half.
     #
@@ -953,6 +966,59 @@ async def requeue_stale_tasks():
                         {"_id": task["_id"]},
                         {"$set": {"status": "pending"}, "$unset": {"started_at": ""}},
                     )
+
+            # A job can also be stranded without ever having been claimed.
+            #
+            # It is queued to one node; that node is switched off, or its owner
+            # registers a new key and the old identity stops polling. The task
+            # stays 'pending' on a node that will never ask for it again. This
+            # loop only ever looked at 'running', so nothing touched it: the
+            # submitter saw a job that never started and no reason why.
+            #
+            # A node is considered gone once it has missed heartbeats for well
+            # past the interval. Its pending work is offered to somebody else if
+            # the coordinator placed it; if the submitter chose that machine
+            # deliberately, the job is failed with a reason rather than moved,
+            # because sending their work elsewhere would override a choice they
+            # made on purpose.
+            gone = datetime.utcnow() - timedelta(minutes=NODE_GONE_MINUTES)
+            live = set()
+            async for node in Database.nodes_collection.find(
+                {"last_heartbeat": {"$gte": gone}}, {"_id": 1}
+            ):
+                live.add(node["_id"])
+
+            orphaned = await Database.tasks_collection.find(
+                {"status": "pending"}
+            ).to_list(length=200)
+
+            for task in orphaned:
+                if task.get("node_id") in live:
+                    continue
+
+                if task.get("placement") == "auto":
+                    moved = await _redispatch(Database, task, task.get("node_id"))
+                    if moved:
+                        logger.info(
+                            f"Task {task['_id']} moved to {moved}: "
+                            f"{task.get('node_id')} stopped reporting in."
+                        )
+                        continue
+
+                logger.warning(
+                    f"Task {task['_id']} failed: node {task.get('node_id')} "
+                    f"has not reported in and nothing else can take it."
+                )
+                await Database.tasks_collection.update_one(
+                    {"_id": task["_id"]},
+                    {"$set": {
+                        "status": "failed",
+                        "result": ("The machine this job was sent to stopped "
+                                   "reporting in. Send it again, and let the "
+                                   "coordinator choose a node."),
+                        "finished_at": datetime.utcnow(),
+                    }},
+                )
 
         except Exception as e:
             logger.error(f"Error requeueing stale tasks: {e}")
