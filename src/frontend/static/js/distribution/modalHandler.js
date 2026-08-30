@@ -7,7 +7,7 @@
 // a malicious node run script in everyone else's dashboard.
 
 import { submitterHeaders } from "./submitter.js";
-import { buildJobForm } from "./jobForm.js";
+import { buildJobForm, jobSchema } from "./jobForm.js";
 
 function el(tag, className, text) {
   const node = document.createElement(tag);
@@ -122,15 +122,39 @@ export function showNodeModal(node) {
     + "around it. Do not send anything you would not hand to a stranger."));
 
   const facts = el("ul");
+  let storageFact = null;
   [
     "Column names are not sent. The node receives unlabelled numbers, not "
       + "\u201csalary\u201d or \u201cdiagnosis\u201d.",
-    "It is stored encrypted here, so a database dump does not expose it.",
+    // Replaced below with whichever is true. It used to assert encryption
+    // flatly, which is a promise this page cannot make on its own: it holds
+    // only if the operator set an encryption key, and on a deployment
+    // without one the sentence was simply false. Overstating protection is
+    // the one mistake this panel exists to avoid.
+    "It is stored on the coordinator; whether that copy is encrypted "
+      + "depends on how this service is run.",
     "The node keeps it in memory only and never writes it to disk.",
     "Both copies are deleted once your job has finished and been checked.",
     "Part of it is held back from the node and used to verify the result.",
-  ].forEach((text) => facts.appendChild(el("li", null, text)));
+  ].forEach((text, index) => {
+    const item = el("li", null, text);
+    if (index === 1) storageFact = item;       // the storage line
+    facts.appendChild(item);
+  });
   privacyBody.appendChild(facts);
+
+  // Ask the service what it actually does, and say that. Until the answer
+  // arrives the cautious wording above stands.
+  jobSchema()
+    .then((schema) => {
+      if (!storageFact) return;
+      storageFact.textContent = schema.artifacts_encrypted
+        ? "It is stored encrypted on the coordinator, so a database dump "
+          + "does not expose it."
+        : "It is stored on the coordinator without encryption, so anyone "
+          + "who can read that database can read it.";
+    })
+    .catch(() => { /* leave the cautious wording in place */ });
 
   privacy.appendChild(privacyBody);
   content.appendChild(privacy);

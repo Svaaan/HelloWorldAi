@@ -612,8 +612,17 @@ async def retry_task(
 
 @router.get("/job-schema")
 async def get_job_schema():
-    """What a job may contain, so the form and the validator agree."""
-    return job_schema()
+    """What a job may contain, so the form and the validator agree.
+
+    Carries whether stored datasets are actually encrypted, because the page
+    used to tell submitters they were -- flatly, as a fact -- when it depends
+    on the operator having set ARTIFACT_ENCRYPTION_KEY. On a deployment
+    without one that sentence was untrue, and it appeared in the one panel
+    whose whole worth is that it does not overstate what is protected.
+    """
+    schema = job_schema()
+    schema["artifacts_encrypted"] = artifactCrypto.is_enabled()
+    return schema
 
 @router.get("/next-task/{node_id}")
 async def next_task(

@@ -62,6 +62,11 @@ function field(spec, value) {
   return { wrap, input };
 }
 
+/** The service description, for callers that need a fact from it. */
+export function jobSchema() {
+  return loadSchema();
+}
+
 export async function buildJobForm(container, { modelName } = {}) {
   const schema = await loadSchema();
   const inputs = new Map();

@@ -346,10 +346,18 @@ python3 -c "import base64,os;print(base64.b64encode(os.urandom(32)).decode())" #
 empty and a throwaway key is made at startup, which logs every node out every
 time you restart.
 
-`ARTIFACT_ENCRYPTION_KEY` encrypts submitted datasets before they are written to
-the database. Leave it empty and they are stored in the clear, and the
-coordinator says so in its log at startup. **Back this key up.** Encrypted
-datasets cannot be read without it and there is no recovery path.
+`ARTIFACT_ENCRYPTION_KEY` is **optional**, and the service runs either way.
+
+Set it, and submitted datasets are encrypted before they are written to the
+database; the send-work page then tells submitters so. Leave it empty and they
+are stored in the clear, the coordinator says so in its log at startup, and the
+page tells submitters that instead. Nothing breaks without it -- what changes is
+what you can honestly claim.
+
+If you do set one, back it up somewhere other than the server, alongside the
+database. Encrypted datasets cannot be read without it and there is no recovery
+path. If you have never set one, there is nothing to recover and nothing to
+look for: an empty value is a working configuration, not a missing key.
 
 The file is gitignored. Keep it that way.
 
