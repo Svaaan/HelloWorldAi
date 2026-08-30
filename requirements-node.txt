@@ -13,11 +13,13 @@
 # packages, and torch arrives later through the lazy import in trainer.py.
 
 # --- web server: the node exposes a small local API ---
+#
+# No python-multipart: nothing here takes a Form or an UploadFile, uploads are
+# raw bodies. No orjson or ujson either -- FastAPI only uses those if a route
+# asks for ORJSONResponse, and none does, so they were compiled into every
+# contributor's image and never called.
 fastapi==0.115.12
 uvicorn==0.34.0
-python-multipart==0.0.20
-orjson==3.10.16
-ujson==5.10.0
 
 # --- talking to the coordinator ---
 httpx==0.28.1

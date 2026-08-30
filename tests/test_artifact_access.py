@@ -108,6 +108,7 @@ def download(artifact_id, caller, metadata, tasks, submitter=None):
     """Call the real endpoint with the storage layer faked out."""
     from fastapi import HTTPException
     import backend.coordinator as coordinator
+    from backend.routes import artifacts as artifacts_routes
 
     class FakeBucket:
         def __init__(self, *a, **k):
@@ -122,18 +123,21 @@ def download(artifact_id, caller, metadata, tasks, submitter=None):
         db = None
         tasks_collection = FakeTasks(tasks)
 
-    original_bucket = coordinator.AsyncIOMotorGridFSBucket
-    original_oid = coordinator.ObjectId
-    coordinator.AsyncIOMotorGridFSBucket = FakeBucket
-    coordinator.ObjectId = lambda v: v          # ids here are plain strings
+    # Patched on the module that defines download_artifact, not on the one
+    # that re-exports it: a function looks its globals up where it was
+    # written, so patching the re-export would change nothing.
+    original_bucket = artifacts_routes.AsyncIOMotorGridFSBucket
+    original_oid = artifacts_routes.ObjectId
+    artifacts_routes.AsyncIOMotorGridFSBucket = FakeBucket
+    artifacts_routes.ObjectId = lambda v: v     # ids here are plain strings
     try:
         return run(coordinator.download_artifact(
             artifact_id, FakeDb, caller, submitter)), None
     except HTTPException as e:
         return None, e
     finally:
-        coordinator.AsyncIOMotorGridFSBucket = original_bucket
-        coordinator.ObjectId = original_oid
+        artifacts_routes.AsyncIOMotorGridFSBucket = original_bucket
+        artifacts_routes.ObjectId = original_oid
 
 
 OWN_TASK = [{"_id": "t1", "node_id": "node_a", "dataset_id": "train_1",

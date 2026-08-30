@@ -154,10 +154,12 @@ def test_uploading_an_artifact_requires_a_caller():
     token from /verify-challenge, the browser sends the submitter key it makes
     on first use.
     """
-    source = read(COORDINATOR)
+    # The routes moved into backend/routes/ when coordinator.py was split; the
+    # decorator is what is being read, so this has to follow them.
+    source = read(os.path.join(HERE, "..", "src", "backend", "routes", "artifacts.py"))
 
-    for route in ('@app.post("/artifacts")',
-                  '@app.post("/artifacts/{artifact_id}/append")'):
+    for route in ('@router.post("/artifacts")',
+                  '@router.post("/artifacts/{artifact_id}/append")'):
         start = source.index(route)
         window = source[start:start + 400]
         assert "require_uploader" in window, (
