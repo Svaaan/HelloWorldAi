@@ -1,37 +1,74 @@
+"""The dashboard's proxy to the coordinator and the local node.
+
+Why this is a table and not forty handlers
+------------------------------------------
+It used to be forty-two hand-written routes, each deciding for itself whether
+to pass on the query string, the body and the caller's credentials. Measured
+before this was rewritten: 21 of them dropped the credentials, 34 dropped the
+query string, and 8 dropped the body.
+
+Nothing about that fails loudly, which is the real problem. The known cases:
+
+    next-task, task-result, task-cancelled   never forwarded at all, so a node
+                                             installed from the setup page
+                                             registered, reported in, showed as
+                                             Connected with the right graphics
+                                             card, and never received a job
+    artifacts                                set its own Content-Type by
+                                             replacing the header dict, so the
+                                             submitter key never arrived and
+                                             every upload came back 401
+    execute-task                             forwarded to a path the node does
+                                             not serve
+    self-test, available-nodes, retry-task   headers passed on, body dropped
+
+Every one of those is the same mistake, and writing the next route by hand is
+an invitation to make it again. So there is one forwarder, it passes on
+everything it was given, and a route is a line in a table saying which service
+it belongs to. Adding a route can no longer mean forgetting a header.
+
+tests/test_proxy_forwarding.py drives every entry against a fake upstream and
+checks what actually came out.
+"""
+
 import os
+
 import httpx
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, Response
 from fastapi.templating import Jinja2Templates
+
 from backend.utils.config import NODE_URL, COORDINATOR_URL
 
-TEMPLATE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "frontend", "template")
+TEMPLATE_DIR = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "..", "frontend", "template")
 templates = Jinja2Templates(directory=TEMPLATE_DIR)
 
 router = APIRouter()
 
-print(f"[ProxyPage] NODE_URL: {NODE_URL}")
-print(f"[ProxyPage] COORDINATOR_URL: {COORDINATOR_URL}")
+# Datasets are large and slow to send; the rest of the calls are small.
+ARTIFACT_UPLOAD_TIMEOUT = int(os.getenv("ARTIFACT_UPLOAD_TIMEOUT", 900))
+DEFAULT_TIMEOUT = 30
 
-# 🧩 Helper to process responses safely
+
 def safe_json(res):
+    """The upstream's JSON, or a description of why there wasn't any."""
     try:
         return res.json()
     except Exception:
         return {"error": "Invalid JSON response"}
 
 
-# 🔑 Pass the caller's credentials through to the upstream service.
-#
-# Two kinds now: a node's bearer token, and the submitter key that identifies
-# whoever sent a job. Dropping either here silently breaks the feature it
-# belongs to -- a job submitted through this proxy without its key arrives
-# with no owner, so nobody can ever collect the model it produces.
 def auth_headers(request: Request, extra: dict = None) -> dict:
     """The caller's credentials, plus whatever else the request needs.
 
-    `extra` exists so a route that must set its own Content-Type can still
-    forward the credentials, rather than replacing them with a bare dict.
+    Two kinds: a node's bearer token, and the submitter key identifying whoever
+    sent a job. Dropping either silently breaks the feature it belongs to -- a
+    job submitted without its key arrives with no owner, so nobody can collect
+    the model it produces.
+
+    `extra` exists so a caller that must set its own Content-Type can add to
+    the credentials rather than replace them.
     """
     headers = dict(extra or {})
 
@@ -45,684 +82,170 @@ def auth_headers(request: Request, extra: dict = None) -> dict:
 
     return headers
 
-@router.patch("/toggle-availability/{node_id}")
-async def proxy_toggle_availability(node_id: str, request: Request):
-    try:
-        async with httpx.AsyncClient() as client:
-            res = await client.patch(
-                f"{COORDINATOR_URL}/toggle-availability/{node_id}",
-                headers=auth_headers(request),
-            )
-            res.raise_for_status()
-            return safe_json(res)
-    except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail=safe_json(e.response))
-    except httpx.RequestError as e:
-        return {"error": f"Failed to toggle availability: {e}"}
 
-@router.get("/get-connected-nodes-count")
-async def proxy_nodes_count():
-    try:
-        async with httpx.AsyncClient() as client:
-            res = await client.get(f"{COORDINATOR_URL}/get-connected-nodes-count")
-            res.raise_for_status()
-            return safe_json(res)
-    except httpx.RequestError as e:
-        return {"error": f"Failed to reach coordinator: {e}"}
+# Response headers worth repeating to the browser. Content-Type so a zip
+# arrives as a zip and a CSV as a CSV; Content-Disposition so the download
+# keeps the filename the coordinator chose. Hop-by-hop headers such as
+# Content-Length and Transfer-Encoding are deliberately not copied -- they
+# describe the upstream connection, not this one.
+PASSED_BACK = ("content-type", "content-disposition")
 
-@router.get("/nodes")
-async def proxy_nodes(request: Request):
-    node_id = request.query_params.get("node_id")
-    try:
-        async with httpx.AsyncClient() as client:
-            url = f"{COORDINATOR_URL}/nodes"
-            if node_id:
-                url += f"?node_id={node_id}"
-            res = await client.get(url)
-            res.raise_for_status()
-            return safe_json(res)
-    except httpx.RequestError as e:
-        return {"error": f"Failed to fetch nodes: {e}"}
 
-@router.post("/finalize-connection")
-async def proxy_finalize_connection(request: Request):
-    try:
-        print("[Proxy] Forwarding finalize-connection request to Node")
-        body = await request.json()
+async def forward(request: Request, upstream: str, timeout: float):
+    """Send this request on unchanged, and hand the answer back unchanged.
 
-        async with httpx.AsyncClient() as client:
-            res = await client.post(f"{NODE_URL}/finalize-connection", json=body)
-            res.raise_for_status()
-            return safe_json(res)
-
-    except httpx.RequestError as e:
-        return {"error": f"Failed to reach node at {NODE_URL}: {str(e)}"}
-    except Exception as e:
-        return {"error": f"Unexpected error: {str(e)}"}
-
-    
-@router.get("/get-task-results")
-async def proxy_get_task_results():
-    try:
-        async with httpx.AsyncClient() as client:
-            res = await client.get(f"{COORDINATOR_URL}/get-task-results")
-            res.raise_for_status()
-            return safe_json(res)
-    except httpx.RequestError as e:
-        return {"error": f"Failed to fetch task results: {e}"}
-
-@router.post("/receive-task-result")
-async def proxy_receive_task_result(result: dict):
-    try:
-        print(f"📥 Task result received: {result}")
-        async with httpx.AsyncClient() as client:
-            res = await client.post(f"{COORDINATOR_URL}/receive-task-result", json=result)
-            res.raise_for_status()
-            return safe_json(res)
-    except httpx.RequestError as e:
-        return {"error": f"Failed to forward task result to coordinator: {e}"}
-    except Exception as e:
-        return {"error": f"Unexpected error: {str(e)}"}
-
-# --- the rest of what a node agent needs -----------------------------------
-#
-# The setup page hands contributors an install command pointing at this
-# origin, because one public address is one thing to expose and one
-# certificate to keep. The heartbeat and the artifact store were forwarded
-# here; the three below were not, so a node installed from that command
-# registered, reported in, showed as Connected with the right graphics card,
-# and never received a single job. Nothing said why -- the one endpoint that
-# decides whether a machine looks healthy was the one that worked.
-#
-# The alternative was to tell people to reach the coordinator directly on its
-# own port, which the production compose binds to localhost, so that address
-# does not exist from outside anyway.
-
-
-@router.get("/next-task/{node_id}")
-async def proxy_next_task(node_id: str, request: Request):
-    """Hand a node its next job, if the coordinator has one for it."""
-    try:
-        async with httpx.AsyncClient() as client:
-            res = await client.get(
-                f"{COORDINATOR_URL}/next-task/{node_id}",
-                params=dict(request.query_params),
-                headers=auth_headers(request), timeout=20,
-            )
-            if res.status_code >= 400:
-                raise HTTPException(status_code=res.status_code, detail=safe_json(res))
-            return safe_json(res)
-    except httpx.RequestError as e:
-        raise HTTPException(status_code=502, detail=f"Failed to reach coordinator: {e}")
-
-
-@router.post("/task-result/{task_id}")
-async def proxy_task_result(task_id: str, request: Request):
-    """Carry a finished job's weights, metrics and logs back."""
-    body = await request.body()
-    headers = auth_headers(request)
-    if body:
-        headers["Content-Type"] = "application/json"
-
-    try:
-        async with httpx.AsyncClient() as client:
-            res = await client.post(
-                f"{COORDINATOR_URL}/task-result/{task_id}",
-                content=body or None, headers=headers, timeout=60,
-            )
-            if res.status_code >= 400:
-                raise HTTPException(status_code=res.status_code, detail=safe_json(res))
-            return safe_json(res)
-    except httpx.RequestError as e:
-        raise HTTPException(status_code=502, detail=f"Failed to reach coordinator: {e}")
-
-
-@router.get("/task-cancelled/{task_id}")
-async def proxy_task_cancelled(task_id: str, request: Request):
-    """Whether the submitter has asked for a running job to stop."""
-    try:
-        async with httpx.AsyncClient() as client:
-            res = await client.get(
-                f"{COORDINATOR_URL}/task-cancelled/{task_id}",
-                headers=auth_headers(request), timeout=15,
-            )
-            if res.status_code >= 400:
-                raise HTTPException(status_code=res.status_code, detail=safe_json(res))
-            return safe_json(res)
-    except httpx.RequestError as e:
-        raise HTTPException(status_code=502, detail=f"Failed to reach coordinator: {e}")
-
-
-@router.post("/node-heartbeat/{node_id}")
-async def proxy_node_heartbeat(node_id: str, request: Request):
-    try:
-        status_payload = await request.json()
-        async with httpx.AsyncClient() as client:
-            res = await client.post(
-                f"{COORDINATOR_URL}/node-heartbeat/{node_id}",
-                json=status_payload,
-                headers=auth_headers(request),
-            )
-            res.raise_for_status()
-            return safe_json(res)
-    except httpx.RequestError as e:
-        return {"error": f"Failed to send heartbeat: {e}"}
-
-@router.delete("/node/{node_id}")
-async def proxy_delete_node(node_id: str):
-    try:
-        async with httpx.AsyncClient() as client:
-            res = await client.delete(f"{COORDINATOR_URL}/node/{node_id}")
-            res.raise_for_status()
-            return safe_json(res)
-    except httpx.RequestError as e:
-        return {"error": f"Failed to delete node: {e}"}
-
-async def _post_to_node(path: str, body=None):
-    async with httpx.AsyncClient() as client:
-        res = await client.post(f"{NODE_URL}{path}", json=body, timeout=20)
-        if res.status_code >= 400:
-            raise HTTPException(status_code=res.status_code, detail=safe_json(res))
-        return safe_json(res)
-
-
-@router.post("/approve-task/{task_id}")
-async def proxy_approve_task(task_id: str):
-    try:
-        return await _post_to_node(f"/approve-task/{task_id}")
-    except httpx.RequestError as e:
-        return {"error": f"Failed to reach node: {e}"}
-
-
-@router.post("/decline-task/{task_id}")
-async def proxy_decline_task(task_id: str):
-    try:
-        return await _post_to_node(f"/decline-task/{task_id}")
-    except httpx.RequestError as e:
-        return {"error": f"Failed to reach node: {e}"}
-
-
-@router.post("/approval-mode")
-async def proxy_approval_mode(request: Request):
-    try:
-        return await _post_to_node("/approval-mode", await request.json())
-    except httpx.RequestError as e:
-        return {"error": f"Failed to reach node: {e}"}
-
-
-@router.get("/current-task")
-async def proxy_current_task():
-    """Live progress and thermal state from the node."""
-    try:
-        async with httpx.AsyncClient() as client:
-            res = await client.get(f"{NODE_URL}/current-task", timeout=10)
-            res.raise_for_status()
-            return safe_json(res)
-    except httpx.RequestError as e:
-        return {"error": f"Failed to reach node: {e}"}
-
-
-@router.post("/self-test")
-async def proxy_run_self_test(request: Request):
-    """Ask the node to train something small and report what it managed."""
-    try:
-        async with httpx.AsyncClient() as client:
-            # The body is the owner's optional CSV. Forwarding it is the whole
-            # point of the option: without this the node always saw an empty
-            # request and quietly trained on synthetic data instead.
-            body = await request.body()
-            headers = auth_headers(request)
-            if body:
-                headers["Content-Type"] = request.headers.get("content-type", "text/csv")
-
-            # Generous: this trains a real model before it answers.
-            res = await client.post(f"{NODE_URL}/self-test", content=body,
-                                    params=dict(request.query_params),
-                                    headers=headers, timeout=1200)
-            if res.status_code >= 400:
-                raise HTTPException(status_code=res.status_code, detail=safe_json(res))
-            return safe_json(res)
-    except httpx.RequestError as e:
-        raise HTTPException(status_code=502, detail=f"Failed to reach node: {e}")
-
-
-@router.post("/self-test/stop")
-async def proxy_stop_self_test(request: Request):
-    """Ask a running test to stop."""
-    try:
-        async with httpx.AsyncClient() as client:
-            res = await client.post(f"{NODE_URL}/self-test/stop",
-                                    headers=auth_headers(request), timeout=20)
-            if res.status_code >= 400:
-                raise HTTPException(status_code=res.status_code, detail=safe_json(res))
-            return safe_json(res)
-    except httpx.RequestError as e:
-        raise HTTPException(status_code=502, detail=f"Failed to reach node: {e}")
-
-
-@router.get("/self-test")
-async def proxy_get_self_test(request: Request):
-    try:
-        async with httpx.AsyncClient() as client:
-            res = await client.get(f"{NODE_URL}/self-test",
-                                   headers=auth_headers(request), timeout=20)
-            res.raise_for_status()
-            return safe_json(res)
-    except httpx.RequestError as e:
-        raise HTTPException(status_code=502, detail=f"Failed to reach node: {e}")
-
-
-@router.get("/usage")
-async def proxy_usage():
-    try:
-        async with httpx.AsyncClient() as client:
-            res = await client.get(f"{NODE_URL}/usage")
-            res.raise_for_status()
-            return safe_json(res)
-    except httpx.RequestError as e:
-        return {"error": f"Failed to fetch usage info: {e}"}
-
-@router.post("/connect-node")
-async def proxy_connect_node(request: Request):
-    try:
-        payload = await request.json()
-        print(f"[Proxy] Forwarding connect-node with payload: {payload}")  # ✅ Add this line!
-        async with httpx.AsyncClient() as client:
-            res = await client.post(f"{NODE_URL}/connect-node", json=payload)
-            res.raise_for_status()
-            return safe_json(res)
-    except httpx.RequestError as e:
-        return {"error": f"Failed to reach node at {NODE_URL}: {str(e)}"}
-    except Exception as e:
-        return {"error": f"Unexpected error: {str(e)}"}
-
-@router.post("/node-session")
-async def proxy_node_session(request: Request):
-    """Forward the browser-obtained session token to the node process."""
-    try:
-        body = await request.json()
-        async with httpx.AsyncClient() as client:
-            res = await client.post(f"{NODE_URL}/node-session", json=body)
-            res.raise_for_status()
-            return safe_json(res)
-    except httpx.RequestError as e:
-        return {"error": f"Failed to reach node at {NODE_URL}: {str(e)}"}
-    except Exception as e:
-        return {"error": f"Unexpected error: {str(e)}"}
-
-
-@router.post("/verify-task/{task_id}")
-async def proxy_verify_task(task_id: str):
-    """Score a completed task's model against the withheld holdout."""
-    try:
-        async with httpx.AsyncClient() as client:
-            res = await client.post(f"{COORDINATOR_URL}/verify-task/{task_id}", timeout=120)
-            if res.status_code >= 400:
-                raise HTTPException(status_code=res.status_code, detail=safe_json(res))
-            return safe_json(res)
-    except httpx.RequestError as e:
-        return {"error": f"Failed to reach coordinator: {e}"}
-
-
-# A corpus worth training a language model on is measured in tens of
-# megabytes. Two minutes was comfortable for a spreadsheet and not for that:
-# the upload has to cross the browser's connection, then this hop, and the
-# coordinator has to convert it before answering.
-ARTIFACT_UPLOAD_TIMEOUT = int(os.getenv("ARTIFACT_UPLOAD_TIMEOUT", 900))
-
-
-@router.post("/artifacts")
-async def proxy_upload_artifact(request: Request):
-    """Forward a dataset (or weights) blob to the coordinator's store."""
-    try:
-        body = await request.body()
-        async with httpx.AsyncClient() as client:
-            res = await client.post(
-                f"{COORDINATOR_URL}/artifacts",
-                params=dict(request.query_params),
-                content=body,
-                # Carry whoever the caller proved to be. Forwarding the body
-                # but not the credentials is the shape of bug this proxy has
-                # had before: it looks like a clean 401 from the coordinator
-                # and reads as a broken login to the person uploading.
-                headers=auth_headers(request, {"Content-Type": "application/octet-stream"}),
-                timeout=ARTIFACT_UPLOAD_TIMEOUT,
-            )
-            if res.status_code >= 400:
-                raise HTTPException(status_code=res.status_code, detail=safe_json(res))
-            return safe_json(res)
-    except httpx.RequestError as e:
-        return {"status": "error", "message": f"Failed to reach coordinator: {e}"}
-
-
-@router.get("/my-tasks/{task_id}/bundle")
-async def proxy_model_bundle(task_id: str, request: Request):
-    """Stream the packaged model back as a zip."""
-    try:
-        async with httpx.AsyncClient() as client:
-            res = await client.get(
-                f"{COORDINATOR_URL}/my-tasks/{task_id}/bundle",
-                headers=auth_headers(request), timeout=120,
-            )
-            if res.status_code >= 400:
-                raise HTTPException(status_code=res.status_code, detail=safe_json(res))
-            return Response(
-                content=res.content,
-                media_type="application/zip",
-                headers={"Content-Disposition":
-                         res.headers.get("content-disposition", "attachment")},
-            )
-    except httpx.RequestError as e:
-        raise HTTPException(status_code=502, detail=f"Failed to reach coordinator: {e}")
-
-
-@router.post("/my-tasks/{task_id}/predict")
-async def proxy_predict_csv(task_id: str, request: Request):
-    """Send rows to a finished classifier and stream the answered CSV back."""
-    body = await request.body()
-    headers = auth_headers(request)
-    headers["Content-Type"] = "text/csv"
-
-    try:
-        async with httpx.AsyncClient() as client:
-            res = await client.post(
-                f"{COORDINATOR_URL}/my-tasks/{task_id}/predict",
-                content=body, headers=headers, timeout=300,
-            )
-            if res.status_code >= 400:
-                raise HTTPException(status_code=res.status_code, detail=safe_json(res))
-
-            # Passed through as a file rather than JSON: the whole point is
-            # that it lands in a spreadsheet.
-            return Response(
-                content=res.content,
-                media_type=res.headers.get("content-type", "text/csv"),
-                headers={"Content-Disposition":
-                         res.headers.get("content-disposition", "attachment")},
-            )
-    except httpx.RequestError as e:
-        raise HTTPException(status_code=502, detail=f"Failed to reach coordinator: {e}")
-
-
-@router.post("/my-tasks/{task_id}/sample")
-async def proxy_sample_model(task_id: str, request: Request):
-    """Ask a finished model to continue a prompt."""
-    body = await request.body()
-    headers = auth_headers(request)
-    headers["Content-Type"] = "application/json"
-
-    try:
-        async with httpx.AsyncClient() as client:
-            res = await client.post(
-                f"{COORDINATOR_URL}/my-tasks/{task_id}/sample",
-                content=body, headers=headers, timeout=120,
-            )
-            if res.status_code >= 400:
-                raise HTTPException(status_code=res.status_code, detail=safe_json(res))
-            return safe_json(res)
-    except httpx.RequestError as e:
-        raise HTTPException(status_code=502, detail=f"Failed to reach coordinator: {e}")
-
-
-@router.post("/artifacts/{artifact_id}/append")
-async def proxy_append_artifact(artifact_id: str, request: Request):
-    """Add another file to a dataset that was already uploaded."""
-    body = await request.body()
-    try:
-        async with httpx.AsyncClient() as client:
-            res = await client.post(
-                f"{COORDINATOR_URL}/artifacts/{artifact_id}/append",
-                params=dict(request.query_params),
-                content=body,
-                headers=auth_headers(request, {"Content-Type": "application/octet-stream"}),
-                timeout=ARTIFACT_UPLOAD_TIMEOUT,
-            )
-            if res.status_code >= 400:
-                raise HTTPException(status_code=res.status_code, detail=safe_json(res))
-            return safe_json(res)
-    except httpx.RequestError as e:
-        return {"status": "error", "message": f"Failed to reach coordinator: {e}"}
-
-
-@router.get("/artifacts/{artifact_id}")
-async def proxy_download_artifact(artifact_id: str, request: Request):
-    try:
-        async with httpx.AsyncClient() as client:
-            res = await client.get(
-                f"{COORDINATOR_URL}/artifacts/{artifact_id}",
-                headers=auth_headers(request),
-                timeout=120,
-            )
-            if res.status_code >= 400:
-                raise HTTPException(status_code=res.status_code, detail="Artifact not available.")
-            return Response(content=res.content, media_type="application/octet-stream")
-    except httpx.RequestError as e:
-        raise HTTPException(status_code=502, detail=f"Failed to reach coordinator: {e}")
-
-
-@router.post("/submit-task")
-async def proxy_submit_task_anywhere(request: Request):
-    """Queue work and let the coordinator choose the node."""
-    try:
-        task_data = await request.json()
-        async with httpx.AsyncClient() as client:
-            res = await client.post(
-                f"{COORDINATOR_URL}/submit-task",
-                json=task_data,
-                headers=auth_headers(request),
-                timeout=60,
-            )
-            if res.status_code >= 400:
-                raise HTTPException(status_code=res.status_code, detail=safe_json(res))
-            return safe_json(res)
-    except httpx.RequestError as e:
-        raise HTTPException(status_code=502, detail=f"Failed to reach coordinator: {e}")
-
-
-@router.post("/submit-task/{node_id}")
-async def proxy_submit_task(node_id: str, request: Request):
-    """Queue work for a node. Goes to the coordinator, which holds the queue.
-
-    Unlike /queue-task this never tries to reach the node directly - the node
-    polls for its own work, so contributors behind home routers can take part.
-    """
-    try:
-        task_data = await request.json()
-        async with httpx.AsyncClient() as client:
-            res = await client.post(
-                f"{COORDINATOR_URL}/submit-task/{node_id}",
-                json=task_data,
-                headers=auth_headers(request),
-            )
-            if res.status_code >= 400:
-                raise HTTPException(status_code=res.status_code, detail=safe_json(res))
-            return safe_json(res)
-    except httpx.RequestError as e:
-        return {"status": "error", "message": f"Failed to reach coordinator: {e}"}
-
-
-@router.post("/cancel-task/{task_id}")
-async def proxy_cancel_task(task_id: str, request: Request):
-    """Stop a job the caller submitted."""
-    try:
-        async with httpx.AsyncClient() as client:
-            res = await client.post(
-                f"{COORDINATOR_URL}/cancel-task/{task_id}",
-                headers=auth_headers(request), timeout=20,
-            )
-            if res.status_code >= 400:
-                raise HTTPException(status_code=res.status_code, detail=safe_json(res))
-            return safe_json(res)
-    except httpx.RequestError as e:
-        raise HTTPException(status_code=502, detail=f"Failed to reach coordinator: {e}")
-
-
-@router.post("/retry-task/{task_id}")
-async def proxy_retry_task(task_id: str, request: Request):
-    """Queue the same job again, with any changed settings.
-
-    The body carries the changes. Forwarding only the headers -- which this did
-    -- meant the coordinator saw an empty request and re-ran the original
-    settings while reporting success, so the page showed a tuned run that had
-    quietly ignored every value typed into it.
+    Everything travels: method, path, query string, body and credentials. The
+    reply keeps its status code, so a 404 from the coordinator reaches the
+    browser as a 404 rather than as a 200 carrying the word "error" -- which is
+    what the pages already check for with `response.ok`.
     """
     body = await request.body()
+
     headers = auth_headers(request)
-    if body:
-        headers["Content-Type"] = "application/json"
+    content_type = request.headers.get("content-type")
+    if content_type:
+        headers["Content-Type"] = content_type
 
     try:
         async with httpx.AsyncClient() as client:
-            res = await client.post(
-                f"{COORDINATOR_URL}/retry-task/{task_id}",
-                headers=headers, content=body or None, timeout=20,
-            )
-            if res.status_code >= 400:
-                raise HTTPException(status_code=res.status_code, detail=safe_json(res))
-            return safe_json(res)
-    except httpx.RequestError as e:
-        raise HTTPException(status_code=502, detail=f"Failed to reach coordinator: {e}")
-
-
-@router.get("/job-schema")
-async def proxy_job_schema():
-    """The fields a job may contain, used to build the submit form."""
-    try:
-        async with httpx.AsyncClient() as client:
-            res = await client.get(f"{COORDINATOR_URL}/job-schema", timeout=15)
-            res.raise_for_status()
-            return safe_json(res)
-    except httpx.RequestError as e:
-        raise HTTPException(status_code=502, detail=f"Failed to reach coordinator: {e}")
-
-
-@router.get("/my-tasks")
-async def proxy_my_tasks(request: Request):
-    """The jobs submitted from this browser, for collecting finished models."""
-    try:
-        async with httpx.AsyncClient() as client:
-            res = await client.get(
-                f"{COORDINATOR_URL}/my-tasks",
+            res = await client.request(
+                request.method,
+                f"{upstream}{request.url.path}",
                 params=dict(request.query_params),
-                headers=auth_headers(request),
-                timeout=30,
+                content=body if body else None,
+                headers=headers,
+                timeout=timeout,
             )
-            if res.status_code >= 400:
-                raise HTTPException(status_code=res.status_code, detail=safe_json(res))
-            return safe_json(res)
     except httpx.RequestError as e:
-        raise HTTPException(status_code=502, detail=f"Failed to reach coordinator: {e}")
+        # A shape that suits both ways the pages check for failure: a real
+        # status for `response.ok`, and an `error` key for the few places that
+        # read one off the body.
+        return Response(
+            content=('{"error": "Could not reach %s: %s"}'
+                     % (upstream, str(e).replace('"', "'"))).encode(),
+            status_code=502,
+            media_type="application/json",
+        )
+
+    return Response(
+        content=res.content,
+        status_code=res.status_code,
+        headers={k: v for k, v in res.headers.items() if k.lower() in PASSED_BACK},
+    )
 
 
-@router.get("/tasks")
-async def proxy_tasks(request: Request):
-    try:
-        async with httpx.AsyncClient() as client:
-            res = await client.get(f"{COORDINATOR_URL}/tasks", params=dict(request.query_params))
-            res.raise_for_status()
-            return safe_json(res)
-    except httpx.RequestError as e:
-        return {"error": f"Failed to fetch tasks: {e}"}
+# --- what goes where -------------------------------------------------------
+#
+# (methods, path, upstream, timeout). The path is used unchanged on both sides:
+# what the browser asks this service for is what this service asks the other
+# one for, so there is no second place for the two to disagree.
+
+COORDINATOR_ROUTES = [
+    # Looking at the network
+    (["GET"], "/nodes", DEFAULT_TIMEOUT),
+    (["GET"], "/available-nodes", DEFAULT_TIMEOUT),
+    (["GET"], "/get-connected-nodes-count", DEFAULT_TIMEOUT),
+    (["GET"], "/tasks", DEFAULT_TIMEOUT),
+    (["GET"], "/get-task-results", DEFAULT_TIMEOUT),
+    (["GET"], "/job-schema", 15),
+    (["PATCH"], "/toggle-availability/{node_id}", DEFAULT_TIMEOUT),
+    (["DELETE"], "/node/{node_id}", DEFAULT_TIMEOUT),
+
+    # What a node agent needs. The setup page hands contributors an install
+    # command pointing at this origin, because one public address is one thing
+    # to expose and one certificate to keep -- and the production compose binds
+    # the coordinator to localhost, so its own port does not exist from
+    # outside. These three were the ones missing.
+    (["GET"], "/next-task/{node_id}", DEFAULT_TIMEOUT),
+    (["POST"], "/task-result/{task_id}", 60),
+    (["GET"], "/task-cancelled/{task_id}", 15),
+    (["POST"], "/node-heartbeat/{node_id}", DEFAULT_TIMEOUT),
+    (["POST"], "/receive-task-result", DEFAULT_TIMEOUT),
+
+    # Registering and proving a node's identity
+    (["GET"], "/generate-challenge/{node_id}", DEFAULT_TIMEOUT),
+    (["POST"], "/verify-challenge/{node_id}", DEFAULT_TIMEOUT),
+    (["POST"], "/find-node-id", DEFAULT_TIMEOUT),
+    (["POST"], "/verify-node/{node_id}/cpu", 120),
+    (["POST"], "/verify-node/{node_id}/gpu", 120),
+    (["POST"], "/verify-task/{task_id}", 120),
+
+    # Sending work and getting it back
+    (["POST"], "/submit-task", 60),
+    (["POST"], "/submit-task/{node_id}", 60),
+    (["POST"], "/cancel-task/{task_id}", DEFAULT_TIMEOUT),
+    (["POST"], "/retry-task/{task_id}", DEFAULT_TIMEOUT),
+    (["GET"], "/my-tasks", DEFAULT_TIMEOUT),
+    (["POST"], "/my-tasks/{task_id}/sample", 120),
+
+    # Downloads: the reply is a zip or a CSV rather than JSON, which the
+    # forwarder handles by keeping the upstream's content type.
+    (["GET"], "/my-tasks/{task_id}/bundle", 120),
+    (["POST"], "/my-tasks/{task_id}/predict", 300),
+    (["GET"], "/artifacts/{artifact_id}", 120),
+
+    # Storing a dataset
+    (["POST"], "/artifacts", ARTIFACT_UPLOAD_TIMEOUT),
+    (["POST"], "/artifacts/{artifact_id}/append", ARTIFACT_UPLOAD_TIMEOUT),
+]
+
+NODE_ROUTES = [
+    (["POST"], "/connect-node", 60),
+    (["POST"], "/finalize-connection", 60),
+    (["POST"], "/node-session", DEFAULT_TIMEOUT),
+    (["GET"], "/current-task", 10),
+    (["GET"], "/usage", DEFAULT_TIMEOUT),
+    (["POST"], "/approve-task/{task_id}", DEFAULT_TIMEOUT),
+    (["POST"], "/decline-task/{task_id}", DEFAULT_TIMEOUT),
+    (["POST"], "/approval-mode", DEFAULT_TIMEOUT),
+    (["GET"], "/self-test", DEFAULT_TIMEOUT),
+    # A self-test runs the GPU flat out for a while; it is the one call here
+    # that legitimately takes minutes.
+    (["POST"], "/self-test", 1200),
+    (["POST"], "/self-test/stop", DEFAULT_TIMEOUT),
+]
 
 
-@router.post("/verify-node/{node_id}/cpu")
-async def proxy_verify_cpu(node_id: str):
-    try:
-        async with httpx.AsyncClient() as client:
-            res = await client.post(f"{COORDINATOR_URL}/verify-node/{node_id}/cpu")
-            res.raise_for_status()
-            return safe_json(res)
-    except httpx.RequestError as e:
-        return {"error": f"Failed to start CPU test: {e}"}
+def _register(methods, path, upstream, timeout):
+    async def handler(request: Request):
+        return await forward(request, upstream, timeout)
 
-@router.post("/verify-node/{node_id}/gpu")
-async def proxy_verify_gpu(node_id: str):
-    try:
-        async with httpx.AsyncClient() as client:
-            res = await client.post(f"{COORDINATOR_URL}/verify-node/{node_id}/gpu")
-            res.raise_for_status()
-            return safe_json(res)
-    except httpx.RequestError as e:
-        return {"error": f"Failed to start GPU test: {e}"}
-
-@router.get("/generate-challenge/{node_id}")
-async def proxy_generate_challenge(node_id: str):
-    try:
-        async with httpx.AsyncClient() as client:
-            res = await client.get(f"{COORDINATOR_URL}/generate-challenge/{node_id}")
-            res.raise_for_status()
-            return safe_json(res)
-    except httpx.RequestError as e:
-        return {"error": f"Failed to generate challenge: {e}"}
+    # A readable name in tracebacks and in the OpenAPI schema.
+    handler.__name__ = "proxy_" + path.strip("/").replace("/", "_").replace(
+        "{", "").replace("}", "")
+    router.add_api_route(path, handler, methods=methods, include_in_schema=False)
 
 
-@router.post("/verify-challenge/{node_id}")
-async def proxy_verify_challenge(node_id: str, request: Request):
-    try:
-        signature_payload = await request.json()
-        async with httpx.AsyncClient() as client:
-            res = await client.post(
-                f"{COORDINATOR_URL}/verify-challenge/{node_id}",
-                json=signature_payload
-            )
-            res.raise_for_status()
-            return safe_json(res)
-    except httpx.RequestError as e:
-        return {"error": f"Failed to verify challenge: {e}"}
-    except Exception as e:
-        return {"error": f"Unexpected error: {str(e)}"}
-    
+for _methods, _path, _timeout in COORDINATOR_ROUTES:
+    _register(_methods, _path, COORDINATOR_URL, _timeout)
+
+for _methods, _path, _timeout in NODE_ROUTES:
+    _register(_methods, _path, NODE_URL, _timeout)
+
+
+# --- the one route that is not a forward -----------------------------------
+
 @router.get("/distribution", response_class=HTMLResponse)
 async def proxy_distribution_page(request: Request):
+    """The send-work page, rendered with the nodes that can take a job now."""
+    available_nodes = []
     try:
         async with httpx.AsyncClient() as client:
-            res = await client.get(f"{COORDINATOR_URL}/nodes")
+            res = await client.get(f"{COORDINATOR_URL}/nodes",
+                                   timeout=DEFAULT_TIMEOUT)
             res.raise_for_status()
             all_nodes = safe_json(res)
 
-            available_nodes = [
-                node for node in all_nodes
-                if node.get("isConnected") and node.get("isAvailable")
-            ]
-    except httpx.RequestError as e:
-        available_nodes = []
-        print(f"Failed to fetch nodes: {e}")
+            if isinstance(all_nodes, list):
+                available_nodes = [
+                    node for node in all_nodes
+                    if node.get("isConnected") and node.get("isAvailable")
+                ]
+    except (httpx.RequestError, httpx.HTTPStatusError) as e:
+        # The page is still worth serving; it polls for nodes once it loads.
+        print(f"Failed to fetch nodes for /distribution: {e}")
 
     return templates.TemplateResponse("distribution.html", {
         "request": request,
-        "available_nodes": available_nodes
+        "available_nodes": available_nodes,
     })
-
-@router.get("/available-nodes")
-async def proxy_available_nodes():
-    """Nodes offering their GPUs, straight from the coordinator.
-
-    This used to fetch /nodes and re-apply the availability filter here. That
-    is the same question asked twice, and the two answers had drifted: the
-    coordinator's /available-nodes fills in each node's throughput, so going
-    the long way round reported every machine as 0 TFLOPS.
-    """
-    try:
-        async with httpx.AsyncClient() as client:
-            res = await client.get(f"{COORDINATOR_URL}/available-nodes", timeout=20)
-            res.raise_for_status()
-            return safe_json(res)
-    except httpx.RequestError as e:
-        return {"error": f"Failed to fetch available nodes: {e}"}
-
-@router.post("/find-node-id")
-async def proxy_find_node_id(request: Request):
-    try:
-        payload = await request.json()
-        print(f"[Proxy] Forwarding find-node-id with payload: {payload}")  # Optional: log
-
-        async with httpx.AsyncClient() as client:
-            res = await client.post(f"{COORDINATOR_URL}/find-node-id", json=payload)
-            res.raise_for_status()
-            return safe_json(res)
-
-    except httpx.RequestError as e:
-        return {"error": f"Failed to reach coordinator for find-node-id: {str(e)}"}
-
-    except Exception as e:
-        return {"error": f"Unexpected error during find-node-id: {str(e)}"}

@@ -1,0 +1,58 @@
+name: tests
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Install
+        # CPU wheels: nothing in the suite needs a GPU, and the CUDA build is
+        # several gigabytes.
+        run: |
+          python -m pip install --upgrade pip
+          pip install --extra-index-url https://download.pytorch.org/whl/cpu \
+            -r requirements-dev.txt
+
+      - name: Test
+        run: python -m pytest tests/ -q
+
+      - name: Check nothing was skipped
+        # The heavy imports are guarded with pytest.importorskip, so an
+        # incomplete install reports a cheerful pass with about fifty tests
+        # quietly missing. A green run on a thin environment is worse than a
+        # red one, so the skip count has to be zero.
+        run: |
+          python -m pytest tests/ -q --no-header -rN 2>&1 | tee /tmp/out.txt
+          if grep -qE "[0-9]+ skipped" /tmp/out.txt; then
+            echo "::error::tests were skipped -- something did not install"
+            grep -E "[0-9]+ skipped" /tmp/out.txt
+            exit 1
+          fi
+
+  browser-rules:
+    # Which side of the network sees which page is decided in the browser, so
+    # it is checked with Node rather than pytest.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: node tests/test_role_pages.js

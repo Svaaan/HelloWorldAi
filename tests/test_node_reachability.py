@@ -14,6 +14,14 @@ take.
 
 This reads both sides and compares them, so the next endpoint added to the
 agent cannot quietly go unproxied.
+
+What this file no longer checks: whether a route forwards the caller's
+credentials, the query string or the body. That was done by searching the
+source for `auth_headers(request)` near each handler, which only worked while
+every route was written out by hand. The proxy is now one forwarder fed by a
+table, and those properties are checked in test_proxy_forwarding.py by driving
+the real router against a fake upstream -- behaviour, rather than the shape of
+the source.
 """
 
 import os
@@ -24,9 +32,12 @@ import pytest
 
 HERE = os.path.dirname(__file__)
 sys.path.insert(0, os.path.join(HERE, "..", "src"))
+os.environ.setdefault("ENV", "test")
 
 NODE = os.path.join(HERE, "..", "src", "backend", "node.py")
-PROXY = os.path.join(HERE, "..", "src", "backend", "proxypage.py")
+COORDINATOR = os.path.join(HERE, "..", "src", "backend", "coordinator.py")
+
+import backend.proxypage as proxypage        # noqa: E402
 
 
 def read(path):
@@ -45,12 +56,17 @@ def endpoints_the_agent_calls():
 
 
 def endpoints_the_dashboard_forwards():
-    """Every path the dashboard proxy exposes."""
-    source = read(PROXY)
-    return {
-        match.group(1)
-        for match in re.finditer(r'@router\.\w+\("/([a-z][a-z0-9-]*)', source)
-    }
+    """Every path the dashboard proxy exposes, taken from the live router.
+
+    Asking the router rather than reading the file means this keeps working
+    however the routes come to be registered.
+    """
+    found = set()
+    for route in proxypage.router.routes:
+        first = getattr(route, "path", "").strip("/").split("/")[0]
+        if first and not first.startswith("{"):
+            found.add(first)
+    return found
 
 
 def test_the_agent_calls_something():
@@ -101,36 +117,27 @@ def test_each_one_by_name(endpoint):
     assert endpoint in endpoints_the_dashboard_forwards()
 
 
-def test_the_forwarded_routes_carry_the_agents_credentials():
-    """A node proves itself with a bearer token on every call.
+def test_nothing_is_forwarded_to_a_route_the_node_does_not_serve():
+    """/execute-task was proxied to a path node.py has never had.
 
-    Forwarding the path but not the Authorization header would turn a working
-    node into one the coordinator refuses, which is a different silent failure
-    with the same shape.
+    A forward to a route that does not exist is a guaranteed 404 which, from
+    the page, is indistinguishable from the node being offline.
     """
-    source = read(PROXY)
+    served = {
+        m.group(2).split("{")[0].rstrip("/")
+        for m in re.finditer(r'@app\.(get|post|patch|put|delete)\("([^"]+)"',
+                             read(NODE))
+    }
 
-    for endpoint in ("next-task", "task-result", "task-cancelled"):
-        start = source.index(f"/{endpoint}/")
-        window = source[start:start + 900]
-        assert "auth_headers(request)" in window, (
-            f"the {endpoint} proxy does not forward the node's token"
-        )
+    proxied = {path.split("{")[0].rstrip("/")
+               for _methods, path, _timeout in proxypage.NODE_ROUTES}
 
+    missing = sorted(proxied - served)
 
-def test_the_result_route_forwards_the_body():
-    """Weights, metrics and logs travel in the body.
-
-    Forwarding headers but not the body is a mistake this proxy has made
-    before -- on /self-test, on /available-nodes and on /retry-task -- and it
-    always looks like success while doing nothing.
-    """
-    source = read(PROXY)
-    start = source.index("/task-result/")
-    window = source[start:start + 900]
-
-    assert "await request.body()" in window
-    assert "content=body" in window
+    assert not missing, (
+        "the proxy forwards these to the node, which does not serve them: "
+        f"{', '.join(missing)}"
+    )
 
 
 # --- storing a blob needs a caller ---------------------------------------
@@ -147,30 +154,12 @@ def test_uploading_an_artifact_requires_a_caller():
     token from /verify-challenge, the browser sends the submitter key it makes
     on first use.
     """
-    source = read(os.path.join(HERE, "..", "src", "backend", "coordinator.py"))
+    source = read(COORDINATOR)
 
-    for route in ('@app.post("/artifacts")', '@app.post("/artifacts/{artifact_id}/append")'):
+    for route in ('@app.post("/artifacts")',
+                  '@app.post("/artifacts/{artifact_id}/append")'):
         start = source.index(route)
         window = source[start:start + 400]
         assert "require_uploader" in window, (
             f"{route} does not ask who is uploading"
-        )
-
-
-def test_the_upload_proxy_forwards_the_callers_credentials():
-    """Gating the coordinator is no good if the proxy strips the proof.
-
-    The dashboard forwarded the body and set its own Content-Type, replacing
-    the header dict rather than adding to it, so the submitter key never
-    arrived. It surfaces as a 401 from the coordinator and reads, to the person
-    uploading, as their own key being rejected.
-    """
-    source = read(PROXY)
-
-    for route in ('@router.post("/artifacts")',
-                  '@router.post("/artifacts/{artifact_id}/append")'):
-        start = source.index(route)
-        window = source[start:start + 800]
-        assert "auth_headers(request" in window, (
-            f"the {route} proxy sends no credentials, so every upload 401s"
         )
