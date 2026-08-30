@@ -52,9 +52,11 @@ logger = logging.getLogger("NodeDbTest")
 
 
 # ✅ Database configuration (using env variable with default fallback)
-MONGODB_URL = os.getenv("MONGO_URI", "mongodb://mongo_test:27017")
+MONGODB_URL = os.getenv("MONGO_URI", "mongodb://mongo_dev:27017")
 
-DB_NAME = "NodeDbTest"
+# Set per environment; see backend/database/nodedb.py. Hardcoding this sent
+# production writes to a database named Test.
+DB_NAME = os.getenv("MONGO_DB", "NodeDbDev")
 
 MAX_RECONNECT_ATTEMPTS = 5
 

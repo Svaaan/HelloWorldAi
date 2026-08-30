@@ -1,10 +1,19 @@
 import motor.motor_asyncio
 import os
 
-MONGO_URI = os.getenv("MONGO_URI", "mongodb://mongo_test:27017")
+# Which server, and which database on it. Both come from the environment so
+# that development and production are separated by configuration rather than by
+# hoping nobody points one at the other.
+#
+# The database name used to be the literal "NodeDbTest", which meant a
+# production deployment would have written its real node registrations and job
+# history into a database called Test.
+MONGO_URI = os.getenv("MONGO_URI", "mongodb://mongo_dev:27017")
+MONGO_DB = os.getenv("MONGO_DB", "NodeDbDev")
+
 client = motor.motor_asyncio.AsyncIOMotorClient(MONGO_URI)
 
-db = client["NodeDbTest"]
+db = client[MONGO_DB]
 
 nodes_collection = db["nodes"]
 tasks_collection = db["tasks"]
