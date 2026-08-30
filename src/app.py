@@ -67,6 +67,51 @@ async def revalidate_pages_and_assets(request, call_next):
     return response
 
 
+# What a browser is allowed to do with these pages.
+#
+# This matters more here than on an ordinary site. A person's node private key
+# and their submitter key live in localStorage -- that is the design, the key
+# file is the account -- and localStorage is readable by any script running on
+# the page. So a single injected script is not a defacement, it is the loss of
+# the key that identifies them.
+#
+# script-src 'self' with no 'unsafe-inline' is the part that earns its keep:
+# every page bootstrap was moved into /static/js/page/ so that this can be
+# stated without an exception. connect-src stays 'self' because the browser
+# only ever talks to this origin; the coordinator and the node are reached
+# through the proxy on this same host.
+CSP = "; ".join([
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self'",
+    "img-src 'self' data:",
+    "connect-src 'self'",
+    "font-src 'self'",
+    # Nothing here is meant to be embedded, and nothing embeds anything.
+    "frame-ancestors 'none'",
+    "form-action 'self'",
+    "base-uri 'self'",
+    "object-src 'none'",
+])
+
+
+@dashboard_app.middleware("http")
+async def security_headers(request, call_next):
+    response = await call_next(request)
+
+    response.headers.setdefault("Content-Security-Policy", CSP)
+    # frame-ancestors covers this for modern browsers; the older header costs
+    # one line and covers the rest.
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    # Stops a browser deciding for itself that an uploaded .csv is really HTML.
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    # A node id or task id in a path should not travel to another site.
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    response.headers.setdefault(
+        "Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    return response
+
+
 # === Frontend routes ===
 @dashboard_app.get("/", response_class=HTMLResponse, include_in_schema=False)
 async def start_page():

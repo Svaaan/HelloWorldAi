@@ -169,6 +169,38 @@ def optional_submitter(
     return read_submitter_key(x_submitter_key)
 
 
+def require_uploader(
+    authorization: Optional[str] = Header(default=None),
+    x_submitter_key: Optional[str] = Header(default=None),
+) -> str:
+    """Whoever is storing a blob: a node reporting weights, or a submitter.
+
+    Uploading used to need nothing at all. Anyone who could reach the
+    coordinator could POST half a gigabyte -- MAX_ARTIFACT_BYTES -- as many
+    times as they liked, and every one of them landed in GridFS. There was no
+    caller to attribute it to and so nothing to rate-limit, count or clean up
+    against.
+
+    Both real callers already prove who they are for everything else they do:
+    the node sends the bearer token it got from /verify-challenge, and the
+    browser holds a submitter key it creates on first use. This asks for the
+    one they already have rather than introducing a third kind of credential.
+    """
+    if authorization and authorization.lower().startswith("bearer "):
+        node_id = read_node_token(authorization.split(" ", 1)[1].strip())
+        if node_id:
+            return f"node:{node_id}"
+
+    submitter = read_submitter_key(x_submitter_key)
+    if submitter:
+        return f"submitter:{submitter}"
+
+    raise HTTPException(
+        status_code=401,
+        detail="Uploading needs either a node session token or a submitter key.",
+    )
+
+
 def require_node_token(node_id: str, caller: str = Depends(authenticated_node)) -> str:
     """Require a token issued for this exact node_id."""
     if caller != node_id:
@@ -225,7 +257,13 @@ class CPUCapabilities(BaseModel):
 
 class NodeConnection(BaseModel):
     node_id: Optional[str] = None  # ✅ Coordinator generates this!
-    ip: str
+    # No `ip` here on purpose. Whatever was recorded was the address the
+    # connection arrived from, which -- since the setup page points nodes at the
+    # dashboard -- was the dashboard's own address for every contributor who
+    # followed the instructions. Nothing read it: it was never shown, and
+    # nothing dials a node, because nodes poll. A field that is wrong for most
+    # rows, unread by anything, and a contributor's home address when it is
+    # right is better not collected.
     public_key: Optional[str] = None  # ✅ Provided by frontend (browser)
     capabilities: Dict = {
         "cpu": {},
@@ -330,7 +368,6 @@ async def sync_nodes_with_db():
                 logger.info(f"Loading node from database to memory: {node_id}")
                 connected_nodes[node_id] = NodeConnection(
                     node_id=node_id,
-                    ip=node.get("ip", "unknown"),
                     capabilities=node.get("capabilities", {"cpu": {}, "gpu": []}),
                     isConnected=True,
                     isAvailable=node.get("isAvailable", False),
@@ -416,14 +453,12 @@ async def connect_node(node: NodeConnection, request: Request, db: Database = De
             raise HTTPException(status_code=400, detail="Public key is required.")
 
         # ✅ Set runtime props
-        node.ip = request.client.host
         node.isConnected = True
         node.last_heartbeat = datetime.utcnow()
 
         # ✅ Build full doc
         node_document = {
             "_id": node_id,
-            "ip": node.ip,
             "public_key": node.public_key,
             "isConnected": True,
             "isAvailable": node.isAvailable,
@@ -446,7 +481,6 @@ async def connect_node(node: NodeConnection, request: Request, db: Database = De
             "status": "success",
             "message": "Node connected",
             "node_id": node_id,
-            "ip": node.ip,
         }
 
     except Exception as e:
@@ -472,7 +506,6 @@ async def node_heartbeat(
             # Load basic node info from database
             connected_nodes[node_id] = NodeConnection(
                 node_id=node_id,
-                ip=node_doc.get("ip", "unknown"),
                 isConnected=True,
                 isAvailable=node_doc.get("isAvailable", False)
             )
@@ -607,7 +640,6 @@ async def get_connected_nodes(node_id: Optional[str] = None, db: Database = Depe
             # Create base node info from database
             node_info = {
                 "node_id": node_id_from_db,
-                "ip": node.get("ip", "unknown"),
                 "isConnected": node.get("isConnected", False),
                 "isAvailable": node.get("isAvailable", False),
                 "isAuthenticated": node.get("isAuthenticated", False),  # ✅ Already here!
@@ -2005,7 +2037,8 @@ def _describe_dataset(features, labels, info: dict) -> dict:
 
 @app.post("/artifacts/{artifact_id}/append")
 async def append_to_artifact(artifact_id: str, request: Request,
-                             db: Database = Depends(get_db)):
+                             db: Database = Depends(get_db),
+                             uploader: str = Depends(require_uploader)):
     """Add another file to a dataset, returning a new, larger one.
 
     More data is the strongest thing a submitter can do for their result, and
@@ -2100,7 +2133,11 @@ async def append_to_artifact(artifact_id: str, request: Request,
 
 
 @app.post("/artifacts")
-async def upload_artifact(request: Request, db: Database = Depends(get_db)):
+async def upload_artifact(
+    request: Request,
+    db: Database = Depends(get_db),
+    uploader: str = Depends(require_uploader),
+):
     """Store a blob (a dataset, or trained weights) and return its id.
 
     The body is raw bytes rather than multipart so no extra dependency is

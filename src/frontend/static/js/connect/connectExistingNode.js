@@ -11,14 +11,19 @@ export function setupConnectExistingNodeModal() {
   let privateKey = null;
 
   function showMessage(message, type = "success") {
-    resultMessage.innerHTML = message;
+    // textContent, not innerHTML. Every message here is plain text, but one of
+    // them is `err.message`, and those errors are built from the server's
+    // `detail` field -- which in places is a formatted string containing a
+    // node_id taken straight from the URL. That is markup arriving from
+    // outside and being parsed, which is the one thing this file must not do.
+    resultMessage.textContent = message;
     resultMessage.className = type === "success" ? "success-message" : "error-message";
   }
 
   function clearModalState() {
     privateKey = null;
     fileInput.value = "";
-    resultMessage.innerHTML = "";
+    resultMessage.textContent = "";
     resultMessage.className = "";
   }
 

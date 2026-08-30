@@ -11,7 +11,7 @@ import requests
 import time
 from typing import Dict, Any, List
 from datetime import datetime
-from fastapi import FastAPI, Request, BackgroundTasks, Body, HTTPException
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from backend.service.systemInfoService import get_system_capabilities  # Dynamically fetch system capabilities
 from backend.service.usageService import get_usage
@@ -23,7 +23,7 @@ from backend.service.authNodeService import (
     trigger_background_connection,
     find_node_id_by_public_key,
 )
-from backend.utils.config import COORDINATOR_URL
+from backend.utils.config import COORDINATOR_URL, DASHBOARD_PORT
 from backend.service.taskExecutor import JobCancelled, execute_task
 from backend.service.gpuBenchmark import benchmark_all
 from backend.service.poolPlanner import pool_summary
@@ -40,14 +40,58 @@ logger = logging.getLogger(__name__)
 # FastAPI app
 app = FastAPI(title="Compute Node", description="Distributed Computing Node")
 
-# CORS
+# Which browser origins may talk to this node.
+#
+# This agent listens on a contributor's own machine, and it used to answer
+# `Access-Control-Allow-Origin: *` to anybody. Combined with endpoints that ask
+# for no credentials -- /current-task, /approve-task, /decline-task,
+# /approval-mode -- that meant any website the contributor happened to visit
+# could read what their GPU was working on and then approve or decline jobs on
+# it. CORS does not stop the request being sent, only the reply being read, so
+# the write half worked with or without it.
+#
+# Nothing legitimate needs a browser to reach this port. The dashboard talks to
+# the node from its own server, and a server-to-server call carries no Origin
+# header at all. So: no wildcard, and an explicit list for the local dashboard
+# in case somebody does open it directly during development.
+ALLOWED_ORIGINS = [
+    o.strip() for o in os.getenv(
+        "NODE_ALLOWED_ORIGINS",
+        f"http://localhost:{DASHBOARD_PORT},http://127.0.0.1:{DASHBOARD_PORT}",
+    ).split(",") if o.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def refuse_unknown_origins(request: Request, call_next):
+    """Turn away browser requests that come from somewhere unexpected.
+
+    The CORS headers above stop another site reading a reply. They do not stop
+    it sending the request, and for /approve-task the sending is the whole
+    attack -- the job is approved whether or not the attacker can see the
+    response.
+
+    A browser always states its Origin on a cross-origin request. The
+    dashboard's proxy, being a server, states none. That difference is the
+    check: no Origin passes, a known Origin passes, anything else is refused
+    before it reaches a route.
+    """
+    origin = request.headers.get("origin")
+    if origin and origin not in ALLOWED_ORIGINS:
+        logger.warning(f"Refused a request from {origin} to {request.url.path}")
+        return JSONResponse(
+            status_code=403,
+            content={"detail": "This node does not accept requests from that origin."},
+        )
+    return await call_next(request)
 
 # How often this node reports in to the coordinator. The coordinator marks a
 # node disconnected after 5 minutes without a heartbeat.
@@ -114,9 +158,11 @@ pending_approval: Dict[str, Any] = {}
 APPROVAL_TIMEOUT_SECONDS = int(os.getenv("APPROVAL_TIMEOUT", 120))
 
 # Task queues
-task_queue: List[dict] = []
-task_logs: Dict[str, list] = {}
 completed_tasks: List[dict] = []
+
+# Per-task log lines, kept in memory so the owner can watch a job while it runs
+# and read back what happened once it has finished.
+task_logs: Dict[str, list] = {}
 
 # === Utils ===
 
@@ -761,74 +807,6 @@ async def get_usage_info():
         logger.error(f"Error getting usage info: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to get usage info: {str(e)}")
 
-@app.get("/node-capabilities")
-def get_detailed_capabilities():
-    capabilities = get_system_capabilities()  # Fetch capabilities dynamically each time
-    return {
-        "node_id": node_info.get("node_id", "unknown-node-id"),
-        "system_info": capabilities,  # Use dynamically fetched capabilities
-        "status": {"connected": node_info["connected"]}
-    }
-
-@app.post("/queue-task/{node_id}")
-async def queue_task(node_id: str, task_data: dict = Body(...), request: Request = None):
-    logger.info(f"📥 Received task for node {node_id}: {task_data}")
-
-    is_valid, error_message = validate_task_data(task_data)
-    if not is_valid:
-        return {"status": "error", "message": f"Invalid task data: {error_message}"}
-
-    task_id = f"task_{len(task_queue) + 1}"
-
-    task_queue.append({
-        "task_id": task_id,
-        "node_id": node_id,  # node_id is included here
-        "task_data": task_data,
-        "status": "pending",
-        "origin_ip": request.client.host if request else None
-    })
-
-    logger.info(f"📝 Task queued: {task_id} from {request.client.host if request else 'unknown'}")
-    return {"status": "success", "task_id": task_id, "message": "Task queued for approval"}
-
-
-@app.get("/get-pending-tasks")
-def get_pending_tasks():
-    return [task for task in task_queue if task["status"] == "pending"]
-
-@app.post("/process-task/{task_id}")
-def process_task_endpoint(task_id: str, background_tasks: BackgroundTasks):
-    task = next((t for t in task_queue if t["task_id"] == task_id), None)
-    if not task:
-        return {"status": "error", "message": "Task not found"}
-
-    task["status"] = "processing"
-    task_queue.remove(task)
-    task_logs[task_id] = ["Task started"]
-
-    background_tasks.add_task(task_with_logging, task)
-
-    return {"status": "processing", "message": f"Task {task_id} is now being processed"}
-
-@app.post("/reject-task/{task_id}")
-def reject_task(task_id: str):
-    task = next((t for t in task_queue if t["task_id"] == task_id), None)
-    if not task:
-        return {"status": "error", "message": "Task not found"}
-
-    task_queue.remove(task)
-
-    completed_tasks.append({
-        "_id": str(uuid.uuid4()),
-        "status": "rejected",
-        "task_type": task.get("task_data", {}).get("task_type"),
-        "completed_at": datetime.now().isoformat()
-    })
-
-    logger.info(f"Task {task_id} was rejected and removed from queue.")
-    return {"status": "rejected", "message": f"Task {task_id} has been rejected."}
-
-
 async def claim_and_run_one_task() -> bool:
     """Claim one task from the coordinator and run it. True if work was done.
 
@@ -1141,71 +1119,3 @@ async def start_task_poll_task():
 
 
 # === Background Task ===
-
-def task_with_logging(task):
-    import requests
-
-    task_id = task["task_id"]
-    task_data = task["task_data"]
-    task_type = task_data.get("task_type")
-    node_id = task["node_id"]  # Ensure node_id is included in task
-
-    origin_ip = task.get("origin_ip")
-
-    task_logs[task_id] = ["Task started"]
-
-    def log(message):
-        logger.info(message)
-        task_logs[task_id].append(message)
-
-    log(f"Handling task type: {task_type}")
-
-    result_payload = {
-        "_id": str(uuid.uuid4()),
-        "status": "completed",
-        "result": None,
-        "original_task_type": task_type,
-        "node_id": node_id  # Ensure node_id is included in the result
-    }
-
-    try:
-        if task_type == "llm_training":
-            model_name = task_data.get("model_name")
-            hyperparameters = task_data.get("hyperparameters", {})
-            data = task_data.get("data", {})
-
-            log(f"Training {model_name} with hyperparameters {hyperparameters}")
-            log(f"Data: {data}")
-
-            for i in range(1, 4):
-                time.sleep(1)
-                log(f"Processing batch {i}/3")
-
-            log(f"Training {model_name} completed!")
-            result_payload["result"] = f"Training of {model_name} completed successfully."
-
-        else:
-            log("Unsupported task type.")
-            result_payload["status"] = "failed"
-            result_payload["result"] = "Unsupported task type."
-
-    except Exception as e:
-        log(f"Error processing task: {str(e)}")
-        result_payload["status"] = "failed"
-        result_payload["result"] = f"Error: {str(e)}"
-
-    if origin_ip:
-        try:
-            response = requests.post(
-                f"http://{origin_ip}:3000/receive-task-result",
-                json={**result_payload, "logs": task_logs.get(task_id, [])},
-                timeout=5
-            )
-            log(f" Result sent to {origin_ip}, Response: {response.status_code}")
-        except Exception as e:
-            log(f"❌ Failed to send result to {origin_ip}: {e}")
-    else:
-        log(" No origin IP found, result not sent back.")
-
-
-

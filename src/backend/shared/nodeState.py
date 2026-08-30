@@ -1,7 +1,6 @@
 # File: backend/nodeState.py
 # Create a new shared module for common elements used by both files
 
-import socket
 import logging
 import pynvml
 from typing import Dict, Any
@@ -11,7 +10,15 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 logger = logging.getLogger(__name__)
 
 # Node info state (moved from node.py)
-public_ip = socket.gethostbyname(socket.gethostname())
+#
+# There used to be a `public_ip = socket.gethostbyname(socket.gethostname())`
+# here. Three things were wrong with it. It ran at import time, so a machine
+# whose hostname does not resolve -- common enough on Linux hosts that are not
+# listed in their own /etc/hosts -- got a gaierror before the agent had started,
+# and the node simply would not run. It was not a public address either: inside
+# a container it reports something like 172.18.0.5. And the coordinator throws
+# the value away regardless, overwriting it with the address the connection
+# actually came from.
 node_info = {
     "connected": False,
     "accept_tasks": True,
@@ -42,7 +49,9 @@ def get_gpu_info_list():
     finally:
         try:
             pynvml.nvmlShutdown()
-        except:
+        except Exception:
+            # Shutting down a library that never started is not worth raising
+            # over, but a bare `except` here also swallowed Ctrl-C.
             pass
 
 # === Payload Builder === (moved from node.py)
@@ -53,7 +62,6 @@ def build_node_payload(system_capabilities) -> Dict[str, Any]:
     node_info["total_gpu_tflops"] = total_flops
 
     return {
-        "ip": public_ip,
         "capabilities": system_capabilities,
         "isConnected": node_info["connected"],
         "isAvailable": node_info.get("isAvailable", False),

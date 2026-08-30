@@ -158,19 +158,7 @@
         </section>
     </main>
 
-    <script type="module">
-        import { loadHeader } from "/static/js/component/header.js";
-        import { startJobPolling } from "/static/js/nodejs/jobList.js";
-        import { initNodeInfoManager } from "/static/js/nodejs/nodeInfo.js";
-        import { startLiveWorkPolling } from "/static/js/nodejs/liveWork.js";
-        import { initSelfTest } from "/static/js/nodejs/selfTest.js";
-
-        loadHeader();
-        startJobPolling();
-        initSelfTest();
-        startLiveWorkPolling();
-        window.nodeInfoManager = initNodeInfoManager();
-    </script>
+    <script type="module" src="/static/js/page/node.js"></script>
 </body>
 
 </html>

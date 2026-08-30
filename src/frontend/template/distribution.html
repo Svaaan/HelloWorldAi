@@ -48,22 +48,7 @@
         </div>
     </div>
 
-    <script type="module">
-        import { loadHeader } from "/static/js/component/header.js";
-        import { fetchAvailableNodes, startNodePolling } from "/static/js/distribution/fetchNode.js";
-        import { initModalCloseHandler, showNodeModal } from "/static/js/distribution/modalHandler.js";
-
-        loadHeader();
-        initModalCloseHandler();
-        startNodePolling();
-
-        document.getElementById("refreshNodes")
-            .addEventListener("click", () => fetchAvailableNodes());
-
-        // No node argument: the coordinator chooses at submit time.
-        document.getElementById("sendAnywhere")
-            .addEventListener("click", () => showNodeModal(null));
-    </script>
+    <script type="module" src="/static/js/page/distribution.js"></script>
 </body>
 
 </html>

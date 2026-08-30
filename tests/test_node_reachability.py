@@ -131,3 +131,46 @@ def test_the_result_route_forwards_the_body():
 
     assert "await request.body()" in window
     assert "content=body" in window
+
+
+# --- storing a blob needs a caller ---------------------------------------
+
+def test_uploading_an_artifact_requires_a_caller():
+    """Anyone who could reach the coordinator could fill its database.
+
+    POST /artifacts took no credentials at all. MAX_ARTIFACT_BYTES is 512 MB
+    and nothing limited how many times it could be sent, so a stranger could
+    write to GridFS until the disk gave out, with no caller recorded to
+    attribute, count or clean up against.
+
+    Both real callers already prove who they are: the node sends the bearer
+    token from /verify-challenge, the browser sends the submitter key it makes
+    on first use.
+    """
+    source = read(os.path.join(HERE, "..", "src", "backend", "coordinator.py"))
+
+    for route in ('@app.post("/artifacts")', '@app.post("/artifacts/{artifact_id}/append")'):
+        start = source.index(route)
+        window = source[start:start + 400]
+        assert "require_uploader" in window, (
+            f"{route} does not ask who is uploading"
+        )
+
+
+def test_the_upload_proxy_forwards_the_callers_credentials():
+    """Gating the coordinator is no good if the proxy strips the proof.
+
+    The dashboard forwarded the body and set its own Content-Type, replacing
+    the header dict rather than adding to it, so the submitter key never
+    arrived. It surfaces as a 401 from the coordinator and reads, to the person
+    uploading, as their own key being rejected.
+    """
+    source = read(PROXY)
+
+    for route in ('@router.post("/artifacts")',
+                  '@router.post("/artifacts/{artifact_id}/append")'):
+        start = source.index(route)
+        window = source[start:start + 800]
+        assert "auth_headers(request" in window, (
+            f"the {route} proxy sends no credentials, so every upload 401s"
+        )

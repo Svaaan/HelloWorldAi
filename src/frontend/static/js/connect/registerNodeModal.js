@@ -76,14 +76,17 @@ function offerPrivateKeyDownload() {
 // ✅ Utility to show messages
 function showMessage(message, type = "success") {
     const resultMessageElement = document.getElementById("resultMessage");
-    resultMessageElement.innerHTML = message;
+    // textContent, not innerHTML. `err.message` here carries the server's
+    // `detail` field, and some of those are formatted strings holding a
+    // node_id taken from the URL -- markup from outside, parsed in the page.
+    resultMessageElement.textContent = message;
     resultMessageElement.className = type === "success" ? "success-message" : "error-message";
 }
 
 // ✅ Utility to reset result message area (before next registration flow)
 function clearResultMessage() {
     const resultMessageElement = document.getElementById("resultMessage");
-    resultMessageElement.innerHTML = "";
+    resultMessageElement.textContent = "";
     resultMessageElement.className = "";
 }
 

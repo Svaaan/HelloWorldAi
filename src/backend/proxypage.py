@@ -27,8 +27,13 @@ def safe_json(res):
 # whoever sent a job. Dropping either here silently breaks the feature it
 # belongs to -- a job submitted through this proxy without its key arrives
 # with no owner, so nobody can ever collect the model it produces.
-def auth_headers(request: Request) -> dict:
-    headers = {}
+def auth_headers(request: Request, extra: dict = None) -> dict:
+    """The caller's credentials, plus whatever else the request needs.
+
+    `extra` exists so a route that must set its own Content-Type can still
+    forward the credentials, rather than replacing them with a bare dict.
+    """
+    headers = dict(extra or {})
 
     token = request.headers.get("authorization")
     if token:
@@ -96,26 +101,6 @@ async def proxy_finalize_connection(request: Request):
         return {"error": f"Unexpected error: {str(e)}"}
 
     
-@router.post("/process-task/{task_id}")
-async def proxy_process_task(task_id: str):
-    try:
-        async with httpx.AsyncClient() as client:
-            res = await client.post(f"{NODE_URL}/process-task/{task_id}")
-            res.raise_for_status()
-            return safe_json(res)
-    except httpx.RequestError as e:
-        return {"error": f"Failed to process task: {e}"}
-
-@router.post("/reject-task/{task_id}")
-async def proxy_reject_task(task_id: str):
-    try:
-        async with httpx.AsyncClient() as client:
-            res = await client.post(f"{NODE_URL}/reject-task/{task_id}")
-            res.raise_for_status()
-            return safe_json(res)
-    except httpx.RequestError as e:
-        return {"error": f"Failed to reject task: {e}"}
-
 @router.get("/get-task-results")
 async def proxy_get_task_results():
     try:
@@ -232,19 +217,6 @@ async def proxy_delete_node(node_id: str):
             return safe_json(res)
     except httpx.RequestError as e:
         return {"error": f"Failed to delete node: {e}"}
-
-@router.post("/execute-task/{node_id}")
-async def proxy_execute_task(node_id: str, request: Request):
-    try:
-        task_data = await request.json()
-        async with httpx.AsyncClient() as client:
-            res = await client.post(f"{NODE_URL}/execute-task/{node_id}", json=task_data)
-            res.raise_for_status()
-            return safe_json(res)
-    except httpx.RequestError as e:
-        return {"error": f"Failed to send task to node: {e}"}
-    except Exception as e:
-        return {"error": f"Unexpected error: {str(e)}"}
 
 async def _post_to_node(path: str, body=None):
     async with httpx.AsyncClient() as client:
@@ -409,7 +381,11 @@ async def proxy_upload_artifact(request: Request):
                 f"{COORDINATOR_URL}/artifacts",
                 params=dict(request.query_params),
                 content=body,
-                headers={"Content-Type": "application/octet-stream"},
+                # Carry whoever the caller proved to be. Forwarding the body
+                # but not the credentials is the shape of bug this proxy has
+                # had before: it looks like a clean 401 from the coordinator
+                # and reads as a broken login to the person uploading.
+                headers=auth_headers(request, {"Content-Type": "application/octet-stream"}),
                 timeout=ARTIFACT_UPLOAD_TIMEOUT,
             )
             if res.status_code >= 400:
@@ -498,7 +474,7 @@ async def proxy_append_artifact(artifact_id: str, request: Request):
                 f"{COORDINATOR_URL}/artifacts/{artifact_id}/append",
                 params=dict(request.query_params),
                 content=body,
-                headers={"Content-Type": "application/octet-stream"},
+                headers=auth_headers(request, {"Content-Type": "application/octet-stream"}),
                 timeout=ARTIFACT_UPLOAD_TIMEOUT,
             )
             if res.status_code >= 400:
@@ -648,27 +624,6 @@ async def proxy_tasks(request: Request):
     except httpx.RequestError as e:
         return {"error": f"Failed to fetch tasks: {e}"}
 
-
-@router.post("/queue-task/{node_id}")
-async def proxy_queue_task(node_id: str, request: Request):
-    try:
-        task_data = await request.json()
-        async with httpx.AsyncClient() as client:
-            res = await client.post(f"{NODE_URL}/queue-task/{node_id}", json=task_data)
-            res.raise_for_status()
-            return safe_json(res)
-    except httpx.RequestError as e:
-        return {"status": "error", "message": f"Failed to queue task: {e}"}
-
-@router.get("/get-pending-tasks")
-async def proxy_get_pending_tasks():
-    try:
-        async with httpx.AsyncClient() as client:
-            res = await client.get(f"{NODE_URL}/get-pending-tasks")
-            res.raise_for_status()
-            return safe_json(res)
-    except httpx.RequestError as e:
-        return {"error": f"Failed to fetch pending tasks: {e}"}
 
 @router.post("/verify-node/{node_id}/cpu")
 async def proxy_verify_cpu(node_id: str):

@@ -224,9 +224,12 @@ export function showNodeModal(node) {
       ? `/artifacts/${encodeURIComponent(datasetId)}/append?format=${format}`
       : `/artifacts?kind=dataset&format=${format}`;
 
+    // The key goes with the upload, not just with the job that follows it.
+    // Storing a dataset is the expensive half, and it used to be the half that
+    // asked for nothing at all.
     const res = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "text/plain" },
+      headers: submitterHeaders({ "Content-Type": "text/plain" }),
       body: await file.text(),
     });
 
