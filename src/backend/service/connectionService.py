@@ -20,7 +20,12 @@ async def background_connection_handler(payload, node_info, max_retries=5, delay
     for attempt in range(1, max_retries + 1):
         try:
             async with httpx.AsyncClient() as client:
-                res = await client.post(f"{coordinator_url}/connect-node", json=payload, timeout=10)
+                # /register-node, not /connect-node: the node agent serves an
+                # endpoint on that second path itself, and coordinator_url is
+                # normally the public dashboard, whose proxy sends /connect-node
+                # to a node agent. This registration used to arrive back at a
+                # node agent instead of at the coordinator.
+                res = await client.post(f"{coordinator_url}/register-node", json=payload, timeout=10)
                 res.raise_for_status()
 
                 data = res.json()

@@ -163,6 +163,7 @@ ROUTES = [
     ("GET", "/generate-challenge/node_1", COORD),
     ("POST", "/verify-challenge/node_1", COORD),
     ("POST", "/find-node-id", COORD),
+    ("POST", "/register-node", COORD),
     ("POST", "/verify-node/node_1/cpu", COORD),
     ("POST", "/verify-node/node_1/gpu", COORD),
     ("POST", "/connect-node", NODE),
@@ -442,3 +443,54 @@ def test_the_dashboard_can_say_whether_it_has_a_node():
     assert res.status_code == 200
     assert res.json() == {"present": False}
     proxypage._local_node_seen.update({"answer": None, "at": 0.0})
+
+
+# --- one path, one service -------------------------------------------------
+#
+# The coordinator and the node agent both served POST /connect-node, meaning
+# two different things:
+#
+#     node agent   "browser, get this machine ready to be registered"
+#     coordinator  "put this node in the database and give it an id"
+#
+# The proxy can only send a path to one service, and it sent that one to the
+# node, which is correct for the browser. But an agent registers itself by
+# calling COORDINATOR_URL/connect-node, and the setup page hands contributors
+# an install command pointing at the public origin -- so the registration
+# arrived at the dashboard and was forwarded to its own NODE_URL, where no node
+# agent exists. Every contributor's node failed to register with:
+#
+#     Coordinator did not return a node_id. Registration failed.
+#
+# The tables above pin each route to a service, and would have kept doing so
+# happily. What nothing checked was whether a path meant one thing.
+
+def _declared_paths(source):
+    return {m.group(2) for m in re.finditer(
+        r'@(?:app|router)\.(get|post|put|patch|delete)\(\s*"([^"]+)"', source)}
+
+
+def test_no_path_means_two_different_things():
+    here = os.path.dirname(os.path.abspath(__file__))
+    src = os.path.join(here, "..", "src", "backend")
+
+    coordinator = set()
+    routes_dir = os.path.join(src, "routes")
+    for name in sorted(os.listdir(routes_dir)):
+        if name.endswith(".py"):
+            with open(os.path.join(routes_dir, name), encoding="utf-8") as fh:
+                coordinator |= _declared_paths(fh.read())
+
+    with open(os.path.join(src, "node.py"), encoding="utf-8") as fh:
+        node = _declared_paths(fh.read())
+
+    shared = sorted(coordinator & node)
+
+    assert not shared, (
+        "these paths are served by both the coordinator and the node agent:\n"
+        + "\n".join("    " + p for p in shared)
+        + "\n\nThe dashboard proxies each path to exactly one of them, so the "
+        "other becomes unreachable through the public address -- silently, and "
+        "only for whichever caller was not the one the table had in mind. Give "
+        "them separate paths."
+    )

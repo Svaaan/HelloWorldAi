@@ -194,6 +194,11 @@ COORDINATOR_ROUTES = [
     (["GET"], "/generate-challenge/{node_id}", DEFAULT_TIMEOUT),
     (["POST"], "/verify-challenge/{node_id}", DEFAULT_TIMEOUT),
     (["POST"], "/find-node-id", DEFAULT_TIMEOUT),
+    # How an agent puts itself in the database. Distinct from /connect-node in
+    # NODE_ROUTES below, which the browser calls on the agent running beside
+    # it -- the two used to share a path, and this one lost, so no
+    # contributor's node could register through the public address at all.
+    (["POST"], "/register-node", 60),
     (["POST"], "/verify-node/{node_id}/cpu", 120),
     (["POST"], "/verify-node/{node_id}/gpu", 120),
     (["POST"], "/verify-task/{task_id}", 120),

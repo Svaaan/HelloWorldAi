@@ -194,8 +194,26 @@ async def toggle_availability(
         logger.error(f"Error toggling node availability: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to toggle availability: {str(e)}")
 
-@router.post("/connect-node")
-async def connect_node(node: NodeConnection, request: Request, db: Database = Depends(get_db)):
+# Named for what it does, and named differently from the node agent's
+# /connect-node, which it collided with.
+#
+# Both services had an endpoint on that path, meaning two different things:
+#   node agent   "browser, get this machine ready to be registered"
+#   coordinator  "put this node in the database and give it an id"
+#
+# The dashboard proxy can only send a path to one of them, and it sent
+# /connect-node to the node, which is right for the browser. But a node agent
+# registers itself by calling COORDINATOR_URL/connect-node, and the setup page
+# hands contributors an install command pointing at the public origin -- so the
+# agent's registration arrived at the dashboard, which forwarded it to its own
+# NODE_URL. There is no node agent on the central server, so a contributor's
+# agent got 503 five times over and gave up:
+#
+#     Coordinator did not return a node_id. Registration failed.
+#
+# It could not have worked. Nothing was reaching the coordinator at all.
+@router.post("/register-node")
+async def register_node(node: NodeConnection, request: Request, db: Database = Depends(get_db)):
     try:
         # ✅ Validate GPU presence
         gpu_capabilities = node.capabilities.get("gpu", [])
@@ -252,7 +270,7 @@ async def connect_node(node: NodeConnection, request: Request, db: Database = De
         }
 
     except Exception as e:
-        logger.error(f"❌ Coordinator error in /connect-node: {e}")
+        logger.error(f"❌ Coordinator error in /register-node: {e}")
         raise HTTPException(status_code=500, detail=f"Coordinator failed to connect node: {str(e)}")
 
 @router.post("/node-heartbeat/{node_id}")
