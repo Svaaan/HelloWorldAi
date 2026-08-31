@@ -205,9 +205,12 @@ fi
 # daemon in the distro to restart, so asking for sudo stops the script dead on
 # a prompt that cannot lead anywhere. -n fails immediately instead, and the
 # check below then says what to actually do.
+# Non-interactive sudo, for the places that are only asking a question.
+SUDO_PROBE=""
+[ -n "$SUDO" ] && SUDO_PROBE="$SUDO -n"
+
 restart_docker() {
-    SUDO_N=""
-    [ -n "$SUDO" ] && SUDO_N="$SUDO -n"
+    SUDO_N="$SUDO_PROBE"
 
     if have systemctl && systemctl list-units >/dev/null 2>&1; then
         $SUDO_N systemctl restart docker >/dev/null 2>&1 || true
@@ -225,7 +228,12 @@ fi
 
 DOCKER="docker"
 if ! docker info >/dev/null 2>&1; then
-    if $SUDO docker info >/dev/null 2>&1; then
+    # A probe, so it must not block. Written as a plain `sudo docker info` this
+    # sat on a password prompt while only asking a question -- and on WSL with
+    # Docker Desktop the answer is no anyway: the socket belongs to the user,
+    # not to root, so a password would have bought nothing. -n makes it answer
+    # or give up, and the advice below is what actually helps.
+    if $SUDO_PROBE docker info >/dev/null 2>&1; then
         DOCKER="$SUDO docker"
         warn "Your user cannot reach the Docker socket, so sudo will be used."
         warn "To fix permanently: sudo usermod -aG docker $USER   (then log out and back in)"
