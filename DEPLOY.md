@@ -206,6 +206,14 @@ useless without the other.
 and comes to about 12.5 GB; a GitHub-hosted runner has roughly 14 GB free.
 Contributors build it once when they start their node.
 
+**There are three requirements files, one per image.** `requirements.txt` for
+the server, `requirements-node.txt` for the node agent, and
+`requirements-dashboard.txt` for the dashboard a contributor runs beside their
+node — which is a proxy, so it needs five packages and 260 MB rather than the
+1.5 GB it used to carry. `tests/test_image_requirements.py` checks each file
+against the imports its entry point actually reaches, because the way this goes
+wrong is an image that builds and then will not start.
+
 ---
 
 ## Looking at the database
