@@ -124,9 +124,38 @@ function setupContributor() {
   });
 }
 
+/** Hide the register/connect buttons where registering cannot work.
+ *
+ * The same dashboard image serves two jobs. Beside a contributor's node agent
+ * it is how they register it. On the central server there is no node and there
+ * cannot be one -- and the buttons led to a call that failed with "Temporary
+ * failure in name resolution": a DNS error, for a container never meant to
+ * exist there.
+ */
+async function adaptToLocalNode() {
+  let present = true;                  // on doubt, leave the page as authored
+  try {
+    const res = await fetch("/local-node");
+    if (res.ok) present = Boolean((await res.json()).present);
+  } catch {
+    return;
+  }
+  if (present) return;
+
+  for (const id of ["registerNodeButton", "connectNodeButton"]) {
+    const el = document.getElementById(id);
+    if (el) el.hidden = true;
+  }
+  for (const id of ["contributorSetupOnly", "contributorRemoteNote"]) {
+    const el = document.getElementById(id);
+    if (el) el.hidden = false;
+  }
+}
+
 export function initStart() {
   markAlreadySetUp();
   setupContributor();
+  adaptToLocalNode();
 
   const start = document.getElementById("builderStart");
   if (start) {

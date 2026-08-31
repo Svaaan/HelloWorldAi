@@ -177,5 +177,28 @@ check("a visitor with no node is not shown somebody else's GPU", () => {
     "live work polling is not gated on holding a node identity");
 });
 
+check("the front door does not offer what this dashboard cannot do", () => {
+  // On the central server there is no node agent and there cannot be one, so
+  // "Create key file" on the GPU card called /connect-node and came back with
+  // a DNS error for a container that was never meant to exist there.
+  const html = fs.readFileSync(
+    path.join(ROOT, "src/frontend/template/start.html"), "utf8");
+  const js = fs.readFileSync(
+    path.join(ROOT, "src/frontend/static/js/component/start.js"), "utf8");
+
+  assert.ok(html.includes('id="contributorSetupOnly"'),
+    "no fallback pointing at the setup guide");
+  // The call, not merely the definition: a function nobody invokes was the
+  // first version of this test passing while the page had stopped asking.
+  const init = js.slice(js.indexOf("export function initStart"));
+  assert.ok(/adaptToLocalNode\(\);/.test(init),
+    "initStart never calls adaptToLocalNode, so the page never asks");
+  assert.ok(js.includes('fetch("/local-node")'),
+    "it should ask the service rather than guess");
+  assert.ok(/let present = true;/.test(js),
+    "on doubt it should leave the page as authored");
+});
+
+
 console.log(failures ? `\n  ${failures} failed` : "\n  all checks passed");
 process.exit(failures ? 1 : 0);

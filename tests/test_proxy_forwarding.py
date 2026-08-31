@@ -180,8 +180,11 @@ ROUTES = [
 
 IDS = ["%s %s" % (m, p) for m, p, _ in ROUTES]
 
-# /distribution serves a page rather than forwarding anything.
-NOT_A_PROXY = {("GET", "/distribution")}
+# These answer for themselves rather than forwarding: /distribution renders a
+# page, and /local-node reports whether a node agent runs beside this dashboard
+# at all -- false on the central deployment, where there is no node and the
+# front door should not offer to register one.
+NOT_A_PROXY = {("GET", "/distribution"), ("GET", "/local-node")}
 
 
 def shape(path):
@@ -335,3 +338,87 @@ def test_an_unreachable_upstream_says_so_rather_than_pretending():
 
     assert res.status_code == 502
     assert "error" in res.json()
+
+
+# --- a dashboard with no node beside it ----------------------------------
+#
+# The same image serves two jobs. Next to a contributor's agent it is how they
+# register and manage it; on the central server there is no node and there
+# cannot be one, because a graphics card is offered from the machine it is in.
+#
+# The central deployment offered "Lend your graphics card" anyway, and the
+# button called /connect-node, which the proxy forwarded to http://node:9100 --
+# a name that does not resolve there. The person saw:
+#
+#   Could not reach http://node:9100: [Errno -3] Temporary failure in name
+#   resolution
+#
+# which invites an hour of debugging DNS for a container that was never meant
+# to exist.
+
+def test_an_unreachable_node_is_explained_not_leaked():
+    import httpx as _httpx
+
+    app = FastAPI()
+    app.include_router(proxypage.router)
+
+    class NoNode(Recorder):
+        def _record(self, method, url, **kw):
+            raise _httpx.ConnectError(
+                "[Errno -3] Temporary failure in name resolution")
+
+    with patch.object(proxypage.httpx, "AsyncClient",
+                      lambda *a, **k: NoNode([])):
+        client = TestClient(app, raise_server_exceptions=False)
+        res = client.get("/current-task")
+
+    # 503, not 502: the service is unavailable here by design, not broken.
+    assert res.status_code == 503
+    body = res.json()
+    for key in ("error", "detail"):
+        assert "no node agent attached" in body[key]
+        assert "name resolution" not in body[key], (
+            "the DNS error should not reach the person reading this"
+        )
+    assert "Setup" in body["error"], "it should say where to go instead"
+
+
+def test_a_coordinator_failure_still_reads_as_a_failure():
+    """The friendlier message must not swallow a real outage."""
+    import httpx as _httpx
+
+    app = FastAPI()
+    app.include_router(proxypage.router)
+
+    class Dead(Recorder):
+        def _record(self, method, url, **kw):
+            raise _httpx.ConnectError("connection refused")
+
+    with patch.object(proxypage.httpx, "AsyncClient",
+                      lambda *a, **k: Dead([])):
+        client = TestClient(app, raise_server_exceptions=False)
+        res = client.get("/my-tasks")
+
+    assert res.status_code == 502
+    assert "no node agent" not in res.json()["error"]
+
+
+def test_the_dashboard_can_say_whether_it_has_a_node():
+    import httpx as _httpx
+
+    app = FastAPI()
+    app.include_router(proxypage.router)
+
+    class NoNode(Recorder):
+        def _record(self, method, url, **kw):
+            raise _httpx.ConnectError("no such host")
+
+    proxypage._local_node_seen.update({"answer": None, "at": 0.0})
+    with patch.object(proxypage.httpx, "AsyncClient",
+                      lambda *a, **k: NoNode([])):
+        client = TestClient(app, raise_server_exceptions=False)
+        res = client.get("/local-node")
+
+    assert res.status_code == 200
+    assert res.json() == {"present": False}
+    proxypage._local_node_seen.update({"answer": None, "at": 0.0})

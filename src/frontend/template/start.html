@@ -90,7 +90,19 @@
                         I have a key file
                     </button>
                     <a href="/node" class="btn-ghost" id="contributorNode" hidden>Connect to node</a>
+                    <!-- Shown instead of the two buttons above when this
+                         dashboard has no node beside it, which is the case on
+                         the central server: registering needs an agent on the
+                         machine holding the card. -->
+                    <a href="/setup" class="btn" id="contributorSetupOnly" hidden>
+                        Set up your machine
+                    </a>
                 </div>
+                <p class="start-choice-note" id="contributorRemoteNote" hidden>
+                    A graphics card is offered from the machine it is in. Install the
+                    agent there, and register it from the dashboard that starts
+                    alongside it.
+                </p>
                 <div id="processingMessage" class="processing" role="status" aria-live="polite">
                     <span class="loading-spinner" aria-hidden="true"></span>
                     <span>Working…</span>

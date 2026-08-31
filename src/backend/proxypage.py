@@ -31,7 +31,9 @@ tests/test_proxy_forwarding.py drives every entry against a fake upstream and
 checks what actually came out.
 """
 
+import json
 import os
+import time
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request
@@ -120,10 +122,30 @@ async def forward(request: Request, upstream: str, timeout: float):
         # A shape that suits both ways the pages check for failure: a real
         # status for `response.ok`, and an `error` key for the few places that
         # read one off the body.
+        #
+        # A node that cannot be reached is worth saying plainly, because on the
+        # central deployment it is not a fault at all: there is no node there
+        # and there never will be. A contributor's agent runs on their own
+        # machine alongside its own copy of this dashboard, and that is where
+        # it is registered and managed from. Leaking "Temporary failure in name
+        # resolution" invites somebody to debug DNS for an hour over a
+        # container that was never meant to exist here.
+        if upstream == NODE_URL:
+            message = (
+                "This dashboard has no node agent attached, so there is nothing "
+                "here to register or control. A graphics card is offered from "
+                "the machine it is in: install the node there, and manage it "
+                "from the dashboard that starts alongside it. The Setup guide "
+                "has the command."
+            )
+            status = 503
+        else:
+            message = "Could not reach %s: %s" % (upstream, e)
+            status = 502
+
         return Response(
-            content=('{"error": "Could not reach %s: %s"}'
-                     % (upstream, str(e).replace('"', "'"))).encode(),
-            status_code=502,
+            content=json.dumps({"error": message, "detail": message}).encode(),
+            status_code=status,
             media_type="application/json",
         )
 
@@ -221,6 +243,46 @@ for _methods, _path, _timeout in COORDINATOR_ROUTES:
 
 for _methods, _path, _timeout in NODE_ROUTES:
     _register(_methods, _path, NODE_URL, _timeout)
+
+
+# --- what kind of dashboard this is ----------------------------------------
+
+_local_node_seen = {"answer": None, "at": 0.0}
+LOCAL_NODE_CACHE_SECONDS = 30
+
+
+@router.get("/local-node")
+async def local_node():
+    """Whether a node agent runs alongside this dashboard.
+
+    The same dashboard image serves two very different jobs. On a contributor's
+    machine it sits beside their node agent and is how they register and manage
+    it. On the central server there is no node and there cannot be one -- a
+    graphics card is offered from the machine it is in.
+
+    Without this the front door offered "Lend your graphics card" on the central
+    deployment too, and the button led to a registration call that failed with
+    "Temporary failure in name resolution" -- a DNS error for a container that
+    was never meant to exist there.
+
+    Cached briefly: the answer changes about as often as the deployment does,
+    and the front door asks on every load.
+    """
+    now = time.time()
+    if (_local_node_seen["answer"] is not None
+            and now - _local_node_seen["at"] < LOCAL_NODE_CACHE_SECONDS):
+        return {"present": _local_node_seen["answer"]}
+
+    present = False
+    try:
+        async with httpx.AsyncClient() as client:
+            res = await client.get(f"{NODE_URL}/current-task", timeout=3)
+            present = res.status_code < 500
+    except Exception:
+        present = False
+
+    _local_node_seen.update({"answer": present, "at": now})
+    return {"present": present}
 
 
 # --- the one route that is not a forward -----------------------------------
