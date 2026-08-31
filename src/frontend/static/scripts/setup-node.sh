@@ -156,8 +156,42 @@ printf '%s\n' "$GPU_LIST" | while IFS= read -r line; do info "  - $line"; done
 
 step "Docker"
 
-if have docker; then
-    ok "Docker already installed ($(docker --version 2>/dev/null || echo 'version unknown'))."
+# `have docker` is not enough on WSL. Docker Desktop puts a shim at
+# /usr/bin/docker inside every distro; with integration switched off for this
+# one the command exists, runs, and prints an error telling you to switch it
+# on. Testing only for the command reported that error text as the version --
+#
+#     Docker already installed (
+#     The command 'docker' could not be found in this WSL 2 distro. ...)
+#
+# -- and then asked for a sudo password to restart a daemon that was never
+# there. Ask the command what version it is, and believe it only if it answers.
+DOCKER_VERSION="$(docker --version 2>&1 || true)"
+case "$DOCKER_VERSION" in
+    "Docker version"*) DOCKER_OK=1 ;;
+    *)                 DOCKER_OK=0 ;;
+esac
+
+if [ "$DOCKER_OK" -eq 1 ]; then
+    ok "Docker already installed ($DOCKER_VERSION)."
+elif have docker; then
+    if [ "$IS_WSL" -eq 1 ]; then
+        die "The docker command is here but does not work in this distro.
+
+This is Docker Desktop's shim, and integration is switched off for this WSL
+distro. Nothing needs installing -- turn it on:
+
+    Docker Desktop -> Settings -> Resources -> WSL Integration
+    enable this distro, then Apply & Restart
+
+Make sure Docker Desktop itself is running, then run this script again.
+
+It said:
+$DOCKER_VERSION"
+    fi
+    die "The docker command is here but does not work:
+
+$DOCKER_VERSION"
 else
     info "Docker is not installed. The official installer at https://get.docker.com will be run."
     confirm "Install Docker now?" || die "Docker is required."
@@ -167,12 +201,19 @@ else
     ok "Docker installed."
 fi
 
+# Never prompt for a password here. On WSL with Docker Desktop there is no
+# daemon in the distro to restart, so asking for sudo stops the script dead on
+# a prompt that cannot lead anywhere. -n fails immediately instead, and the
+# check below then says what to actually do.
 restart_docker() {
+    SUDO_N=""
+    [ -n "$SUDO" ] && SUDO_N="$SUDO -n"
+
     if have systemctl && systemctl list-units >/dev/null 2>&1; then
-        $SUDO systemctl restart docker >/dev/null 2>&1 || true
+        $SUDO_N systemctl restart docker >/dev/null 2>&1 || true
     else
         # WSL without systemd
-        $SUDO service docker restart >/dev/null 2>&1 || true
+        $SUDO_N service docker restart >/dev/null 2>&1 || true
     fi
 }
 
