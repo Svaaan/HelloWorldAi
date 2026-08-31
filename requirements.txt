@@ -13,13 +13,20 @@
 # modules. If you add an import, add it here.
 #
 # Related files:
-#   requirements-node.txt  the smaller set a contributor's node needs
-#   requirements-dev.txt   this, plus what it takes to run the tests
+#   requirements-node.txt       the smaller set a contributor's node needs
+#   requirements-dashboard.txt  the smaller set again for the proxy dashboard
+#   requirements-dev.txt        this, plus what it takes to run the tests
 
 # --- web server ---
 fastapi==0.115.12
 uvicorn==0.34.0
 pydantic==2.11.0
+# Renders the page templates. It was not listed here for a long time and
+# everything worked anyway, because torch happens to depend on it -- so every
+# page this project serves was relying on a transitive dependency of PyTorch.
+# The measurement that built this list missed it because the import reads
+# `from fastapi.templating import Jinja2Templates`, which looks like fastapi.
+jinja2==3.1.6
 
 # --- talking to nodes, and to the coordinator from the dashboard ---
 httpx==0.28.1

@@ -23,8 +23,21 @@ if not USE_DOCKER:
     kill_process_on_port(NODE_PORT)
     kill_process_on_port(DASHBOARD_PORT)
 
-from backend.node import app as node_app
-from backend.coordinator import app as coordinator_app
+# The dashboard's own pieces, and nothing else.
+#
+# The node and coordinator apps used to be imported here as well, so that
+# run_node() and run_coordinator() below could reach them. That made importing
+# this module import all three services, including a database driver the
+# dashboard has no use for -- it proxies to the coordinator over HTTP and never
+# opens a connection of its own. A contributor's dashboard, built from a
+# requirements file with no driver in it, crash-looped on:
+#
+#     File "/app/src/backend/routes/artifacts.py", line 19
+#     ModuleNotFoundError: No module named 'bson'
+#
+# for a coordinator it was never going to run. They are imported inside the
+# functions that need them instead, and tests/test_image_requirements.py checks
+# each image's requirements file against what its entry point actually imports.
 from backend.dashboard import router as dashboard_router
 from backend.proxypage import router as proxy_router
 
@@ -163,9 +176,13 @@ def render_distribution_page():
 # === Run services ===
 
 def run_node():
+    # Imported here so that starting the dashboard does not require the node's
+    # dependencies, and vice versa.
+    from backend.node import app as node_app
     uvicorn.run(app=node_app, host="0.0.0.0" if USE_DOCKER else "127.0.0.1", port=NODE_PORT)
 
 def run_coordinator():
+    from backend.coordinator import app as coordinator_app
     uvicorn.run(app=coordinator_app, host="0.0.0.0" if USE_DOCKER else "127.0.0.1", port=COORDINATOR_PORT)
 
 def run_dashboard():

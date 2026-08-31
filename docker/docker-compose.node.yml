@@ -64,8 +64,15 @@ services:
       target: server
       args:
         # The contributor's local dashboard only proxies to the node and the
-        # coordinator, so it needs the same slim set.
-        REQUIREMENTS: requirements-node.txt
+        # coordinator, so it gets the smallest set of the three.
+        #
+        # It used to build from requirements-node.txt on the same reasoning,
+        # which was wrong twice over: that set carries torch, numpy and the
+        # NVIDIA libraries a proxy has no use for, and it lacks the database
+        # driver that src/app.py used to pull in by importing the coordinator.
+        # Contributors got a multi-gigabyte image that then crash-looped on
+        # `No module named 'bson'`.
+        REQUIREMENTS: requirements-dashboard.txt
     ports:
       # Local only: this UI drives your own node and should not be exposed.
       #

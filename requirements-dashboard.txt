@@ -1,0 +1,38 @@
+# What a dashboard needs, and nothing else.
+#
+# The dashboard is a proxy and a template renderer. It holds no data, trains
+# nothing, and never opens a database connection -- src/backend/proxypage.py
+# passes calls on to the coordinator and to the local node agent, and that is
+# the whole job.
+#
+# It used to build from requirements-node.txt, on the reasoning that both are
+# "the small one". That shipped torch, numpy, pynvml and the NVIDIA libraries
+# to a service that proxies HTTP, and still missed jinja2 and the database
+# driver that src/app.py reached for by importing the coordinator at module
+# level. The image was several gigabytes and did not start.
+#
+# Adding an import to the dashboard means adding a line here.
+# tests/test_dashboard_requirements.py checks the two against each other.
+#
+# Related files:
+#   requirements.txt       the coordinator's set, which the server image uses
+#   requirements-node.txt  what a node needs: torch, and the NVIDIA libraries
+
+fastapi==0.115.12
+uvicorn==0.34.0
+pydantic==2.11.0
+
+# Talking to the coordinator and to the node agent.
+httpx==0.28.1
+
+# Rendering the page templates.
+jinja2==3.1.6
+
+# Reading env/.env.* at startup.
+python-dotenv==1.0.1
+
+# Only used off the Docker path: run outside a container, src/app.py clears
+# whatever is sitting on its ports first. USE_DOCKER is true in the image, so
+# this never runs there -- but the import is at module level, so it has to be
+# installed for the module to load at all.
+psutil==7.0.0
