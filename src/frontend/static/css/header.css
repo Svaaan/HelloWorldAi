@@ -164,3 +164,60 @@
     margin-left: auto;
   }
 }
+
+
+/* --- signing out ------------------------------------------------------- */
+
+.header-signout {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  border-radius: var(--r-sm, 6px);
+  padding: 0.3rem 0.7rem;
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.header-signout:hover {
+  color: var(--text);
+  border-color: var(--accent-edge, var(--border));
+}
+
+/* The attribute alone does not hide a flex child, and .header-details is
+   flex -- the same trap the nav links and the node count both fell into. */
+.header-signout[hidden] {
+  display: none;
+}
+
+.signout-warning {
+  margin: 0.9rem 0;
+  padding: 0.9rem 1rem;
+  border-radius: var(--r-md, 8px);
+  background-color: var(--warn-wash, rgba(255, 190, 60, 0.08));
+  border: 1px solid var(--warn-edge, rgba(255, 190, 60, 0.35));
+}
+
+.signout-warning strong { display: block; margin-bottom: 0.35rem; }
+.signout-warning p { margin: 0 0 0.7rem; font-size: 0.9rem; }
+.signout-warning[hidden] { display: none; }
+
+/* Signing out destroys the only copy of an account, so the button that does it
+   should not look like the one that cancels. Defined here rather than in
+   connect.css because the header is on every page and connect.css is not. */
+.signout-danger {
+  background-color: var(--danger, #f87171);
+  border-color: var(--danger, #f87171);
+  color: #1a0505;
+}
+
+.signout-danger:hover {
+  filter: brightness(1.08);
+}
+
+#signOutModal .modal-container > button {
+  width: 100%;
+  margin-top: 0.5rem;
+}
+

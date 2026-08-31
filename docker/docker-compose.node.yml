@@ -68,7 +68,17 @@ services:
         REQUIREMENTS: requirements-node.txt
     ports:
       # Local only: this UI drives your own node and should not be exposed.
-      - "127.0.0.1:3000:3000"
+      #
+      # The host port is settable because 3000 is a popular address -- another
+      # dev server, another project, or this project's own test stack. Docker
+      # refuses to start with "port is already allocated", which reads as a
+      # broken install rather than as a clash you can step around:
+      #
+      #   DASHBOARD_HOST_PORT=3100 docker compose -f docker/docker-compose.node.yml up -d
+      #
+      # Only the outside half moves. The container still serves 3000, so
+      # nothing inside the stack has to know.
+      - "127.0.0.1:${DASHBOARD_HOST_PORT:-3000}:3000"
     environment:
       - USE_DOCKER=true
       - ENV=production

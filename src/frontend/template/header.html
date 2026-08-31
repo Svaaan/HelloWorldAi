@@ -19,5 +19,40 @@
 
     <div class="header-details">
         <p class="info">Nodes online: <span id="connectedNodesCount">&mdash;</span></p>
+
+        <!-- There was no way out. The key in this browser is the account, so
+             without this the only way to stop being somebody was to clear site
+             data by hand -- which is also how you lose a key you never saved. -->
+        <button type="button" class="header-signout" id="signOutButton" hidden>
+            Sign out
+        </button>
     </div>
 </header>
+
+<!-- Signing out is deleting the only copy of an account, so it asks first and
+     says what it is about to destroy. -->
+<div id="signOutModal" class="modal-backdrop" role="dialog" aria-modal="true"
+     aria-labelledby="signOutTitle">
+  <div class="modal-container">
+    <button class="modal-close" type="button" data-close="signOutModal"
+            aria-label="Close">&times;</button>
+    <h3 id="signOutTitle">Sign out</h3>
+    <p class="modal-lede" id="signOutLede"></p>
+
+    <div id="signOutUnsaved" class="signout-warning" hidden>
+      <strong>You have not saved this key.</strong>
+      <p>
+        There is no password reset and no way to reissue it. Sign out without
+        saving it and the jobs and models it owns are gone for good.
+      </p>
+      <a class="btn" id="signOutSaveFirst" href="/workspace">Save it first</a>
+    </div>
+
+    <button id="signOutConfirm" type="button" class="btn signout-danger">
+      Sign out and forget this key
+    </button>
+    <button type="button" class="btn-ghost" data-close="signOutModal">
+      Stay signed in
+    </button>
+  </div>
+</div>

@@ -4,7 +4,9 @@
 // app's navigation lives. Two things it has to get right: mark the page you
 // are on, and fail visibly rather than leaving a page with no header at all.
 
-import { isNewHere, pageRole, showsFor } from "./role.js";
+import {
+  ROLE_LABEL, hasRole, isNewHere, pageRole, showsFor,
+} from "./role.js";
 import { showRoleNotice } from "./roleNotice.js";
 
 const COUNT_INTERVAL_MS = 60000;
@@ -15,6 +17,28 @@ const NODE_ID_KEY = "currentNodeId";
 const BUILDER_KEY = "submitterKey";
 
 let countTimer = null;
+
+// Everything that makes up an identity in this browser, per side. Signing out
+// of one must leave the other alone: somebody can lend a graphics card and
+// train their own models, and those are two separate keys.
+//
+// The backed-up markers go with their key. Left behind, the next key created
+// here would look as though it had already been saved, and the warning that
+// matters most would not appear.
+const IDENTITY_KEYS = {
+  builder: ["submitterKey", "submitterKeyBackedUp"],
+  contributor: [
+    "currentNodeId", "nodePrivateKey", "nodePublicKeyBase64",
+    "nodeSessionToken", "nodeKeyBackedUp",
+  ],
+};
+
+const BACKED_UP_MARKER = {
+  builder: "submitterKeyBackedUp",
+  contributor: "nodeKeyBackedUp",
+};
+
+const SAVE_PAGE = { builder: "/workspace", contributor: "/node" };
 
 export async function loadHeader() {
   const slot = document.getElementById("header-placeholder");
@@ -35,6 +59,7 @@ export async function loadHeader() {
   }
 
   refreshNav();
+  wireSignOut();
 
   // The front door is a sign-in page: two doors, and nothing else to do. A
   // count of machines online means nothing to somebody who has not yet chosen
@@ -57,6 +82,89 @@ function refreshNav() {
   markCurrentPage();
   applyRoles();
   showRoleNotice();
+  updateSignOut();
+}
+
+function stored(name) {
+  try {
+    return localStorage.getItem(name);
+  } catch {
+    return null;                          // private mode: nothing to forget
+  }
+}
+
+/** Which side a sign-out here would end.
+ *
+ * Not currentRole(): that answers null for somebody holding both keys, because
+ * it is asking "which one thing is this browser" and there are two. The
+ * question here is narrower -- which side am I leaving *from this page* -- and
+ * that has an answer even when both are present.
+ */
+function signedInAs() {
+  const here = pageRole(window.location.pathname);
+  if (here && hasRole(here.role)) return here.role;   // the side you are on
+
+  const roles = ["builder", "contributor"].filter(hasRole);
+  return roles.length === 1 ? roles[0] : null;        // ambiguous: offer neither
+}
+
+function updateSignOut() {
+  const button = document.getElementById("signOutButton");
+  if (!button) return;
+
+  const role = signedInAs();
+  button.hidden = !role;
+  if (role) button.textContent = `Sign out of ${ROLE_LABEL[role]}`;
+}
+
+function wireSignOut() {
+  const button = document.getElementById("signOutButton");
+  const modal = document.getElementById("signOutModal");
+  if (!button || !modal) return;
+
+  button.addEventListener("click", () => {
+    const role = signedInAs();
+    if (!role) return;
+
+    const lede = document.getElementById("signOutLede");
+    if (lede) {
+      lede.textContent =
+        `This forgets the key for ${ROLE_LABEL[role]} in this browser. `
+        + "The key is the account -- it is not stored anywhere else, and "
+        + "nobody can issue you another one.";
+    }
+
+    // The warning that matters, and only when it matters.
+    const unsaved = document.getElementById("signOutUnsaved");
+    if (unsaved) unsaved.hidden = Boolean(stored(BACKED_UP_MARKER[role]));
+
+    const saveLink = document.getElementById("signOutSaveFirst");
+    if (saveLink) saveLink.href = SAVE_PAGE[role];
+
+    modal.style.display = "flex";
+  });
+
+  const confirm = document.getElementById("signOutConfirm");
+  if (confirm) {
+    confirm.addEventListener("click", () => {
+      const role = signedInAs();
+      if (!role) return;
+
+      for (const key of IDENTITY_KEYS[role]) {
+        try {
+          localStorage.removeItem(key);
+        } catch {
+          /* nothing stored to remove */
+        }
+      }
+      // Back to the front door, which is where somebody with no key belongs.
+      window.location.href = "/";
+    });
+  }
+
+  for (const closer of modal.querySelectorAll('[data-close="signOutModal"]')) {
+    closer.addEventListener("click", () => { modal.style.display = "none"; });
+  }
 }
 
 // Highlight the link for the page being viewed. Compared on pathname so query

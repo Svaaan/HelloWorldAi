@@ -363,6 +363,44 @@ step "Building and starting the node"
 info "The first build compiles a CUDA image and can take several minutes."
 
 cd "$INSTALL_DIR"
+
+# 3000 is a popular address -- another dev server, another project, or this
+# project's own test stack. Docker's answer is "Bind for 0.0.0.0:3000 failed:
+# port is already allocated", which arrives after the whole image has built and
+# reads as a broken install rather than as a clash you can step around.
+#
+# So look first, and move the outside half if it is taken. Only the host port
+# changes; the container still serves 3000, so nothing inside has to know.
+port_taken() {
+    if have ss; then
+        ss -lnt 2>/dev/null | grep -q ":$1 "
+    elif have netstat; then
+        netstat -lnt 2>/dev/null | grep -q ":$1 "
+    else
+        return 1                      # cannot tell; let docker decide
+    fi
+}
+
+DASHBOARD_HOST_PORT="${DASHBOARD_HOST_PORT:-3000}"
+if port_taken "$DASHBOARD_HOST_PORT"; then
+    original="$DASHBOARD_HOST_PORT"
+    for candidate in 3100 3200 3300 3400; do
+        if ! port_taken "$candidate"; then
+            DASHBOARD_HOST_PORT="$candidate"
+            break
+        fi
+    done
+
+    if [ "$DASHBOARD_HOST_PORT" = "$original" ]; then
+        die "Port $original is in use and nothing nearby is free.
+
+Free it, or choose one yourself:
+    DASHBOARD_HOST_PORT=<port> $0 $*"
+    fi
+    warn "Port $original is already in use; the dashboard will be on $DASHBOARD_HOST_PORT."
+fi
+export DASHBOARD_HOST_PORT
+
 $DOCKER compose -f "$COMPOSE_FILE" up -d --build
 
 sleep 5
@@ -375,7 +413,7 @@ fi
 step "Node is running"
 cat <<EOF
 
-    Next: open ${BOLD}http://localhost:3000${RESET} and register this node.
+    Next: open ${BOLD}http://localhost:${DASHBOARD_HOST_PORT}${RESET} and register this node.
     You will be given a key file -- keep it safe, it is the only proof
     this node is yours.
 

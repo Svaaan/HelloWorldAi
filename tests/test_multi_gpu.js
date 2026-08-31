@@ -200,5 +200,88 @@ check("the front door does not offer what this dashboard cannot do", () => {
 });
 
 
+// --- ending a session ----------------------------------------------------
+//
+// The key in this browser is the account. Until there was a way out, the only
+// way to stop being somebody was to clear site data by hand -- which is also
+// exactly how you lose a key you never saved.
+
+check("sign-out forgets every key the app stores", () => {
+  // The invariant worth guarding. A new key added anywhere in the app and not
+  // listed here would survive a sign-out: the person believes they are gone,
+  // and the browser still holds part of their identity.
+  const header = fs.readFileSync(
+    path.join(ROOT, "src/frontend/static/js/component/header.js"), "utf8");
+
+  const listed = new Set(
+    [...header.matchAll(/"([a-zA-Z][a-zA-Z0-9]*)"/g)].map(m => m[1]));
+
+  const jsDir = path.join(ROOT, "src/frontend/static/js");
+  const written = new Set();
+  const walk = (dir) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) { walk(full); continue; }
+      if (!entry.name.endsWith(".js")) continue;
+      const src = fs.readFileSync(full, "utf8");
+      for (const m of src.matchAll(/localStorage\.setItem\(\s*"([^"]+)"/g)) {
+        written.add(m[1]);
+      }
+      // keys held in a constant, e.g. KEY_STORAGE = "submitterKey"
+      for (const m of src.matchAll(/const [A-Z_]+ = "([a-zA-Z][a-zA-Z0-9]*)";/g)) {
+        if (/Key|KEY|Token|Id/.test(m[0])) written.add(m[1]);
+      }
+    }
+  };
+  walk(jsDir);
+
+  const missed = [...written].filter(k => !listed.has(k));
+  assert.deepEqual(missed, [],
+    `these are stored but sign-out would leave them behind: ${missed.join(", ")}`);
+});
+
+check("signing out of one side leaves the other alone", () => {
+  // Somebody can lend a graphics card and train their own models. Those are
+  // two keys, and ending one session must not end the other.
+  const header = fs.readFileSync(
+    path.join(ROOT, "src/frontend/static/js/component/header.js"), "utf8");
+
+  const builder = header.slice(header.indexOf("builder: ["), header.indexOf("]", header.indexOf("builder: [")));
+  const contributor = header.slice(header.indexOf("contributor: ["), header.indexOf("]", header.indexOf("contributor: [")));
+
+  assert.ok(builder.includes("submitterKey"));
+  assert.ok(!builder.includes("currentNodeId"), "the data side must not clear node keys");
+  assert.ok(contributor.includes("currentNodeId"));
+  assert.ok(!contributor.includes("submitterKey"), "the GPU side must not clear the submitter key");
+});
+
+check("holding both keys still gives a sign-out an answer", () => {
+  // currentRole() returns null for somebody who is both, because it asks
+  // "which one thing is this browser". The header asks a narrower question --
+  // which side am I leaving from this page -- and that always has an answer.
+  const header = fs.readFileSync(
+    path.join(ROOT, "src/frontend/static/js/component/header.js"), "utf8");
+
+  const fn = header.slice(header.indexOf("function signedInAs"));
+  assert.ok(/pageRole\(/.test(fn.slice(0, 400)),
+    "signedInAs should prefer the role of the page you are on");
+  assert.ok(!/return currentRole\(\);/.test(fn.slice(0, 400)),
+    "currentRole is null when both keys are present, which hides the button");
+});
+
+check("it warns when the key has never been saved", () => {
+  const html = fs.readFileSync(
+    path.join(ROOT, "src/frontend/template/header.html"), "utf8");
+  const header = fs.readFileSync(
+    path.join(ROOT, "src/frontend/static/js/component/header.js"), "utf8");
+
+  assert.ok(html.includes('id="signOutUnsaved"'), "no unsaved warning at all");
+  assert.ok(html.includes("no password reset"),
+    "the warning should say the loss is permanent");
+  assert.ok(header.includes("BACKED_UP_MARKER"),
+    "the warning is not conditional on whether the key was saved");
+});
+
+
 console.log(failures ? `\n  ${failures} failed` : "\n  all checks passed");
 process.exit(failures ? 1 : 0);
