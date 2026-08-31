@@ -1,4 +1,5 @@
 import { establishNodeSession } from "./nodeSession.js";
+import { nodeCallError, showNodeMessage } from "./nodeErrors.js";
 
 let privateKey = null;
 
@@ -74,13 +75,12 @@ function offerPrivateKeyDownload() {
 }
 
 // ✅ Utility to show messages
-function showMessage(message, type = "success") {
-    const resultMessageElement = document.getElementById("resultMessage");
-    // textContent, not innerHTML. `err.message` here carries the server's
-    // `detail` field, and some of those are formatted strings holding a
-    // node_id taken from the URL -- markup from outside, parsed in the page.
-    resultMessageElement.textContent = message;
-    resultMessageElement.className = type === "success" ? "success-message" : "error-message";
+//
+// `options.offerSetupGuide` adds a link to the guide. It is set when the
+// failure was that no node agent is running here, which is not really an error
+// so much as the next thing to go and do.
+function showMessage(message, type = "success", options = {}) {
+    showNodeMessage(document.getElementById("resultMessage"), message, type, options);
 }
 
 // ✅ Utility to reset result message area (before next registration flow)
@@ -185,7 +185,8 @@ async function registerNode() {
         const result = await response.json();
 
         if (!response.ok) {
-            throw new Error(result.detail || result.error || `Registration failed: ${response.status}`);
+            throw nodeCallError(response, result,
+                `Registration failed: ${response.status}`);
         }
 
         // The node returns 200 with status "rejected" when it has no usable GPU.
@@ -227,7 +228,8 @@ async function registerNode() {
 
     } catch (err) {
         console.error("Register node error:", err);
-        showMessage(err.message, "error");
+        showMessage(err.message, "error",
+            { offerSetupGuide: err.offerSetupGuide });
     } finally {
         processingMessage.style.display = "none";
     }

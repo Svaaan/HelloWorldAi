@@ -375,16 +375,31 @@ def test_an_unreachable_node_is_explained_not_leaked():
     # 503, not 502: the service is unavailable here by design, not broken.
     assert res.status_code == 503
     body = res.json()
+
+    # The flag is the contract. The pages branch on this to decide whether to
+    # offer the setup guide, and an earlier version of this test asserted on a
+    # phrase in the sentence instead -- which made the wording load-bearing and
+    # broke the moment anyone improved it.
+    assert body.get("no_local_node") is True, (
+        "the pages need a marker they can branch on without matching prose"
+    )
+
     for key in ("error", "detail"):
-        assert "no node agent attached" in body[key]
         assert "name resolution" not in body[key], (
             "the DNS error should not reach the person reading this"
         )
-    assert "Setup" in body["error"], "it should say where to go instead"
+        assert "node agent" in body[key], (
+            "it should still say, in words, what is missing"
+        )
 
 
 def test_a_coordinator_failure_still_reads_as_a_failure():
-    """The friendlier message must not swallow a real outage."""
+    """The friendlier message must not swallow a real outage.
+
+    And it must not carry `no_local_node` either: the pages would offer the
+    setup guide for a coordinator that is simply down, telling somebody to
+    install software they already have.
+    """
     import httpx as _httpx
 
     app = FastAPI()
@@ -400,7 +415,12 @@ def test_a_coordinator_failure_still_reads_as_a_failure():
         res = client.get("/my-tasks")
 
     assert res.status_code == 502
-    assert "no node agent" not in res.json()["error"]
+    body = res.json()
+    assert "no node agent" not in body["error"]
+    assert "no_local_node" not in body, (
+        "a coordinator that is down would send the reader off to install a node "
+        "agent they already have"
+    )
 
 
 def test_the_dashboard_can_say_whether_it_has_a_node():

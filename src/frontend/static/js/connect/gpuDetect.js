@@ -83,6 +83,19 @@ export function renderGpuStatus(box) {
   small.textContent = detail;
 
   text.append(strong, small);
+
+  // Somebody who asked to register and has no usable card is stuck on a fact
+  // about their machine, not on this dialog. The guide covers the two things
+  // that usually explain it -- drivers, and WSL 2 on Windows -- so offer it
+  // here instead of leaving the sentence to stand on its own.
+  if (!supported) {
+    const guide = document.createElement("a");
+    guide.href = "/setup";
+    guide.className = "message-action";
+    guide.textContent = "Read the setup guide";
+    text.appendChild(guide);
+  }
+
   box.append(dot, text);
 
   return result;

@@ -132,19 +132,25 @@ async def forward(request: Request, upstream: str, timeout: float):
         # container that was never meant to exist here.
         if upstream == NODE_URL:
             message = (
-                "This dashboard has no node agent attached, so there is nothing "
-                "here to register or control. A graphics card is offered from "
-                "the machine it is in: install the node there, and manage it "
-                "from the dashboard that starts alongside it. The Setup guide "
-                "has the command."
+                "No node agent is running on this machine, so there is nothing "
+                "here to register yet. A graphics card is offered from the "
+                "machine it is in: install the agent there, and register it "
+                "from the dashboard that starts alongside it."
             )
             status = 503
         else:
             message = "Could not reach %s: %s" % (upstream, e)
             status = 502
 
+        payload = {"error": message, "detail": message}
+        if status == 503:
+            # A flag rather than a sentence to match on. The pages offer the
+            # setup guide when they see this, and wording that a page has to
+            # recognise by its text is wording nobody can edit safely.
+            payload["no_local_node"] = True
+
         return Response(
-            content=json.dumps({"error": message, "detail": message}).encode(),
+            content=json.dumps(payload).encode(),
             status_code=status,
             media_type="application/json",
         )
@@ -260,13 +266,19 @@ async def local_node():
     it. On the central server there is no node and there cannot be one -- a
     graphics card is offered from the machine it is in.
 
-    Without this the front door offered "Lend your graphics card" on the central
-    deployment too, and the button led to a registration call that failed with
-    "Temporary failure in name resolution" -- a DNS error for a container that
-    was never meant to exist there.
+    The front door used to ask this on load and rearrange itself around the
+    answer. It does not any more: hiding the register and connect buttons put a
+    second link to the setup guide where the two doors had been, on a card that
+    already links the guide in its corner. The dialogs handle the missing agent
+    instead, at the point where somebody actually asks for it -- forward() marks
+    that 503 with `no_local_node`, and connect/nodeErrors.js explains it there.
 
-    Cached briefly: the answer changes about as often as the deployment does,
-    and the front door asks on every load.
+    Kept because it answers the question directly, without registering a node to
+    find out, which is what you want when checking a deployment: a fresh install
+    reports `present: true` from the machine holding the card, and the central
+    server reports `present: false`.
+
+    Cached briefly; the answer changes about as often as the deployment does.
     """
     now = time.time()
     if (_local_node_seen["answer"] is not None

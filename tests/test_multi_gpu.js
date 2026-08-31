@@ -177,26 +177,71 @@ check("a visitor with no node is not shown somebody else's GPU", () => {
     "live work polling is not gated on holding a node identity");
 });
 
-check("the front door does not offer what this dashboard cannot do", () => {
-  // On the central server there is no node agent and there cannot be one, so
-  // "Create key file" on the GPU card called /connect-node and came back with
-  // a DNS error for a container that was never meant to exist there.
+check("the front door keeps both its doors", () => {
+  // It briefly did not. Where no node agent answered, the page hid "Create key
+  // file" and "I have a key file" on load and revealed a "Set up your machine"
+  // link in their place -- on a card that already links the Setup guide in its
+  // corner, so the only thing left to press led to a page of instructions.
+  //
+  // The missing agent is real, and it is explained where somebody runs into it
+  // rather than decided for them beforehand.
   const html = fs.readFileSync(
     path.join(ROOT, "src/frontend/template/start.html"), "utf8");
   const js = fs.readFileSync(
     path.join(ROOT, "src/frontend/static/js/component/start.js"), "utf8");
 
-  assert.ok(html.includes('id="contributorSetupOnly"'),
-    "no fallback pointing at the setup guide");
-  // The call, not merely the definition: a function nobody invokes was the
-  // first version of this test passing while the page had stopped asking.
-  const init = js.slice(js.indexOf("export function initStart"));
-  assert.ok(/adaptToLocalNode\(\);/.test(init),
-    "initStart never calls adaptToLocalNode, so the page never asks");
-  assert.ok(js.includes('fetch("/local-node")'),
-    "it should ask the service rather than guess");
-  assert.ok(/let present = true;/.test(js),
-    "on doubt it should leave the page as authored");
+  assert.ok(html.includes('id="registerNodeButton"')
+    && html.includes('id="connectNodeButton"'),
+    "the GPU card should offer the same two doors as the data card");
+  assert.ok(!html.includes('id="contributorSetupOnly"'),
+    "a third button to the guide, next to the guide link, is the thing that "
+    + "was removed");
+  assert.ok(!js.includes('fetch("/local-node")'),
+    "the front door should not rearrange itself on load any more");
+});
+
+check("a missing node agent is explained where it gets in the way", () => {
+  const errors = fs.readFileSync(
+    path.join(ROOT, "src/frontend/static/js/connect/nodeErrors.js"), "utf8");
+
+  // The flag, not the wording. Matching the sentence means nobody can edit it.
+  assert.ok(errors.includes("no_local_node"),
+    "it should branch on the marker the proxy sets, not on message text");
+  assert.ok(/href = "\/setup"/.test(errors),
+    "the message should offer the guide as the next step");
+
+  for (const file of ["registerNodeModal.js", "connectExistingNode.js"]) {
+    const source = fs.readFileSync(
+      path.join(ROOT, "src/frontend/static/js/connect", file), "utf8");
+
+    assert.ok(source.includes("nodeCallError"),
+      `${file} builds its errors by hand, so the marker never survives`);
+    // The flag has to reach the call that renders, or the link never appears.
+    assert.ok(/offerSetupGuide: err\.offerSetupGuide/.test(source),
+      `${file} throws with the flag but drops it before showing the message`);
+  }
+
+  // Same dead end, different cause: an actual machine with no NVIDIA card.
+  const gpu = fs.readFileSync(
+    path.join(ROOT, "src/frontend/static/js/connect/gpuDetect.js"), "utf8");
+  assert.ok(/if \(!supported\)/.test(gpu) && gpu.includes('href = "/setup"'),
+    "no usable card should point at the guide too");
+});
+
+check("the setup guide does not send you back to itself", () => {
+  // The last step read "You are ready" over a green tick and linked "/". On the
+  // central server "/" is the front door, which cannot register a node -- so it
+  // offered the setup guide, which is the page you were just on.
+  const html = fs.readFileSync(
+    path.join(ROOT, "src/frontend/template/setup.html"), "utf8");
+
+  const done = html.slice(html.indexOf('class="step step-done"'));
+  assert.ok(!/href="\/"/.test(done),
+    "the last step still points at the front door, which is where the loop was");
+  assert.ok(done.includes("localhost:3000"),
+    "it should point at the dashboard that starts beside the node");
+  assert.ok(!done.includes("You are ready"),
+    "nobody reading a guide has run anything yet");
 });
 
 

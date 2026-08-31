@@ -215,17 +215,34 @@ sudo apt-get install -y cuda-toolkit-12-8</code>
 
         <!-- ---------- done ---------- -->
 
+        <!-- This step used to read "You are ready" over a green tick, and its
+             button pointed at "/". Both were wrong from here. Nobody reading a
+             guide has done anything yet, and "/" on this deployment is the
+             front door of the central server, which has no node agent and
+             cannot register one -- so it offered the setup guide, which is this
+             page. A loop, presented as a finish line.
+
+             Registering happens on the dashboard the installer starts next to
+             the agent, on the machine holding the card. That address is the
+             last thing the installer prints. -->
+
         <div class="step step-done">
             <div class="step-header">
-                <div class="step-number">✓</div>
-                <div class="step-title">You are ready</div>
+                <div class="step-number">→</div>
+                <div class="step-title">Then register it</div>
             </div>
             <p>
-                Register the node and it will start showing up to the network as
-                available compute.
+                The installer finishes by printing an address. Open it on the
+                machine you just set up: that dashboard runs beside the agent,
+                and it is where you register the node and watch it work.
+            </p>
+            <p>
+                It is <code>http://localhost:3000</code> unless something was
+                already using that port, in which case the installer says which
+                one it picked.
             </p>
             <div class="button-row">
-                <a href="/" class="btn">Connect your node →</a>
+                <a href="http://localhost:3000" class="btn">Open your dashboard →</a>
             </div>
         </div>
     </main>

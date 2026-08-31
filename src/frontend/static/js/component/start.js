@@ -124,38 +124,27 @@ function setupContributor() {
   });
 }
 
-/** Hide the register/connect buttons where registering cannot work.
- *
- * The same dashboard image serves two jobs. Beside a contributor's node agent
- * it is how they register it. On the central server there is no node and there
- * cannot be one -- and the buttons led to a call that failed with "Temporary
- * failure in name resolution": a DNS error, for a container never meant to
- * exist there.
- */
-async function adaptToLocalNode() {
-  let present = true;                  // on doubt, leave the page as authored
-  try {
-    const res = await fetch("/local-node");
-    if (res.ok) present = Boolean((await res.json()).present);
-  } catch {
-    return;
-  }
-  if (present) return;
-
-  for (const id of ["registerNodeButton", "connectNodeButton"]) {
-    const el = document.getElementById(id);
-    if (el) el.hidden = true;
-  }
-  for (const id of ["contributorSetupOnly", "contributorRemoteNote"]) {
-    const el = document.getElementById(id);
-    if (el) el.hidden = false;
-  }
-}
+// This page no longer asks /local-node on load.
+//
+// It used to, and where no agent answered it hid "Create key file" and "I have
+// a key file" and revealed a "Set up your machine" link instead. That fixed a
+// real bug -- the buttons had led to a DNS error for a container that was never
+// meant to exist on the central server -- by removing the buttons.
+//
+// It was the wrong place to fix it. The card already links the Setup guide in
+// its corner, so the swap put a second route to the same page where the two
+// doors had been, and left the guide as the only thing a visitor could do on
+// the card whose subject is lending a graphics card. Somebody who has pressed
+// "Create key file" has told you something; somebody who has just arrived has
+// not.
+//
+// The dialogs handle it now, at the moment it stops being hypothetical: the
+// proxy answers 503 with `no_local_node`, and connect/nodeErrors.js turns that
+// into the explanation plus a link to the guide.
 
 export function initStart() {
   markAlreadySetUp();
   setupContributor();
-  adaptToLocalNode();
 
   const start = document.getElementById("builderStart");
   if (start) {

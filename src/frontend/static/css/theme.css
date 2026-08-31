@@ -401,6 +401,23 @@ pre {
   border-color: rgba(248, 113, 113, 0.22);
 }
 
+/* A way onward from inside a message. Where something did not work because a
+   step has not been done yet, the message says so and links the step, rather
+   than the page having guessed in advance and offered the step instead of the
+   thing you came to do. */
+.message-action {
+  color: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  white-space: nowrap;
+}
+
+.message-action:hover,
+.message-action:focus-visible {
+  text-decoration-thickness: 2px;
+}
+
 /* --- modals -------------------------------------------------- */
 
 .modal-backdrop,

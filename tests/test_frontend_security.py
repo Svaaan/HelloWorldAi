@@ -67,10 +67,37 @@ def test_no_module_assigns_to_innerhtml():
 
 
 def test_the_connect_modals_show_errors_as_text():
-    # The specific pair that carried server `detail` into the DOM.
+    """The pair that carried the server's `detail` into the DOM.
+
+    Some of those strings are formatted with a node_id taken straight out of the
+    URL, so this is markup arriving from outside and being parsed -- the one
+    thing these files must not do.
+
+    Both used to set textContent themselves. They now hand the message to
+    connect/nodeErrors.js, which also appends a link to the setup guide where
+    the failure was that no node agent is running. The check follows the render
+    to where it lives rather than pinning it to two files that no longer do it.
+    """
+    renderer = read(os.path.join(JS, "connect/nodeErrors.js"))
+    assert "textContent = message" in renderer, (
+        "nodeErrors.js is where the message reaches the page; it has to set text"
+    )
+
+    # The link it adds is built, not interpolated, and points at one fixed page.
+    assert 'href = "/setup"' in renderer, (
+        "the guide link should be a literal path, never built from a response"
+    )
+
     for name in ("connect/connectExistingNode.js", "connect/registerNodeModal.js"):
         source = read(os.path.join(JS, name))
-        assert "textContent = message" in source, f"{name} no longer sets text"
+        assert "showNodeMessage" in source, (
+            f"{name} should render through nodeErrors.js, which sets text"
+        )
+        # innerHTML is caught for every file by the check above; this says the
+        # two that handle `detail` did not start assembling markup instead.
+        assert "insertAdjacentHTML" not in source, (
+            f"{name} builds markup from a response"
+        )
 
 
 # --- 2. the CSP can stay strict ------------------------------------------

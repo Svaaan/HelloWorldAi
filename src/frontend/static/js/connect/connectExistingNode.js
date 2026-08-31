@@ -1,4 +1,5 @@
 import { establishNodeSession } from "./nodeSession.js";
+import { nodeCallError, showNodeMessage } from "./nodeErrors.js";
 
 export function setupConnectExistingNodeModal() {
   const modal = document.getElementById("connectNodeModal");
@@ -10,14 +11,12 @@ export function setupConnectExistingNodeModal() {
 
   let privateKey = null;
 
-  function showMessage(message, type = "success") {
-    // textContent, not innerHTML. Every message here is plain text, but one of
-    // them is `err.message`, and those errors are built from the server's
-    // `detail` field -- which in places is a formatted string containing a
-    // node_id taken straight from the URL. That is markup arriving from
-    // outside and being parsed, which is the one thing this file must not do.
-    resultMessage.textContent = message;
-    resultMessage.className = type === "success" ? "success-message" : "error-message";
+  // textContent throughout, never innerHTML: these messages carry the server's
+  // `detail`, which in places is a formatted string containing a node_id taken
+  // straight from the URL. `options.offerSetupGuide` adds a link to the guide,
+  // for the one failure that is really an instruction.
+  function showMessage(message, type = "success", options = {}) {
+    showNodeMessage(resultMessage, message, type, options);
   }
 
   function clearModalState() {
@@ -91,7 +90,8 @@ export function setupConnectExistingNodeModal() {
       const connectData = await connectResponse.json();
 
       if (!connectResponse.ok) {
-        throw new Error(connectData.detail || connectData.error || "Failed to reach the node process.");
+        throw nodeCallError(connectResponse, connectData,
+          "Failed to reach the node process.");
       }
 
       if (connectData.status === "rejected") {
@@ -138,7 +138,8 @@ export function setupConnectExistingNodeModal() {
 
     } catch (err) {
       console.error("Connect node error:", err);
-      showMessage(err.message || "An unknown error occurred.", "error");
+      showMessage(err.message || "An unknown error occurred.", "error",
+        { offerSetupGuide: err.offerSetupGuide });
     } finally {
       processingMessage.style.display = "none";
       confirmButton.disabled = false;
