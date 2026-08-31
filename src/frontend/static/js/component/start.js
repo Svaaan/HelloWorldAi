@@ -124,23 +124,23 @@ function setupContributor() {
   });
 }
 
-// This page no longer asks /local-node on load.
+// Nothing here asks /local-node, and nothing here rearranges the card.
 //
-// It used to, and where no agent answered it hid "Create key file" and "I have
-// a key file" and revealed a "Set up your machine" link instead. That fixed a
-// real bug -- the buttons had led to a DNS error for a container that was never
-// meant to exist on the central server -- by removing the buttons.
+// This file did both for a while: it fetched the answer on load and, where no
+// agent replied, hid "Create key file" and "I have a key file" and revealed a
+// "Set up your machine" link. Two things were wrong with that, and only one of
+// them was the swap itself. The card already linked the Setup guide in its
+// corner, so the result was two routes to the same page; and it happened a beat
+// after the page appeared, so the layout visibly moved.
 //
-// It was the wrong place to fix it. The card already links the Setup guide in
-// its corner, so the swap put a second route to the same page where the two
-// doors had been, and left the guide as the only thing a visitor could do on
-// the card whose subject is lending a graphics card. Somebody who has pressed
-// "Create key file" has told you something; somebody who has just arrived has
-// not.
+// The difference is real, though. Both buttons end in a call to the node agent
+// beside this dashboard, and the central server has none, so there they could
+// only ever produce an explanation of why they do not work. So the front door
+// is now rendered for the deployment it is serving -- see start_page() in
+// src/app.py and the branch in start.html -- and the correct markup arrives on
+// the first paint.
 //
-// The dialogs handle it now, at the moment it stops being hypothetical: the
-// proxy answers 503 with `no_local_node`, and connect/nodeErrors.js turns that
-// into the explanation plus a link to the guide.
+// Every handler below is written to find its element missing.
 
 export function initStart() {
   markAlreadySetUp();

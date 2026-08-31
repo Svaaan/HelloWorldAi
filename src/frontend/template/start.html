@@ -64,9 +64,15 @@
             <section class="start-choice" id="contributorChoice">
                 <div class="start-choice-top">
                     <span class="start-choice-tag">I have a GPU</span>
+                    {% if has_local_node %}
+                    <!-- A reference while you are setting the node up. Absent on
+                         the central deployment, where the card's one action is
+                         already the guide and a second link to it in the corner
+                         is the duplication that was there before. -->
                     <a href="/setup" class="start-choice-tag start-choice-guide">
                         Setup guide
                     </a>
+                    {% endif %}
                 </div>
                 <h2>Lend your graphics card</h2>
                 <p>
@@ -78,6 +84,7 @@
                     Needs an <strong>NVIDIA GPU</strong> on Windows with WSL 2, or Linux.
                 </p>
 
+                {% if has_local_node %}
                 <!-- The same two doors as the other card. Connecting stays
                      reachable once a node exists, so somebody with one card can
                      add a second and is not stranded if the stored node is
@@ -91,14 +98,36 @@
                     </button>
                     <a href="/node" class="btn-ghost" id="contributorNode" hidden>Connect to node</a>
                 </div>
-                <!-- There is no third button here for "you have not installed
-                     it yet". The Setup guide is already linked in the corner of
-                     this card, and where the agent turns out to be missing the
-                     dialogs say so and link the guide at that point -- see
-                     static/js/connect/nodeErrors.js. Replacing these two doors
-                     on load meant deciding, on somebody's behalf and before
-                     they had pressed anything, that they had come to read
-                     instructions. -->
+                {% else %}
+                <!-- No agent beside this dashboard, and on the central server
+                     there never will be one. Both buttons above end in a call to
+                     that agent, so here they could only ever produce:
+                
+                       "No node agent is running on this machine, so there is
+                        nothing here to register yet."
+                
+                     A button whose only outcome is an explanation of why it does
+                     not work is not a button. The card still earns its place --
+                     it is where somebody learns that lending a card is a thing
+                     they could do -- so it keeps the pitch and offers the one
+                     step that actually applies from here. -->
+                <div class="start-actions">
+                    <a href="/setup" class="btn" id="contributorSetup">
+                        Set up your machine
+                    </a>
+                </div>
+                {% endif %}
+                <!-- Whichever branch above rendered, the card offers exactly one
+                     route to the guide: the corner link beside a working pair of
+                     buttons, or the button where those cannot work. An earlier
+                     version showed both at once, which is two links to the same
+                     page stacked on one card.
+
+                     The dialogs still explain a missing agent themselves -- see
+                     static/js/connect/nodeErrors.js. That path is no longer the
+                     common case, but it is not dead: a contributor's own agent
+                     can be stopped, crashed, or still starting while its
+                     dashboard is up. -->
                 <div id="processingMessage" class="processing" role="status" aria-live="polite">
                     <span class="loading-spinner" aria-hidden="true"></span>
                     <span>Working…</span>

@@ -177,27 +177,29 @@ check("a visitor with no node is not shown somebody else's GPU", () => {
     "live work polling is not gated on holding a node identity");
 });
 
-check("the front door keeps both its doors", () => {
-  // It briefly did not. Where no node agent answered, the page hid "Create key
-  // file" and "I have a key file" on load and revealed a "Set up your machine"
-  // link in their place -- on a card that already links the Setup guide in its
-  // corner, so the only thing left to press led to a page of instructions.
+check("the front door is rendered for its deployment, not adjusted after", () => {
+  // What each rendering actually contains is checked in
+  // tests/test_front_door.py, which renders the template both ways. Reading the
+  // raw template here cannot tell the two apart -- both branches are in the
+  // file -- and a check that cannot fail is worse than none.
   //
-  // The missing agent is real, and it is explained where somebody runs into it
-  // rather than decided for them beforehand.
+  // What is worth pinning from this side: the page does not do it in the
+  // browser. It did once, and the layout visibly moved a beat after the page
+  // appeared.
   const html = fs.readFileSync(
     path.join(ROOT, "src/frontend/template/start.html"), "utf8");
   const js = fs.readFileSync(
     path.join(ROOT, "src/frontend/static/js/component/start.js"), "utf8");
 
-  assert.ok(html.includes('id="registerNodeButton"')
-    && html.includes('id="connectNodeButton"'),
-    "the GPU card should offer the same two doors as the data card");
-  assert.ok(!html.includes('id="contributorSetupOnly"'),
-    "a third button to the guide, next to the guide link, is the thing that "
-    + "was removed");
+  assert.ok(/{%\s*if has_local_node\s*%}/.test(html),
+    "the template should decide this, so the right markup arrives first paint");
   assert.ok(!js.includes('fetch("/local-node")'),
-    "the front door should not rearrange itself on load any more");
+    "the front door should not re-arrange itself after load");
+
+  // Every handler has to tolerate its element being absent, because on the
+  // public rendering the register and connect buttons are simply not there.
+  assert.ok(/if \(!document\.getElementById\("registerNodeButton"\)\) return;/
+    .test(js), "setupContributor should bail out when the buttons are absent");
 });
 
 check("a missing node agent is explained where it gets in the way", () => {

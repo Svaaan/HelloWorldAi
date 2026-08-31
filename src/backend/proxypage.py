@@ -262,6 +262,30 @@ _local_node_seen = {"answer": None, "at": 0.0}
 LOCAL_NODE_CACHE_SECONDS = 30
 
 
+async def has_local_node() -> bool:
+    """Is a node agent listening beside this dashboard?
+
+    Shared by the /local-node endpoint and by the front door, which is rendered
+    differently for the two deployments -- see the template. One function so
+    the page and the endpoint can never disagree about it.
+    """
+    now = time.time()
+    if (_local_node_seen["answer"] is not None
+            and now - _local_node_seen["at"] < LOCAL_NODE_CACHE_SECONDS):
+        return _local_node_seen["answer"]
+
+    present = False
+    try:
+        async with httpx.AsyncClient() as client:
+            res = await client.get(f"{NODE_URL}/current-task", timeout=3)
+            present = res.status_code < 500
+    except Exception:
+        present = False
+
+    _local_node_seen.update({"answer": present, "at": now})
+    return present
+
+
 @router.get("/local-node")
 async def local_node():
     """Whether a node agent runs alongside this dashboard.
@@ -285,21 +309,7 @@ async def local_node():
 
     Cached briefly; the answer changes about as often as the deployment does.
     """
-    now = time.time()
-    if (_local_node_seen["answer"] is not None
-            and now - _local_node_seen["at"] < LOCAL_NODE_CACHE_SECONDS):
-        return {"present": _local_node_seen["answer"]}
-
-    present = False
-    try:
-        async with httpx.AsyncClient() as client:
-            res = await client.get(f"{NODE_URL}/current-task", timeout=3)
-            present = res.status_code < 500
-    except Exception:
-        present = False
-
-    _local_node_seen.update({"answer": present, "at": now})
-    return {"present": present}
+    return {"present": await has_local_node()}
 
 
 # --- the one route that is not a forward -----------------------------------

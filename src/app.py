@@ -2,10 +2,11 @@ import os
 import sys
 import multiprocessing
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 from backend.utils.config import USE_DOCKER, NODE_PORT, COORDINATOR_PORT, DASHBOARD_PORT  # ✅ import from config
 
 # Paths
@@ -39,6 +40,7 @@ if not USE_DOCKER:
 # functions that need them instead, and tests/test_image_requirements.py checks
 # each image's requirements file against what its entry point actually imports.
 from backend.dashboard import router as dashboard_router
+from backend.proxypage import has_local_node
 from backend.proxypage import router as proxy_router
 
 # Dashboard app
@@ -49,6 +51,8 @@ dashboard_app.include_router(dashboard_router)
 dashboard_app.include_router(proxy_router)
 
 # Mount static + template files
+templates = Jinja2Templates(directory=TEMPLATE_DIR)
+
 dashboard_app.mount("/template", StaticFiles(directory=TEMPLATE_DIR), name="template")
 dashboard_app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
@@ -127,16 +131,35 @@ async def security_headers(request, call_next):
 
 # === Frontend routes ===
 @dashboard_app.get("/", response_class=HTMLResponse, include_in_schema=False)
-async def start_page():
+async def start_page(request: Request):
     """The front door.
 
     This used to redirect to /connect, which asks for a GPU. Somebody arriving
     with a dataset and an ordinary laptop was told their hardware was
     unsuitable for something they had not asked to do. The two sides of the
     network get a door each.
+
+    The GPU door differs between the two deployments, and is rendered here
+    rather than adjusted by script after the page loads. "Create key file" and
+    "I have a key file" both end in a call to the node agent running beside
+    this dashboard. On a contributor's machine that is the whole point. On the
+    central server there is no agent and cannot be one -- not even for somebody
+    browsing from the machine that has one, because this page is served over
+    HTTPS and their agent listens on plain HTTP on their own localhost. There,
+    those buttons can only ever produce an error, so the card offers the guide
+    instead.
+
+    Rendered server-side so the right markup arrives on the first paint. Doing
+    it in the browser meant the page visibly rearranged itself a moment after
+    it appeared, which reads as a glitch even when the end state is right.
     """
-    path = os.path.join(TEMPLATE_DIR, "start.html")
-    return FileResponse(path) if os.path.exists(path) else HTMLResponse("<h1>404 - start.html not found</h1>", status_code=404)
+    if not os.path.exists(os.path.join(TEMPLATE_DIR, "start.html")):
+        return HTMLResponse("<h1>404 - start.html not found</h1>", status_code=404)
+
+    return templates.TemplateResponse("start.html", {
+        "request": request,
+        "has_local_node": await has_local_node(),
+    })
 
 @dashboard_app.get("/connect", include_in_schema=False)
 def render_connect():
