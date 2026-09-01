@@ -1,0 +1,133 @@
+# One real job, through the images that actually ship.
+#
+#   docker compose -p hwai-smoke -f docker/docker-compose.smoke.yml \
+#     up --build --abort-on-container-exit --exit-code-from smoke
+#
+# Every production failure in this project so far has been an integration
+# failure, and not one of them was a thing a unit test could see:
+#
+#   * the dashboard image built cleanly and crash-looped on a missing bson
+#   * /connect-node meant two different things and the proxy picked one, so no
+#     contributor's node could register through the public address at all
+#   * a starting node agent was cached as a missing one
+#
+# What they have in common is that each needed two pieces running together to
+# show up. So this brings up the built images -- no source bind mounts, unlike
+# docker-compose.test.yml, which mounts ../src and therefore never tests what
+# was put in the image -- and runs a job end to end through them.
+#
+# There is no node agent here. That image is built on nvidia/cuda and wants a
+# graphics card, which CI does not have. tests/smoke/smoke_run.py speaks the
+# node's half of the protocol instead: it registers, proves it holds the key,
+# claims the task, trains it with the same executor the real agent calls, and
+# reports the result back. Everything it talks to is real.
+
+services:
+  mongo:
+    image: mongo:7
+    # No host port and no volume: a smoke run starts from nothing and leaves
+    # nothing, so a stale database can never make it pass or fail.
+    tmpfs:
+      - /data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ping:1})"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+
+  coordinator:
+    build:
+      context: ../
+      dockerfile: docker/Dockerfile
+      target: server
+    environment:
+      - USE_DOCKER=true
+      - ENV=test
+      - MONGO_URI=mongodb://mongo:27017
+      - MONGO_DB=NodeDbSmoke
+      - COORDINATOR_URL=http://coordinator:8100
+      - NODE_TOKEN_SECRET=smoke-run-signing-key-not-a-secret
+      # Exercise the encrypted-at-rest path rather than the bypass. Generated
+      # per run by the runner script's caller; the default here keeps a bare
+      # `docker compose up` working.
+      - ARTIFACT_ENCRYPTION_KEY=${SMOKE_ARTIFACT_KEY:-c21va2UtcnVuLWtleS1ub3QtYS1zZWNyZXQtMzJieXRlcw==}
+      - HOLDOUT_FRACTION=0.2
+    command: uvicorn src.backend.coordinator:app --host 0.0.0.0 --port 8100
+    depends_on:
+      mongo:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request;urllib.request.urlopen('http://localhost:8100/nodes').read()"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+
+  # The production-shaped dashboard. The smoke run talks to this rather than to
+  # the coordinator directly, because the proxy is where a path can reach the
+  # wrong service and nothing says so.
+  dashboard:
+    build:
+      context: ../
+      dockerfile: docker/Dockerfile
+      target: server
+    environment:
+      - USE_DOCKER=true
+      - ENV=test
+      - COORDINATOR_URL=http://coordinator:8100
+      # There is no node agent on this deployment, exactly as on the real
+      # server. Calls that need one must fail as designed, not hang.
+      - NODE_URL=http://node-that-does-not-exist:9100
+    command: uvicorn src.app:app --host 0.0.0.0 --port 3000
+    depends_on:
+      coordinator:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request;urllib.request.urlopen('http://localhost:3000/').read()"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+
+  # The dashboard a contributor runs beside their node agent: same target, but
+  # built from the five-package requirements file. This is the shape that
+  # crash-looped on `No module named 'bson'` -- it starts here or the run fails.
+  dashboard_contributor:
+    build:
+      context: ../
+      dockerfile: docker/Dockerfile
+      target: server
+      args:
+        REQUIREMENTS: requirements-dashboard.txt
+    environment:
+      - USE_DOCKER=true
+      - ENV=test
+      - COORDINATOR_URL=http://coordinator:8100
+      - NODE_URL=http://node-that-does-not-exist:9100
+    command: uvicorn src.app:app --host 0.0.0.0 --port 3000
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request;urllib.request.urlopen('http://localhost:3000/').read()"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+
+  smoke:
+    build:
+      context: ../
+      dockerfile: docker/Dockerfile
+      target: server
+    environment:
+      - USE_DOCKER=true
+      - DASHBOARD_URL=http://dashboard:3000
+      - CONTRIBUTOR_DASHBOARD_URL=http://dashboard_contributor:3000
+    # The runner is not in the image -- it is a test, and the image ships the
+    # product. Mounted read-only for the length of the run.
+    volumes:
+      - ../tests/smoke:/smoke:ro
+    command: python /smoke/smoke_run.py
+    depends_on:
+      dashboard:
+        condition: service_healthy
+      dashboard_contributor:
+        condition: service_healthy

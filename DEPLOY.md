@@ -309,3 +309,37 @@ itself. On Linux or WSL, a nightly cron entry:
 
 Prune old ones yourself; the script never deletes anything, because the failure
 mode of over-eager cleanup is worse than a full disk.
+
+---
+
+## The smoke test
+
+```bash
+docker compose -p hwai-smoke -f docker/docker-compose.smoke.yml \
+  up --build --abort-on-container-exit --exit-code-from smoke
+```
+
+Brings up MongoDB, the coordinator, the production dashboard and the
+contributor dashboard from the images that ship, and runs one job through them:
+register a node, prove its key, upload a dataset, submit, claim, train, report,
+verify, download the model. Exit code 0 means all of that worked.
+
+Two things it does that the unit suites cannot:
+
+**It uses the built images, with no source mounted.** `docker-compose.test.yml`
+bind-mounts `../src`, which is right for development and means it never tests
+what was put in an image. The dashboard that crash-looped on `No module named
+'bson'` built perfectly.
+
+**It goes through the dashboard, not the coordinator.** The proxy is where a
+path reaches the wrong service without anything saying so — `/connect-node`
+meant two different things for months, and no contributor's node could register
+through the public address at all.
+
+There is no node agent in it. That image is built on `nvidia/cuda` and wants a
+graphics card CI does not have, so `tests/smoke/smoke_run.py` speaks the node's
+half of the protocol and calls the same training executor the real agent calls.
+Everything on the other side of those calls is real.
+
+It runs in CI on every push, as the `smoke` job, and takes a few minutes
+because it builds the images.
