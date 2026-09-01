@@ -190,18 +190,6 @@ present, and the API answers 503 with an explanation rather than a DNS error.
 server's secrets, including an artifact encryption key that cannot be
 recovered. To change a setting, edit it on the box and restart.
 
-**Back that file up.** It holds `NODE_TOKEN_SECRET` and
-`ARTIFACT_ENCRYPTION_KEY`. The database is unreadable without the second one
-and there is no recovery path.
-
-```bash
-scp -i ~/.ssh/hetzner \
-  ubuntu@95.216.190.197:HelloWorldAi/env/.env.production ./env-production-backup.txt
-```
-
-Keep it somewhere other than the server, alongside a database dump — one is
-useless without the other.
-
 **Only the server image is published.** The node image builds on `nvidia/cuda`
 and comes to about 12.5 GB; a GitHub-hosted runner has roughly 14 GB free.
 Contributors build it once when they start their node.
@@ -255,3 +243,69 @@ DNS: an A record for your hostname pointing at the server, resolving before you
 deploy — Let's Encrypt checks it.
 
 Then deploy as above.
+
+---
+
+## Backups
+
+Everything worth keeping is on one machine: one server, one MongoDB, one copy
+of a key that cannot be reissued. Run this from your own machine, not the
+server — a backup that lives on the thing it is backing up is not one.
+
+```bash
+HOST=95.216.190.197 KEY=~/.ssh/hetzner bash ./backup.sh --verify
+```
+
+It writes a dated directory to `~/helloworldai-backups` holding two files:
+
+| | |
+|---|---|
+| `database.archive.gz` | every collection, GridFS included — the datasets people submitted and the models that came back |
+| `env.production` | the server's secrets |
+
+**Neither is any use alone.** Submitted datasets are encrypted with
+`ARTIFACT_ENCRYPTION_KEY`, which exists only in that env file. Restore the
+database without it and you have a list of jobs and a pile of bytes nobody can
+read. That is also why the directory is written mode 700 and why the script
+refuses to write anywhere inside this repository: it holds the production
+secrets, and a backup in a git working tree is one `git add -A` from being
+published.
+
+`--verify` restores the archive into a throwaway MongoDB and counts what comes
+out. Use it. `mongodump` exits 0 for an empty database exactly as happily as
+for a full one, so the failure this catches is the silent one — a backup that
+has been running nightly and capturing nothing.
+
+### Getting it back
+
+On a rebuilt server, with the stack up:
+
+```bash
+scp -i ~/.ssh/hetzner database.archive.gz ubuntu@95.216.190.197:/tmp/
+ssh -i ~/.ssh/hetzner ubuntu@95.216.190.197 \
+  "docker exec -i mongo_prod mongorestore --archive --gzip --drop < /tmp/database.archive.gz"
+```
+
+`--drop` replaces the collections in the archive. That is what you want when
+recovering and emphatically not what you want on a database with newer data in
+it — take a fresh backup first if there is any doubt.
+
+Then put the secrets back, or the restored datasets stay unreadable:
+
+```bash
+scp -i ~/.ssh/hetzner env.production ubuntu@95.216.190.197:HelloWorldAi/env/.env.production
+ssh -i ~/.ssh/hetzner ubuntu@95.216.190.197 \
+  "cd HelloWorldAi/docker && docker compose -p helloworldai -f docker-compose.yml restart"
+```
+
+### Doing it without being asked
+
+The script is deliberately run from your machine, so it does not schedule
+itself. On Linux or WSL, a nightly cron entry:
+
+```bash
+0 3 * * * HOST=95.216.190.197 KEY=$HOME/.ssh/hetzner bash $HOME/HelloWorldAi/backup.sh >> $HOME/backup.log 2>&1
+```
+
+Prune old ones yourself; the script never deletes anything, because the failure
+mode of over-eager cleanup is worse than a full disk.

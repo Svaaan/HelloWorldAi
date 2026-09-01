@@ -48,3 +48,10 @@ docker/docker-compose.override.yml
 # That is how twenty-six .pyc files came to be committed, and why a local test
 # run used to leave the working tree dirty.
 src/**/__pycache__/
+
+# Backups. backup.sh refuses to write inside the repo and defaults outside it,
+# but a copy dragged in here by hand would carry NODE_TOKEN_SECRET and the
+# artifact encryption key in the clear.
+*.archive.gz
+env.production
+helloworldai-backups/
