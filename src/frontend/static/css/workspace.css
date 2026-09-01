@@ -215,3 +215,110 @@
 #identityWarning[hidden] {
   display: none;
 }
+
+/* --- the key panel, once it has been dealt with ----------------------------
+   [hidden] is a default the cascade wins against: .ws-identity-actions sets
+   display: grid, which beats it outright. Same reason #identityWarning above
+   needs this. */
+
+#identityActions[hidden],
+#identityNote[hidden] {
+  display: none;
+}
+
+/* Bringing those back is a quiet, secondary thing -- a button that reads as a
+   link, so it does not compete with anything on the page. */
+.link-button {
+  display: inline;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.link-button:hover,
+.link-button:focus-visible {
+  color: var(--text);
+}
+
+/* --- what the network is doing with your data ----------------------------- */
+
+.ws-running-job + .ws-running-job {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.ws-running-gpu {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--text);
+  /* Card names arrive from a driver string and can be long. */
+  overflow-wrap: anywhere;
+}
+
+.ws-running-since {
+  margin-top: 0.2rem;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+.ws-running-stats {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.3rem 0.9rem;
+  margin: 0.85rem 0 0;
+  font-size: 0.8125rem;
+}
+
+.ws-running-stats dt {
+  color: var(--text-faint);
+}
+
+.ws-running-stats dd {
+  margin: 0;
+  font-family: var(--font-mono);
+  color: var(--text);
+}
+
+.ws-running-stale,
+.ws-running-queued {
+  margin: 0.85rem 0 0;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--text-faint);
+}
+
+/* --- placing the third panel ---------------------------------------------
+   Auto-placement would drop this under Results, across the wide column. It
+   belongs under the key panel, in the space that panel gives back. Scoped to
+   the two-column layout; below that the grid is a single stack and the source
+   order is already right. */
+
+@media (min-width: 901px) {
+  .workspace-grid {
+    /* Otherwise a spanning panel stretches to the height of the column beside
+       it, and a short Results list becomes a tall empty box. */
+    align-items: start;
+  }
+
+  .ws-results {
+    grid-column: 1;
+    grid-row: 1 / span 2;
+  }
+
+  .ws-identity {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .ws-running {
+    grid-column: 2;
+    grid-row: 2;
+  }
+}

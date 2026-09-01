@@ -963,6 +963,13 @@ export async function loadMyJobs() {
   } catch (error) {
     console.error("Could not load your jobs:", error);
     container.replaceChildren(notice("Could not load your jobs", error.message));
+
+    // null, not []: the panels listening to this draw very different things for
+    // "you have no jobs" and "we could not find out". Without this the failure
+    // never reached them at all, and a first fetch that failed left them
+    // showing the "Loading…" their markup ships with -- forever, and through
+    // every retry, since each one fails the same way.
+    onJobs?.(null);
   }
 }
 

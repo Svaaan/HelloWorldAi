@@ -8,6 +8,7 @@
 import { loadHeader } from "/static/js/component/header.js";
 import { initIdentity } from "/static/js/workspace/identity.js";
 import { renderSummary } from "/static/js/workspace/summary.js";
+import { renderRunning } from "/static/js/workspace/running.js";
 import {
     loadMyJobs,
     setJobsListener,
@@ -16,8 +17,12 @@ import {
 
 loadHeader();
 
-// One fetch feeds both the summary and the rows underneath it.
-setJobsListener(renderSummary);
+// One fetch feeds the summary, the live panel and the rows underneath them.
+// A second poll would double the traffic to say the same thing.
+setJobsListener((jobs) => {
+    renderSummary(jobs);
+    renderRunning(jobs);
+});
 
 initIdentity({ onChange: loadMyJobs });
 startMyJobsPolling();

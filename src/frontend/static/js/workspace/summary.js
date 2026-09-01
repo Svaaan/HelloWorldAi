@@ -41,6 +41,16 @@ export function renderSummary(jobs) {
   const container = document.getElementById("workspaceSummary");
   if (!container) return;
 
+  // null means the fetch failed. Falling through would throw on .length and
+  // leave the panel on "Loading…", which is the one thing that is certainly
+  // not happening.
+  if (!Array.isArray(jobs)) {
+    container.replaceChildren(el("p", "ws-empty",
+      "Could not reach the coordinator just now. This panel will fill in when "
+      + "it answers again."));
+    return;
+  }
+
   const s = summarise(jobs);
 
   if (!jobs.length) {

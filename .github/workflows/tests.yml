@@ -57,3 +57,4 @@ jobs:
           node-version: "20"
       - run: node tests/test_role_pages.js
       - run: node tests/test_multi_gpu.js
+      - run: node tests/test_workspace_running.js

@@ -98,7 +98,10 @@ export function downloadKeyFile() {
   setTimeout(() => URL.revokeObjectURL(url), 30000);
 
   markBackedUp();
-  renderBackupWarning(false);    // the moment it is saved, not on next load
+  // Both the moment it is saved, not on the next page load: the panel has just
+  // been used, and leaving it looking unfinished is what this fixes.
+  renderBackupWarning(false);
+  renderSettled(true);
   setStatus("Key saved. Keep it somewhere safe — it is the only way back to your jobs.", "success");
 }
 
@@ -158,6 +161,52 @@ function renderBackupWarning(needed) {
 }
 
 
+// --- settling down --------------------------------------------------------
+
+/** Fold the panel away once the key is somewhere other than this browser.
+ *
+ * Before this, the panel looked the same forever: a "Save key to a file"
+ * button as the loudest thing on the page, and a paragraph explaining why you
+ * should press it, sitting there after you already had -- and often directly
+ * after the dialog on the front door that offered the very same download a
+ * moment earlier. It read as a step still outstanding.
+ *
+ * It does not disappear. Saving another copy and loading a different key are
+ * both real things to want; they just stop being the first thing on the panel
+ * once the reason for them has been dealt with.
+ */
+function renderSettled(settled) {
+  const actions = document.getElementById("identityActions");
+  const note = document.getElementById("identityNote");
+  if (!actions) return;
+
+  if (note) note.hidden = settled;
+  actions.hidden = settled;
+
+  let toggle = document.getElementById("identityManage");
+  if (!settled) {
+    toggle?.remove();
+    return;
+  }
+
+  if (toggle) return;                       // already there from a prior render
+
+  toggle = el("button", "link-button", "Save another copy, or load a different key");
+  toggle.type = "button";
+  toggle.id = "identityManage";
+  toggle.addEventListener("click", () => {
+    const hidden = actions.hidden;
+    actions.hidden = !hidden;
+    if (note) note.hidden = !hidden;
+    toggle.textContent = hidden
+      ? "Hide key options"
+      : "Save another copy, or load a different key";
+  });
+
+  actions.parentNode.insertBefore(toggle, actions);
+}
+
+
 // --- wiring ---------------------------------------------------------------
 
 export async function initIdentity({ onChange } = {}) {
@@ -170,10 +219,17 @@ export async function initIdentity({ onChange } = {}) {
     state.className = known ? "status-pill status-online" : "status-pill";
   }
 
+  const saved = known && isBackedUp();
+
   if (detail) {
-    detail.textContent = known
-      ? `Fingerprint ${await fingerprint(getSubmitterKey())}`
-      : "A key is created the first time you send a job.";
+    if (!known) {
+      detail.textContent = "A key is created the first time you send a job.";
+    } else {
+      // Saying it is saved is the point of the whole panel, so it goes in the
+      // line people actually read rather than only in the absence of a warning.
+      detail.textContent = `Fingerprint ${await fingerprint(getSubmitterKey())}`
+        + (saved ? " · saved to a file" : "");
+    }
   }
 
   const save = document.getElementById("saveKeyButton");
@@ -184,7 +240,8 @@ export async function initIdentity({ onChange } = {}) {
     save.addEventListener("click", downloadKeyFile);
   }
 
-  renderBackupWarning(known && !isBackedUp());
+  renderBackupWarning(known && !saved);
+  renderSettled(saved);
 
   const fileInput = document.getElementById("keyFileInput");
   if (fileInput) {
