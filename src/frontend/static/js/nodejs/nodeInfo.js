@@ -1,4 +1,6 @@
 import { authHeaders } from "../connect/nodeSession.js";
+import { downloadNodeKeyFile, isNodeKeyBackedUp }
+    from "../connect/nodeKeyFile.js";
 
 const USAGE_POLL_MS = 2000;
 const RETRY_POLL_MS = 5000;
@@ -244,40 +246,48 @@ export function initNodeInfoManager() {
     // then leaves a machine that is still online and still taking jobs, with
     // no way for its owner to see or control it -- which is exactly what
     // happened while testing this.
+    //
+    // It used to say all of that, in an amber block four lines deep, above the
+    // details of a node that was working perfectly well -- every visit, for as
+    // long as the key went unsaved. Two things were wrong with it. The first is
+    // that a standing warning that large is one people stop seeing; a machine
+    // that is plainly running does not look like a machine with a problem, so
+    // the box reads as decoration and gets skipped.
+    //
+    // The second is that it did not work. The button read "Save the key file →"
+    // and was an anchor to "/", so it saved nothing and dropped you on the
+    // front door -- which, holding a node identity, offers "Connect to node",
+    // and now you are somewhere else entirely wondering what you pressed. The
+    // download existed the whole time, inside the registration dialog. It is
+    // shared now, and this button calls it.
     function keyBackupWarning() {
-        let backedUp = false;
-        try {
-            const stored = localStorage.getItem("nodeKeyBackedUp");
-            const publicKey = localStorage.getItem("nodePublicKeyBase64");
-            backedUp = Boolean(stored) && Boolean(publicKey)
-                && stored === publicKey.slice(0, 12);
-        } catch (e) {
-            backedUp = false;         // keep asking rather than assume
-        }
+        if (isNodeKeyBackedUp()) return null;
 
-        if (backedUp) return null;
+        const line = document.createElement("p");
+        line.className = "key-reminder";
 
-        const box = document.createElement("div");
-        box.className = "key-warning";
+        line.append(document.createTextNode(
+            "This node's key is only in this browser. Clear site data and the "
+            + "machine keeps running with no way to reach it. "));
 
-        const title = document.createElement("strong");
-        title.textContent = "This node's key exists only in this browser.";
-        box.append(title);
+        const save = document.createElement("button");
+        save.type = "button";
+        save.className = "link-button";
+        save.textContent = "Save the key file";
+        save.addEventListener("click", () => {
+            const { ok, message } = downloadNodeKeyFile();
+            if (ok) {
+                // Gone, rather than turned green: the reason for it has been
+                // dealt with, and this is the last the page needs to say.
+                line.remove();
+                return;
+            }
+            line.replaceChildren(document.createTextNode(message));
+            line.classList.add("is-error");
+        });
+        line.append(save);
 
-        const text = document.createElement("p");
-        text.textContent =
-            "Clear your site data and you lose control of this machine — it "
-            + "keeps running and taking jobs, and this page can no longer see "
-            + "it. There is no reset. Save the key file now, with the button below.";
-        box.append(text);
-
-        const link = document.createElement("a");
-        link.className = "panel-notice-action";
-        link.href = "/";
-        link.textContent = "Save the key file →";
-        box.append(link);
-
-        return box;
+        return line;
     }
 
     function showNotice(title, detail, isError, action) {

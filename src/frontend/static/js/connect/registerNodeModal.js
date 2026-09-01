@@ -1,5 +1,6 @@
 import { establishNodeSession } from "./nodeSession.js";
 import { nodeCallError, showNodeMessage } from "./nodeErrors.js";
+import { downloadNodeKeyFile } from "./nodeKeyFile.js";
 
 let privateKey = null;
 
@@ -27,51 +28,13 @@ async function generateKeyPair() {
     return publicKeyBase64;
 }
 
-// ✅ Manual download for private key
+// Saving the keypair moved to connect/nodeKeyFile.js, because the node page
+// needs it too: its "your key exists only in this browser" reminder used to
+// offer a link to "/" rather than a download, since the only implementation
+// was in here.
 function offerPrivateKeyDownload() {
-    const savedPrivateKey = localStorage.getItem("nodePrivateKey");
-    const savedPublicKeyBase64 = localStorage.getItem("nodePublicKeyBase64");
-
-    if (!savedPrivateKey || !savedPublicKeyBase64) {
-        showMessage("❌ Key data not found. Please try generating again.", "error");
-        return;
-    }
-
-    const privateKeyJwk = JSON.parse(savedPrivateKey);
-
-    if (!privateKeyJwk.key_ops) {
-        privateKeyJwk.key_ops = ["sign"];
-    }
-
-    const exportData = {
-        privateKey: privateKeyJwk,
-        publicKeyBase64: savedPublicKeyBase64
-    };
-
-    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'node_key_pair.json';
-    document.body.appendChild(a);
-    a.click();
-
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-
-    // Recorded so the node page can stop warning about a key that exists in
-    // one browser and nowhere else. Stored beside the key, so clearing site
-    // data clears this too -- a restored browser with no record of a backup
-    // should ask again rather than assume.
-    try {
-        localStorage.setItem("nodeKeyBackedUp", savedPublicKeyBase64.slice(0, 12));
-    } catch (e) {
-        // A browser refusing storage will simply keep asking, which is the
-        // safe direction to fail in.
-    }
-
-    showMessage("✅ Key pair downloaded successfully. Keep it safe!", "success");
+    const { ok, message } = downloadNodeKeyFile();
+    showMessage(message, ok ? "success" : "error");
 }
 
 // ✅ Utility to show messages

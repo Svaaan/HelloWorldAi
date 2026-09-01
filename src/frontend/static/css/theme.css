@@ -537,27 +537,47 @@ pre {
 /* "This exists in one place and you are about to lose it." Used on both the
    workspace and the node page, since both identities are a key in localStorage
    and neither can be recovered by anyone. */
-.key-warning {
-  padding: 0.75rem 0.9rem;
-  margin-bottom: 0.9rem;
-  border: 1px solid var(--warning);
-  border-left-width: 3px;
-  border-radius: var(--r-xs);
-  background-color: var(--warning-wash);
-}
-
-.key-warning strong {
-  display: block;
-  margin-bottom: 0.3rem;
-  font-size: 0.8125rem;
-  color: var(--warning);
-}
-
-.key-warning p {
-  margin: 0 0 0.4rem;
+/* A reminder, not an alarm.
+   This was a filled amber block four or five lines deep, standing above a node
+   that was plainly running or a workspace listing finished models. Nothing has
+   gone wrong on either page, and a warning at the volume of an error on a page
+   where nothing is wrong is one people stop seeing -- which is the opposite of
+   what it is for. It says the same thing in a line.
+   It still does not go away on its own: only saving the key removes it, since
+   that is the thing it asks for. */
+.key-reminder {
+  margin: 0 0 0.9rem;
+  padding-left: 0.7rem;
+  border-left: 2px solid var(--warning);
   font-size: 0.8125rem;
   line-height: 1.55;
   color: var(--text-muted);
+}
+
+.key-reminder.is-error {
+  border-left-color: var(--danger);
+  color: var(--danger);
+}
+
+/* A button that reads as a link, for the secondary thing next to a sentence.
+   Lives here rather than in workspace.css because the node page uses it and
+   does not load that file. */
+.link-button {
+  display: inline;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: inherit;
+  color: var(--text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.link-button:hover,
+.link-button:focus-visible {
+  color: var(--accent);
 }
 
 /* --- landing on the other side's page ------------------------------------ */

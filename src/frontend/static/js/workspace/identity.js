@@ -150,48 +150,60 @@ function renderBackupWarning(needed) {
   host.hidden = !needed;
   if (!needed) return;
 
-  const box = el("div", "key-warning");
-  box.appendChild(el("strong", null, "This key exists only in this browser."));
-  box.appendChild(el("p", null,
-    "Clearing site data, a private window, or a different computer will lose "
-    + "it — and with it every job and model on this page. There is no reset: "
-    + "the coordinator stores a one-way digest of your key and cannot give it "
-    + "back. Save it to a file now."));
-  host.appendChild(box);
+  // One line, not a block.
+  //
+  // This was five lines of amber sitting above a panel that already says
+  // "Key loaded", on a page listing jobs the key has demonstrably run. It is
+  // true and it is worth saying, and it was saying it at the volume of an
+  // error on a page where nothing has gone wrong -- so it reads as noise and
+  // gets skipped, which is the opposite of what a warning is for.
+  //
+  // Having jobs is not the same as having saved the key, so this does not go
+  // away on its own. Saving the key removes it, because that is the thing it
+  // is asking for. Nothing else does.
+  const line = el("p", "key-reminder");
+  line.appendChild(document.createTextNode(
+    "This key is only in this browser, and it is the only way back to these "
+    + "jobs. "));
+
+  const save = el("button", "link-button", "Save it to a file");
+  save.type = "button";
+  save.addEventListener("click", downloadKeyFile);
+  line.appendChild(save);
+
+  host.appendChild(line);
 }
 
 
 // --- settling down --------------------------------------------------------
 
-/** Fold the panel away once the key is somewhere other than this browser.
+/** Keep the panel to its fingerprint, with everything else behind a toggle.
  *
- * Before this, the panel looked the same forever: a "Save key to a file"
- * button as the loudest thing on the page, and a paragraph explaining why you
- * should press it, sitting there after you already had -- and often directly
- * after the dialog on the front door that offered the very same download a
- * moment earlier. It read as a step still outstanding.
+ * The panel used to be a "Save key to a file" button as the loudest thing on
+ * the page, under a paragraph explaining why you should press it -- standing
+ * there whether or not you had, and often directly after the dialog on the
+ * front door that offered the very same download a moment before.
  *
- * It does not disappear. Saving another copy and loading a different key are
- * both real things to want; they just stop being the first thing on the panel
- * once the reason for them has been dealt with.
+ * That was the whole panel, in both states, forever. Now it is compact in both
+ * and the difference is one line: unsaved, a reminder sits above it with a link
+ * that saves. Saving another copy and loading a different key are still real
+ * things to want, so they are one click away rather than gone.
+ *
+ * `settled` is kept as a parameter because the caller knows the state and this
+ * function does not need to; today both states render the same way.
  */
 function renderSettled(settled) {
   const actions = document.getElementById("identityActions");
   const note = document.getElementById("identityNote");
   if (!actions) return;
 
-  if (note) note.hidden = settled;
-  actions.hidden = settled;
+  if (note) note.hidden = true;
+  actions.hidden = true;
 
   let toggle = document.getElementById("identityManage");
-  if (!settled) {
-    toggle?.remove();
-    return;
-  }
-
   if (toggle) return;                       // already there from a prior render
 
-  toggle = el("button", "link-button", "Save another copy, or load a different key");
+  toggle = el("button", "link-button", "Save a copy, or load a different key");
   toggle.type = "button";
   toggle.id = "identityManage";
   toggle.addEventListener("click", () => {
@@ -200,7 +212,7 @@ function renderSettled(settled) {
     if (note) note.hidden = !hidden;
     toggle.textContent = hidden
       ? "Hide key options"
-      : "Save another copy, or load a different key";
+      : "Save a copy, or load a different key";
   });
 
   actions.parentNode.insertBefore(toggle, actions);
@@ -241,7 +253,7 @@ export async function initIdentity({ onChange } = {}) {
   }
 
   renderBackupWarning(known && !saved);
-  renderSettled(saved);
+  renderSettled(saved);            // compact either way; see above
 
   const fileInput = document.getElementById("keyFileInput");
   if (fileInput) {
