@@ -59,3 +59,47 @@ jobs:
       - run: node tests/test_multi_gpu.js
       - run: node tests/test_workspace_running.js
       - run: node tests/test_key_reminders.js
+
+  smoke:
+    # One real job, through the images that actually ship.
+    #
+    # Every production failure this project has had was an integration failure,
+    # and the suites above could not have seen any of them: the dashboard image
+    # built cleanly and crash-looped on a missing bson, /connect-node reached
+    # the wrong service, a starting node agent was cached as a missing one.
+    # They each needed two pieces running together to show up.
+    #
+    # This is the slowest job here by a distance, because it builds the images.
+    # That is the point -- docker-compose.test.yml bind-mounts ../src and so
+    # never tests what was put in one.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free some disk
+        # The runner starts with about 14 GB free and the server image plus its
+        # CPU torch is a large share of that.
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          df -h /
+
+      - name: Run one job end to end
+        run: |
+          docker compose -p hwai-smoke -f docker/docker-compose.smoke.yml \
+            up --build --abort-on-container-exit --exit-code-from smoke
+
+      - name: What the run said
+        # The compose output above is mostly MongoDB's startup chatter; this is
+        # the part a person reads when it fails.
+        if: always()
+        run: |
+          docker compose -p hwai-smoke -f docker/docker-compose.smoke.yml \
+            logs smoke --no-log-prefix || true
+
+      - name: Clean up
+        if: always()
+        run: |
+          docker compose -p hwai-smoke -f docker/docker-compose.smoke.yml \
+            down -v --remove-orphans || true
