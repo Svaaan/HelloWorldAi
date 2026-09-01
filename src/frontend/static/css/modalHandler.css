@@ -242,6 +242,32 @@
   color: var(--text-faint);
 }
 
+/* What to actually put in the box, for somebody who has no way to know whether
+   the default is small, ordinary or absurd. Set apart from the hint above it:
+   the hint describes the field, this one is advice, and running them together
+   as one grey paragraph means neither gets read.
+
+   The !important flags match .job-field-hint, which needs them because this
+   form is rendered inside the modal stylesheet's scope. */
+.job-field-example {
+  margin: 0.35rem 0 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  display: block !important;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+.job-field-example-tag {
+  margin-right: 0.35rem;
+  font-weight: 600;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.6875rem;
+}
+
 /* Two across, so the panel does not become a long column of single inputs. */
 .job-field-grid {
   display: grid;

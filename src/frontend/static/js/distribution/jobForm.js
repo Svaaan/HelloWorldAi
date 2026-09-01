@@ -59,6 +59,19 @@ function field(spec, value) {
 
   if (spec.hint) wrap.appendChild(el("p", "job-field-hint", spec.hint));
 
+  // The hint says what the box means; the example says what to put in it.
+  //
+  // Somebody who came to find out what this is gets "Neurons per hidden
+  // layer." and no way to tell whether 64 is small, ordinary or absurd -- so
+  // they either leave every default alone or pick a number out of the air, and
+  // then judge the whole service on what comes back.
+  if (spec.example) {
+    const example = el("p", "job-field-example");
+    example.appendChild(el("span", "job-field-example-tag", "Example"));
+    example.appendChild(document.createTextNode(" " + spec.example));
+    wrap.appendChild(example);
+  }
+
   return { wrap, input };
 }
 
@@ -193,11 +206,21 @@ export async function buildJobForm(container, { modelName } = {}) {
     // being one set shared by both.
     const overrides = definition.hyperparameter_defaults || {};
 
+    // And so do the examples, for the same reason: "0.01 for a feedforward
+    // network" printed under a box reading 0.0005 is not guidance, it is a
+    // contradiction the reader has to resolve.
+    const exampleOverrides = definition.hyperparameter_examples || {};
+
     hyperGrid.replaceChildren();
     hyperInputs.clear();
     schema.hyperparameters.forEach((spec) => {
-      const withDefault = spec.name in overrides
-        ? { ...spec, default: overrides[spec.name] }
+      const withDefault = (spec.name in overrides || spec.name in exampleOverrides)
+        ? {
+            ...spec,
+            default: spec.name in overrides ? overrides[spec.name] : spec.default,
+            example: spec.name in exampleOverrides
+              ? exampleOverrides[spec.name] : spec.example,
+          }
         : spec;
       const { wrap, input } = field(withDefault);
       input.addEventListener("input", describeRun);

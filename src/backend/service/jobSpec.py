@@ -55,6 +55,23 @@ def _number(name, value, *, minimum, maximum, integer=True, default=None):
 # Every field the form offers and the validator accepts. `hint` is shown under
 # the input; `derived` fields are filled in from the dataset on the node, so the
 # form does not ask for them.
+#
+# `example` is shown beside the hint, and exists for the person who came to find
+# out what this is. The step count looks after itself -- it is raised from the
+# file when one is chosen, so that a run at least reads the data -- but nothing
+# guided the shape of the model at all. "Neurons per hidden layer." tells you
+# what the box means and not one thing about whether 64 is small, ordinary or
+# absurd, and somebody with no reason to know will either leave every default
+# alone or pick a number out of the air.
+#
+# These are starting points, not measurements: conventional values that train
+# something recognisable on a first attempt. Where this project has actually
+# measured a number it says so in the comment beside it.
+#
+# Keep them to a line. These fields sit in a grid roughly 150px wide, so an
+# example that runs to a sentence and a half wraps into a tall narrow column and
+# pushes the rest of the form out of the dialog. Anything that needs explaining
+# rather than stating belongs in the hint above it.
 ARCHITECTURES: Dict[str, Dict[str, Any]] = {
     "mlp": {
         "label": "Feedforward network (MLP)",
@@ -63,10 +80,12 @@ ARCHITECTURES: Dict[str, Dict[str, Any]] = {
         "fields": [
             {"name": "hidden_dim", "label": "Hidden width", "type": "int",
              "default": 64, "min": 1, "max": 16384,
-             "hint": "Neurons per hidden layer."},
+             "hint": "Neurons per hidden layer.",
+             "example": "64 for a few columns, 256 for wider data."},
             {"name": "depth", "label": "Hidden layers", "type": "int",
              "default": 2, "min": 1, "max": 64,
-             "hint": "How many hidden layers to stack."},
+             "hint": "How many hidden layers to stack.",
+             "example": "2. Deeper rarely helps on rows of numbers."},
         ],
         "derived": ["input_dim", "output_dim"],
         "derived_note": "Inputs and classes are read from your CSV.",
@@ -78,11 +97,14 @@ ARCHITECTURES: Dict[str, Dict[str, Any]] = {
         "fields": [
             {"name": "d_model", "label": "Model width", "type": "int",
              "default": 256, "min": 8, "max": 8192,
-             "hint": "Must divide evenly by the head count."},
+             "hint": "Must divide evenly by the head count.",
+             "example": "256 for a small model, 384 to learn more."},
             {"name": "n_head", "label": "Attention heads", "type": "int",
-             "default": 4, "min": 1, "max": 128},
+             "default": 4, "min": 1, "max": 128,
+             "example": "4, and the width must divide by it."},
             {"name": "n_layer", "label": "Layers", "type": "int",
-             "default": 2, "min": 1, "max": 96},
+             "default": 2, "min": 1, "max": 96,
+             "example": "2 to start; each one adds training time."},
         ],
         # Sequence length and vocabulary are properties of the uploaded text,
         # not choices: the position embedding has to be exactly as long as the
@@ -102,18 +124,41 @@ ARCHITECTURES: Dict[str, Dict[str, Any]] = {
             "learning_rate": 0.0005,
             "steps": 1000,
         },
+        # The shared examples describe the feedforward model, and two of them
+        # are actively wrong here: 0.01 is the rate that blows this model up in
+        # a dozen steps, which is the reason for the override above. An example
+        # that contradicts the value sitting in the box beside it is worse than
+        # none, so the ones that differ are replaced rather than left to be read
+        # as advice.
+        "hyperparameter_examples": {
+            "learning_rate": "0.0005. At 0.01 this model does not recover.",
+            "steps": "Raised from your file; text needs more than a CSV.",
+        },
     },
 }
 
 HYPERPARAMETERS: List[Dict[str, Any]] = [
     {"name": "steps", "label": "Training steps", "type": "int",
      "default": 200, "min": 1, "max": 1_000_000,
-     "hint": "More steps means a better model and a longer job."},
+     # The measured rate lives here rather than in the example: it is the
+     # thing worth knowing before spending somebody else's card, and the
+     # example next to it has one line to say what to type.
+     "hint": "More steps means a better model and a longer job — about 1,000 "
+             "a minute on a mid-range card.",
+     # This one is not left to the reader: choosing a file raises it to at
+     # least read the data. The example says so, because 200 sitting in the box
+     # before anything is uploaded looks like the number you are meant to send.
+     "example": "Raised from your file when you choose one."},
     {"name": "batch_size", "label": "Batch size", "type": "int",
      "default": 32, "min": 1, "max": 8192,
-     "hint": "Samples per step, split across the node's GPUs."},
+     "hint": "Samples per step, split across the node's GPUs.",
+     "example": "32 is safe; 64 or 128 is faster on a big card."},
     {"name": "learning_rate", "label": "Learning rate", "type": "float",
-     "default": 0.01, "min": 1e-8, "max": 10.0},
+     "default": 0.01, "min": 1e-8, "max": 10.0,
+     "hint": "How big a correction each step makes.",
+     # The transformer overrides both this and its example; see
+     # hyperparameter_examples on that architecture.
+     "example": "0.01 here. Lower to 0.001 if the loss jumps."},
 ]
 
 
