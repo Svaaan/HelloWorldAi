@@ -445,6 +445,66 @@ def test_the_dashboard_can_say_whether_it_has_a_node():
     proxypage._local_node_seen.update({"answer": None, "at": 0.0})
 
 
+def test_an_agent_that_starts_late_is_noticed_quickly():
+    """A contributor's dashboard must not tell them to install what they have.
+
+    `docker compose up` starts the dashboard and the node agent together. The
+    dashboard won the race, answered a page load before the agent was
+    listening, and cached "no agent here" for thirty seconds -- during which
+    the front door, which is rendered from this, offered the machine running a
+    graphics card a guide to installing one, and hid the buttons it needed.
+
+    So a negative is held briefly and a positive is held for longer: being
+    wrong in one direction costs a redundant HTTP call, and in the other it
+    strands the person this whole side of the product is for.
+    """
+    import httpx as _httpx
+
+    app = FastAPI()
+    app.include_router(proxypage.router)
+
+    class NoNode(Recorder):
+        def _record(self, method, url, **kw):
+            raise _httpx.ConnectError("connection refused")
+
+    class Agent(Recorder):
+        pass                            # answers 200, as a running agent does
+
+    proxypage._local_node_seen.update({"answer": None, "at": 0.0})
+    client = TestClient(app, raise_server_exceptions=False)
+
+    # Still starting.
+    with patch.object(proxypage.httpx, "AsyncClient", lambda *a, **k: NoNode([])):
+        assert client.get("/local-node").json() == {"present": False}
+
+    # It is up now, but the miss is still fresh, so the cached answer stands.
+    with patch.object(proxypage.httpx, "AsyncClient", lambda *a, **k: Agent([])):
+        assert client.get("/local-node").json() == {"present": False}
+
+        # A few seconds later the answer is stale and gets asked again.
+        proxypage._local_node_seen["at"] -= (
+            proxypage.LOCAL_NODE_MISS_CACHE_SECONDS + 1)
+        assert client.get("/local-node").json() == {"present": True}, (
+            "a node agent that finished starting is still being reported as "
+            "absent, so its owner cannot register it"
+        )
+
+    # And a positive survives a blip, rather than flapping the page back.
+    with patch.object(proxypage.httpx, "AsyncClient", lambda *a, **k: NoNode([])):
+        assert client.get("/local-node").json() == {"present": True}
+
+    proxypage._local_node_seen.update({"answer": None, "at": 0.0})
+
+
+def test_a_negative_is_not_held_as_long_as_a_positive():
+    assert (proxypage.LOCAL_NODE_MISS_CACHE_SECONDS
+            < proxypage.LOCAL_NODE_CACHE_SECONDS), (
+        "holding 'there is no agent' for as long as 'there is one' is what hid "
+        "the register buttons on the machine that had the graphics card"
+    )
+    proxypage._local_node_seen.update({"answer": None, "at": 0.0})
+
+
 # --- one path, one service -------------------------------------------------
 #
 # The coordinator and the node agent both served POST /connect-node, meaning

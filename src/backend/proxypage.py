@@ -259,7 +259,27 @@ for _methods, _path, _timeout in NODE_ROUTES:
 # --- what kind of dashboard this is ----------------------------------------
 
 _local_node_seen = {"answer": None, "at": 0.0}
+
+# Asymmetric on purpose, because the two answers are not equally safe to be
+# wrong about.
+#
+# "There is an agent" is stable: a contributor's node agent runs for as long as
+# their machine is on, so this can be held for a while and saves a call on every
+# page render.
+#
+# "There is no agent" is the dangerous one. The front door is rendered from it,
+# and a false negative on a contributor's own machine hides the buttons they
+# need and offers them a setup guide for software they have already installed.
+# That happened the first time this shipped: `docker compose up` starts the
+# dashboard and the agent together, the dashboard answered a page load first,
+# and the machine that was running a graphics card was told to go and install
+# one -- for thirty seconds, with no way to tell it was lying.
+#
+# So a negative is re-checked often. It costs an outbound call that fails fast:
+# on the central server there is no `node` host at all, so it ends in DNS
+# resolution rather than a timeout.
 LOCAL_NODE_CACHE_SECONDS = 30
+LOCAL_NODE_MISS_CACHE_SECONDS = 5
 
 
 async def has_local_node() -> bool:
@@ -270,9 +290,10 @@ async def has_local_node() -> bool:
     the page and the endpoint can never disagree about it.
     """
     now = time.time()
-    if (_local_node_seen["answer"] is not None
-            and now - _local_node_seen["at"] < LOCAL_NODE_CACHE_SECONDS):
-        return _local_node_seen["answer"]
+    cached = _local_node_seen["answer"]
+    ttl = LOCAL_NODE_CACHE_SECONDS if cached else LOCAL_NODE_MISS_CACHE_SECONDS
+    if cached is not None and now - _local_node_seen["at"] < ttl:
+        return cached
 
     present = False
     try:
