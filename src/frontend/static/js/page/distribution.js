@@ -7,7 +7,10 @@
 
 import { loadHeader } from "/static/js/component/header.js";
 import { fetchAvailableNodes, startNodePolling } from "/static/js/distribution/fetchNode.js";
-import { initModalCloseHandler, showNodeModal } from "/static/js/distribution/modalHandler.js";
+// showNodeModal is no longer imported here: the only caller on this page was
+// the "send to any node" button. fetchNode.js still opens it, with the machine
+// somebody clicked.
+import { initModalCloseHandler } from "/static/js/distribution/modalHandler.js";
 
 loadHeader();
 initModalCloseHandler();
@@ -16,6 +19,10 @@ startNodePolling();
 document.getElementById("refreshNodes")
     .addEventListener("click", () => fetchAvailableNodes());
 
-// No node argument: the coordinator chooses at submit time.
-document.getElementById("sendAnywhere")
-    .addEventListener("click", () => showNodeModal(null));
+// There is no "send to any node" button any more. Work goes to a machine
+// somebody picked from the list, and this page no longer offers to choose one
+// on their behalf.
+//
+// POST /submit-task still places automatically -- it is how an API client
+// submits without naming a machine, and the retry and rescue paths depend on
+// jobs being marked as coordinator-placed. Only the button is gone.
