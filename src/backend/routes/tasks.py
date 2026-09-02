@@ -36,6 +36,7 @@ from backend.service.authNodeService import verify_signature
 from backend.service.jobSpec import (
     ARCHITECTURES, JobSpecError, advise, job_schema, next_run_name, validate_job,
 )
+from backend.service import nodeLimits
 from backend.service.nodePicker import (
     BUSY_STATUSES, NoNodeAvailable, pick_node, summarise_choice,
 )
@@ -162,6 +163,28 @@ async def _queue_task(db, node_id, task_data, submitter, client_host,
         task_data, spec_notes = validate_job(task_data)
     except JobSpecError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+    # And check it against the machine that will actually run it.
+    #
+    # validate_job compares against a table of constants that has to be set for
+    # the smallest card on the network, so it accepted hidden_dim 16384 at depth
+    # 64 -- about seventeen billion parameters, sixty-seven gigabytes of weights
+    # before gradients. The contributor's machine took the job, downloaded the
+    # data, and died of an out-of-memory error having spent their electricity on
+    # something that could never have finished.
+    #
+    # The node says what it will accept; this refuses anything larger before it
+    # is queued. Checked here rather than only in the form because a form is a
+    # convenience and this is the rule.
+    if node_id:
+        target = await db.nodes_collection.find_one({"_id": node_id})
+        refusal = nodeLimits.check(
+            task_data.get("model_spec") or {},
+            task_data.get("hyperparameters") or {},
+            ((target or {}).get("capabilities") or {}).get("limits"),
+        )
+        if refusal:
+            raise HTTPException(status_code=400, detail=refusal)
 
     # A job with no data trained on random numbers. It burned a contributor's
     # GPU and their electricity, could not be verified -- there was nothing to
@@ -328,6 +351,29 @@ async def submit_task_anywhere(
         if live_tflops is not None:
             node["total_gpu_tflops"] = live_tflops
         nodes.append(node)
+
+    # Only machines that will actually take this job.
+    #
+    # Filtered before choosing rather than refused after: a large model with a
+    # 24GB card free on the network should go to that card, not be assigned to
+    # an 8GB one and rejected. If nothing can take it, the reason a machine gave
+    # is more useful than "no node available".
+    spec = task_data.get("model_spec") or task_data
+    hypers = task_data.get("hyperparameters") or {}
+
+    able, refusals = [], []
+    for node in nodes:
+        refusal = nodeLimits.check(
+            spec, hypers, (node.get("capabilities") or {}).get("limits"))
+        if refusal:
+            refusals.append(refusal)
+        else:
+            able.append(node)
+
+    if nodes and not able:
+        raise HTTPException(status_code=400, detail=refusals[0])
+
+    nodes = able
 
     try:
         choice = pick_node(nodes, await _node_loads(db))

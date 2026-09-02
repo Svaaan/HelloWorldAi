@@ -179,6 +179,18 @@ export async function buildJobForm(container, { modelName } = {}) {
   const runTime = el("p", "job-run-time");
   container.appendChild(runTime);
 
+  // What the machines on the network will accept. A job larger than every one
+  // of them is refused by the coordinator, so the form says so first rather
+  // than letting somebody fill in a number that cannot be sent.
+  const limits = el("p", "job-limits");
+  container.appendChild(limits);
+
+  let biggest = null;
+  fetch("/nodes")
+    .then((res) => (res.ok ? res.json() : []))
+    .then((nodes) => { biggest = largestLimits(nodes); describeRun(); })
+    .catch(() => { /* the coordinator still enforces it; this is a courtesy */ });
+
   let throughput = null;
   fetch("/throughput?architecture=mlp")
     .then((res) => (res.ok ? res.json() : null))
@@ -188,6 +200,10 @@ export async function buildJobForm(container, { modelName } = {}) {
   // Rows as uploaded; part is held back for verification and never reaches
   // the node, so the model reads fewer than the file contains.
   let datasetRows = 0;
+  // The input width, once a file has been chosen. Before that the first
+  // layer's size is unknown, so the parameter count below assumes it
+  // matches the hidden width -- which over-counts and never under-counts.
+  let datasetFeatures = 0;
 
   function trainingRows() {
     return Math.max(1, Math.round(datasetRows * (1 - HOLDOUT_FRACTION)));
@@ -221,6 +237,7 @@ export async function buildJobForm(container, { modelName } = {}) {
       : "";
 
     describeTime(samples);
+    describeLimits();
 
     runShape.classList.toggle("is-thin", thin);
     runShape.textContent = (thin
@@ -266,6 +283,74 @@ export async function buildJobForm(container, { modelName } = {}) {
       `Roughly ${shown} of somebody's graphics card, based on `
       + `${throughput.based_on} finished job${throughput.based_on === 1 ? "" : "s"}.`
       + spread;
+  }
+
+  /** The most generous limits on the network, since a job goes to one machine.
+   *
+   * The largest rather than the smallest: a model too big for an 8GB card is
+   * still sendable if a 24GB one is free, and the coordinator now picks from
+   * the machines that can take it rather than assigning first and refusing
+   * after.
+   */
+  function largestLimits(nodes) {
+    const all = (Array.isArray(nodes) ? nodes : [])
+      .filter((node) => node.isAvailable !== false)
+      .map((node) => node.capabilities?.limits)
+      .filter(Boolean);
+
+    if (!all.length) return null;
+
+    return {
+      max_model_parameters: Math.max(...all.map((l) => l.max_model_parameters || 0)),
+      max_batch_size: Math.max(...all.map((l) => l.max_batch_size || 0)),
+      max_steps: Math.max(...all.map((l) => l.max_steps || 0)),
+      machines: all.length,
+    };
+  }
+
+  /** Roughly how many weights the current form describes.
+   *
+   * The same count the coordinator makes, so the two agree about whether a job
+   * fits. Over-counts slightly before a file is chosen, because the input width
+   * is read from the data.
+   */
+  function parameterCount() {
+    const definition = schema.architectures[archSelect.value];
+    const read = (name) => {
+      const field = inputs.get(name);
+      return field ? readNumber(field.input, field.spec) : 0;
+    };
+
+    if (archSelect.value === "transformer") {
+      const width = read("d_model");
+      const layers = Math.max(1, read("n_layer"));
+      return layers * 12 * width * width + width * width * 4;
+    }
+
+    const hidden = read("hidden_dim");
+    const depth = Math.max(1, read("depth"));
+    const inputDim = datasetFeatures || hidden;
+    const outputDim = 2;
+
+    return inputDim * hidden + hidden
+      + (depth - 1) * (hidden * hidden + hidden)
+      + hidden * outputDim + outputDim;
+  }
+
+  function describeLimits() {
+    if (!biggest) { limits.textContent = ""; return; }
+
+    const wanted = parameterCount();
+    const allowed = biggest.max_model_parameters;
+    const fits = !allowed || wanted <= allowed;
+
+    limits.classList.toggle("is-over", !fits);
+    limits.textContent = fits
+      ? `About ${wanted.toLocaleString()} parameters. The largest machine `
+        + `offering right now takes ${allowed.toLocaleString()}.`
+      : `About ${wanted.toLocaleString()} parameters, and the largest machine `
+        + `on the network takes ${allowed.toLocaleString()}. This will be `
+        + `refused — reduce the width or the number of layers.`;
   }
 
   function renderArchitecture() {
@@ -386,6 +471,7 @@ export async function buildJobForm(container, { modelName } = {}) {
      */
     suggest(format, info) {
       datasetRows = Number(info?.rows) || 0;
+      datasetFeatures = Number(info?.features) || 0;
 
       const match = Object.entries(schema.architectures)
         .find(([, definition]) => definition.accepts === format);

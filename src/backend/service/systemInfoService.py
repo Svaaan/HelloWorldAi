@@ -109,11 +109,23 @@ def get_system_capabilities():
         # Log total TFLOPS
         logger.info(f"Total theoretical GPU compute power: {total_tflops} TFLOPS")
 
-        return {
+        capabilities = {
             "cpu": cpu,
             "gpu": gpus if gpus else [{"name": "No GPU Detected"}],
             "total_gpu_tflops": total_tflops
         }
+
+        # What this machine is willing to be asked to do -- derived from the
+        # smallest card it has, or set by its owner in the environment.
+        #
+        # Sent with the rest so the coordinator can refuse an impossible job
+        # before queueing it, rather than after a contributor's card has already
+        # spent ten minutes running out of memory on a model that was never
+        # going to fit.
+        from backend.service.nodeLimits import derive
+        capabilities["limits"] = derive(capabilities)
+
+        return capabilities
 
     except Exception as e:
         logger.error(f"System capabilities error: {e}")

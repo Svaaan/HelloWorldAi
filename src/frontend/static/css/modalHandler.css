@@ -405,3 +405,17 @@
   line-height: 1.45;
   color: var(--text-faint);
 }
+
+/* What the machines on the network will accept. Quiet while the job fits;
+   the coordinator enforces this either way, so the form is a courtesy rather
+   than the rule. */
+.job-limits {
+  margin: 0.35rem 0 0 !important;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--text-faint);
+}
+
+.job-limits.is-over {
+  color: var(--warning);
+}
