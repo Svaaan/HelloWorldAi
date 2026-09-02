@@ -162,6 +162,25 @@ HYPERPARAMETERS: List[Dict[str, Any]] = [
 ]
 
 
+# One question about the data rather than the model, which is why it is not in
+# HYPERPARAMETERS: it changes how the result is judged, not how it is trained.
+#
+# The verification holdout is a random slice by default, and for rows recorded
+# over time that is a much easier question than the one the submitter means to
+# ask -- see split_holdout. Answering yes here holds back the end of the data
+# instead, so the model is trained on the past and graded on the future.
+DATA_QUESTIONS: List[Dict[str, Any]] = [
+    {
+        "name": "time_ordered",
+        "label": "These rows are in time order",
+        "type": "bool",
+        "default": False,
+        "hint": "Prices, sensor logs, sales — anything recorded one after another.",
+        "example": "Checked: judged on the newest rows, not a random slice.",
+    },
+]
+
+
 def job_schema() -> Dict[str, Any]:
     """The whole contract, for building a form against."""
     return {
@@ -169,6 +188,7 @@ def job_schema() -> Dict[str, Any]:
         "default_task_type": DEFAULT_TASK_TYPE,
         "architectures": ARCHITECTURES,
         "hyperparameters": HYPERPARAMETERS,
+        "data_questions": DATA_QUESTIONS,
         # So the form can show the same arithmetic the coordinator will,
         # before the job is sent rather than in the reply after it.
         "guidance": {

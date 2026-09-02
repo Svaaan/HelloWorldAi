@@ -364,3 +364,44 @@
   line-height: 1.5;
   color: var(--text-muted);
 }
+
+/* A question about the data rather than the model. Laid out as a checkbox with
+   its label beside it and the hint underneath, so it does not read as another
+   numeric field with the box missing. */
+.job-check {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.job-check input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.job-check-label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text);
+  cursor: pointer;
+}
+
+/* The hint and example belong under both, not squeezed beside the box. */
+.job-check .job-field-hint,
+.job-check .job-field-example {
+  grid-column: 1 / -1;
+}
+
+/* The time estimate, under the line describing what the run reads. Quiet: it
+   is a rough figure from other people's jobs, not a promise. */
+.job-run-time {
+  margin: 0.35rem 0 0 !important;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--text-faint);
+}

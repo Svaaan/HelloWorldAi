@@ -164,6 +164,7 @@ ROUTES = [
     ("POST", "/verify-challenge/node_1", COORD),
     ("POST", "/find-node-id", COORD),
     ("POST", "/register-node", COORD),
+    ("GET", "/throughput", COORD),
     ("POST", "/verify-node/node_1/cpu", COORD),
     ("POST", "/verify-node/node_1/gpu", COORD),
     ("POST", "/connect-node", NODE),

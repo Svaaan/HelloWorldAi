@@ -176,6 +176,9 @@ COORDINATOR_ROUTES = [
     (["GET"], "/tasks", DEFAULT_TIMEOUT),
     (["GET"], "/get-task-results", DEFAULT_TIMEOUT),
     (["GET"], "/job-schema", 15),
+    # What the network has actually managed on jobs like this one, so the form
+    # can turn a step count into a number of minutes.
+    (["GET"], "/throughput", 15),
     (["PATCH"], "/toggle-availability/{node_id}", DEFAULT_TIMEOUT),
     (["DELETE"], "/node/{node_id}", DEFAULT_TIMEOUT),
 

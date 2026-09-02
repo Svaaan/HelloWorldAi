@@ -59,6 +59,7 @@ jobs:
       - run: node tests/test_multi_gpu.js
       - run: node tests/test_workspace_running.js
       - run: node tests/test_key_reminders.js
+      - run: node tests/test_submitter_notes.js
 
   smoke:
     # One real job, through the images that actually ship.

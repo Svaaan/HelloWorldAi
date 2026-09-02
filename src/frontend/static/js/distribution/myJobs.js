@@ -76,6 +76,129 @@ const STRENGTH_LABEL = {
   strong: "learned well",
 };
 
+/** The other runs on this same data, and what they scored.
+ *
+ * The loop a person actually works in is: change one thing, run it again, did
+ * that help. The list answered the first two and not the third -- every run was
+ * a separate row, and comparing two of them meant opening both and holding four
+ * numbers in your head.
+ *
+ * A retry keeps the dataset it was made from, so runs on the same data are
+ * exactly the family worth putting side by side. Anything else on the page is
+ * a different question and stays where it is.
+ */
+function familyNote(job, byId) {
+  if (!job.dataset_id || !byId) return null;
+
+  const family = [...byId.values()]
+    .filter((other) => other.dataset_id === job.dataset_id)
+    .filter((other) => (other.verification?.measured || {}).holdout_accuracy != null);
+
+  if (family.length < 2) return null;      // nothing to compare against yet
+
+  // Oldest first, so the table reads as the order the work happened in.
+  family.sort((a, b) => String(a.submitted_at || "").localeCompare(
+    String(b.submitted_at || "")));
+
+  const box = el("div", "job-family");
+  box.appendChild(el("h4", "job-family-title", "Runs on this data"));
+
+  const table = el("table", "job-family-table");
+  const head = el("tr");
+  ["Run", "Steps", "Scored", "Gap closed"].forEach(
+    (heading) => head.appendChild(el("th", null, heading)));
+  table.appendChild(head);
+
+  const best = Math.max(...family.map(
+    (other) => other.verification.measured.holdout_accuracy));
+
+  family.forEach((other) => {
+    const measured = other.verification.measured;
+    const row = el("tr", other.task_id === job.task_id ? "is-this-one" : null);
+
+    const name = el("td", null,
+      other.task_data?.model_name || other.task_id.slice(0, 12));
+    if (other.task_id === job.task_id) name.appendChild(el("span", "job-family-here", " this one"));
+    row.appendChild(name);
+
+    row.appendChild(el("td", null,
+      other.task_data?.hyperparameters?.steps ?? "—"));
+
+    const scored = el("td", null,
+      `${(measured.holdout_accuracy * 100).toFixed(1)}%`);
+    // Marking the best is the whole point: it is the answer to "did that help".
+    if (measured.holdout_accuracy === best && family.length > 1) {
+      scored.className = "is-best";
+      scored.appendChild(el("span", "job-family-here", " best"));
+    }
+    row.appendChild(scored);
+
+    row.appendChild(el("td", null, measured.learned_fraction != null
+      ? `${(measured.learned_fraction * 100).toFixed(0)}%` : "—"));
+
+    table.appendChild(row);
+  });
+
+  box.appendChild(table);
+  box.appendChild(el("p", "job-note",
+    "Scores here are comparable because every run was judged on the same "
+    + "held-back rows. Against a different dataset they are not."));
+  return box;
+}
+
+
+/** Why a queued job has not started, for as long as it has not started.
+ *
+ * A job sent to a machine that is switched off gets moved to another one after
+ * a quarter of an hour; requeue_stale_tasks has always done that. What nobody
+ * did was say so, and "Queued" on its own for fifteen minutes reads as a
+ * service that does not work, which is a poor outcome for a rescue that was
+ * coming anyway.
+ *
+ * The coordinator supplies the numbers on `job.waiting` -- it knows the
+ * threshold, and a page that recomputed it would drift the moment it moved.
+ */
+function waitingNote(job) {
+  const waiting = job.waiting;
+  if (!waiting || job.status !== "pending") return null;
+
+  if (!waiting.node_known) {
+    return el("p", "job-note",
+      "The machine this was queued to is no longer registered. It will be "
+      + "moved to another one shortly.");
+  }
+
+  const machine = waiting.machine || "a machine on the network";
+  const silent = waiting.silent_seconds;
+
+  if (waiting.answering) {
+    // Nothing is wrong; it is a queue. Say that plainly rather than leave a
+    // blank that reads as a fault.
+    return el("p", "job-note",
+      `Queued on ${machine}, which is reporting in normally. It will start `
+      + `when that machine finishes what it is doing.`);
+  }
+
+  const minutes = silent == null ? null : Math.round(silent / 60);
+  const quiet = minutes == null ? "has stopped reporting in"
+    : `has not reported in for ${minutes} minute${minutes === 1 ? "" : "s"}`;
+
+  if (waiting.can_be_moved) {
+    const left = silent == null ? null
+      : Math.max(0, Math.round((waiting.moves_after_seconds - silent) / 60));
+    return el("p", "job-note",
+      `${machine} ${quiet}. `
+      + (left ? `If it stays quiet the job moves to another machine in about ${left} minute${left === 1 ? "" : "s"}.`
+              : "The job is being moved to another machine."));
+  }
+
+  // Chosen deliberately, so it is not silently swapped for something else.
+  return el("p", "job-note",
+    `${machine} ${quiet}. You picked this machine, so the job is not moved `
+    + `automatically — cancel and send it again to let the coordinator choose.`);
+}
+
+
 function strengthNote(verification) {
   const measured = verification?.measured || {};
   const captured = measured.learned_fraction;
@@ -96,6 +219,37 @@ function strengthNote(verification) {
   return `On data the node never saw it got ${pct(accuracy)} right, against `
     + `${pct(floor)} for a model that learned nothing — closing `
     + `${pct(captured)} of the gap. ${advice}`;
+}
+
+
+/** Which rows were held back, and what that score is worth.
+ *
+ * "Data the node never saw" is true of both kinds of holdout and reassuring
+ * about only one of them. A random slice of rows recorded over time means the
+ * model was graded on Wednesday having memorised Tuesday and Thursday, which is
+ * a far easier question than the one a submitter with a time series is asking.
+ *
+ * Measured here, on the same weights: 54.2% on a random holdout against a 50.7%
+ * floor, and 51.7% against a 51.6% baseline when graded on the following two
+ * years instead. The first number is the one the page used to show, on its own.
+ */
+function holdoutNote(job) {
+  const kind = job.task_data?.holdout_kind;
+  if (!kind) return null;
+
+  if (kind === "time-ordered") {
+    return el("p", "job-note",
+      "Judged on the newest rows, because you said this data is in time order. "
+      + "The model was trained on what came before them, so this score is the "
+      + "question you actually asked.");
+  }
+
+  return el("p", "job-note",
+    "Judged on a random slice of the rows, which is right when rows are "
+    + "independent of each other. If yours were recorded over time — prices, "
+    + "logs, sales — this flatters the model, because it was graded on days it "
+    + "had both neighbours of. Tick “These rows are in time order” and send it "
+    + "again to see the honest number.");
 }
 
 function el(tag, className, text) {
@@ -792,10 +946,23 @@ function buildJobRow(job, byId) {
     body.appendChild(grid);
   }
 
+  const waiting = waitingNote(job);
+  if (waiting) body.appendChild(waiting);
+
   if (job.result) body.appendChild(el("p", "job-result", job.result));
 
   const grading = strengthNote(job.verification);
   if (grading) body.appendChild(el("p", "job-grade", grading));
+
+  // What the score was measured on. Shown next to it, because the number alone
+  // means different things depending on the answer.
+  if (grading) {
+    const holdout = holdoutNote(job);
+    if (holdout) body.appendChild(holdout);
+  }
+
+  const family = familyNote(job, byId);
+  if (family) body.appendChild(family);
 
   // Where this run sits among the ones before it, and what was changed to get
   // here. Only worth drawing once there is something to compare against.

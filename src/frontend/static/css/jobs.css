@@ -579,3 +579,59 @@
   color: var(--text-muted);
   background-color: var(--surface-3);
 }
+
+/* --- comparing runs on the same data ---
+   The loop is change one thing, run again, did it help. The third part needed
+   the numbers next to each other rather than in two collapsed rows. */
+
+.job-family {
+  margin-top: 1rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--border);
+}
+
+.job-family-title {
+  margin: 0 0 0.6rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.job-family-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+}
+
+.job-family-table th {
+  padding: 0.35rem 0.5rem;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.job-family-table td {
+  padding: 0.4rem 0.5rem;
+  border-bottom: 1px solid var(--border);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.job-family-table tr:last-child td { border-bottom: none; }
+
+/* The row you are already looking at, so the table orients itself. */
+.job-family-table tr.is-this-one td { color: var(--text); }
+
+.job-family-table td.is-best { color: var(--success); }
+
+.job-family-here {
+  margin-left: 0.35rem;
+  font-size: 0.6875rem;
+  color: var(--text-faint);
+}

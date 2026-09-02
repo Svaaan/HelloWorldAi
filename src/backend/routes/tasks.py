@@ -184,9 +184,21 @@ async def _queue_task(db, node_id, task_data, submitter, client_host,
         # and returns the training half's id, so asking afterwards would
         # describe the copy rather than what was uploaded.
         dataset_info = await _artifact_info(db, dataset_id)
+
+        # Declared by the submitter on the form. Rows recorded over time --
+        # prices, logs, sales -- are graded on the end of the data rather than
+        # a random slice of it, because a random slice of a series is a far
+        # easier question than the one they mean to ask.
+        ordered = bool(task_data.get("time_ordered"))
+
         dataset_id, holdout_id = await prepare_dataset_split(
-            db, dataset_id, seed=int(task_data.get("holdout_seed", 0) or 0)
+            db, dataset_id,
+            seed=int(task_data.get("holdout_seed", 0) or 0),
+            ordered=ordered,
         )
+        # Recorded on the task so the workspace can say which kind of holdout
+        # produced the score it is showing.
+        task_data["holdout_kind"] = "time-ordered" if ordered else "random"
     except Exception as e:
         logger.error(f"Could not split dataset {dataset_id}: {e}")
         raise HTTPException(status_code=400, detail=f"Dataset could not be prepared: {e}")
@@ -637,6 +649,64 @@ async def get_job_schema():
     schema["artifacts_encrypted"] = artifactCrypto.is_enabled()
     return schema
 
+@router.get("/throughput")
+async def throughput(architecture: str = "mlp", db: Database = Depends(get_db)):
+    """How fast this network actually trains, from jobs it has already run.
+
+    So the form can say "about four minutes" before somebody spends twenty
+    thousand steps of a stranger's graphics card finding out. There was no
+    estimate at all: the only guidance was that more steps take longer, which
+    is true and does not help anyone choose between 2,000 and 20,000.
+
+    Measured rather than calculated. Deriving it from a card's theoretical
+    TFLOPS produces a number that is wrong by a factor of ten on small models,
+    because a two-layer network on a batch of 32 spends its time on overhead
+    rather than arithmetic. Completed jobs record what they actually managed,
+    and the median of those is the honest answer.
+
+    Returns nothing rather than guessing when there is no history. An estimate
+    invented from one run, or from no runs, is worse than admitting the network
+    has not done enough yet to say.
+    """
+    recent = await db.tasks_collection.find(
+        {
+            "status": "completed",
+            "metrics.samples_per_second": {"$gt": 0},
+            "task_data.model_spec.architecture": architecture,
+        },
+        {"metrics.samples_per_second": 1},
+    ).sort("finished_at", -1).limit(25).to_list(length=25)
+
+    rates = sorted(
+        float(t["metrics"]["samples_per_second"]) for t in recent
+        if (t.get("metrics") or {}).get("samples_per_second")
+    )
+
+    if len(rates) < 3:
+        return {
+            "architecture": architecture,
+            "samples_per_second": None,
+            "based_on": len(rates),
+            # Said plainly so the form can print the reason rather than a blank.
+            "why": "not enough finished jobs of this kind to estimate from",
+        }
+
+    middle = len(rates) // 2
+    median = (rates[middle] if len(rates) % 2
+              else (rates[middle - 1] + rates[middle]) / 2.0)
+
+    return {
+        "architecture": architecture,
+        "samples_per_second": round(median, 1),
+        "based_on": len(rates),
+        # The spread matters: machines on this network differ by a lot, and an
+        # estimate from a range this wide should be read as an order of
+        # magnitude rather than a promise.
+        "slowest": round(rates[0], 1),
+        "fastest": round(rates[-1], 1),
+    }
+
+
 @router.get("/next-task/{node_id}")
 async def next_task(
     node_id: str,
@@ -932,7 +1002,63 @@ async def list_my_tasks(
     for task in tasks:
         task["task_id"] = task.pop("_id")
 
-    return [public_task(t, owner=True) for t in tasks]
+    public = [public_task(t, owner=True) for t in tasks]
+    await _explain_the_wait(db, public)
+    return public
+
+
+async def _explain_the_wait(db, tasks: list) -> None:
+    """Say which machine a queued job is sitting on, and whether it is answering.
+
+    A job queued to a machine that has been switched off is moved to another one
+    -- requeue_stale_tasks does that after NODE_GONE_MINUTES. It works. What it
+    does not do is say anything, so for up to fifteen minutes the submitter sees
+    the word "Queued" and nothing else, on a job that is going nowhere.
+
+    Fifteen minutes of an unexplained wait is long enough to conclude the
+    service is broken and leave, which is a poor return on a rescue that was
+    going to happen anyway.
+
+    So the page is given what the coordinator already knows: the machine, when
+    it last checked in, and when the job will be moved if it stays quiet. The
+    arithmetic is done here because NODE_GONE_MINUTES lives here -- a page that
+    re-derived it would drift the moment it changed.
+    """
+    waiting = [t for t in tasks if t.get("status") == "pending" and t.get("node_id")]
+    if not waiting:
+        return
+
+    wanted = {t["node_id"] for t in waiting}
+    nodes = {}
+    async for node in db.nodes_collection.find({"_id": {"$in": list(wanted)}}):
+        nodes[node["_id"]] = node
+
+    now = datetime.utcnow()
+
+    for task in waiting:
+        node = nodes.get(task["node_id"])
+        if not node:
+            # Registered once, gone from the database since. The reaper will
+            # move the job; saying so beats an empty panel.
+            task["waiting"] = {"node_known": False}
+            continue
+
+        gpus = (node.get("capabilities") or {}).get("gpu") or [{}]
+        heartbeat = node.get("last_heartbeat")
+        silent = (now - heartbeat).total_seconds() if heartbeat else None
+
+        task["waiting"] = {
+            "node_known": True,
+            "machine": gpus[0].get("name") if isinstance(gpus, list) else None,
+            "silent_seconds": int(silent) if silent is not None else None,
+            # Nothing is wrong until it has been quiet for longer than a couple
+            # of heartbeats; below this the honest answer is "any moment now".
+            "answering": silent is not None and silent < NODE_GONE_MINUTES * 60,
+            "moves_after_seconds": NODE_GONE_MINUTES * 60,
+            # Whether moving it is even allowed. A machine the submitter picked
+            # deliberately is not silently swapped for another one.
+            "can_be_moved": task.get("placement") == "auto",
+        }
 
 async def requeue_stale_tasks():
     """Return tasks abandoned by a node that went away back to the queue.

@@ -590,7 +590,8 @@ async def _artifact_info(db, artifact_id: str) -> dict:
         return {}
     return ((stored or {}).get("metadata") or {}).get("info") or {}
 
-async def prepare_dataset_split(db, dataset_id: str, seed: int):
+async def prepare_dataset_split(db, dataset_id: str, seed: int,
+                                ordered: bool = False):
     """Split a submitted dataset, keeping a holdout the node will never see.
 
     Returns (train_artifact_id, holdout_artifact_id). The node is handed only
@@ -607,8 +608,11 @@ async def prepare_dataset_split(db, dataset_id: str, seed: int):
     # job finishes, so a description left only on it would not survive.
     info = await _artifact_info(db, dataset_id)
 
+    # `ordered` holds back the end of the data rather than a random slice, for
+    # anything recorded over time. See split_holdout for why the difference is
+    # worth several points of imaginary accuracy.
     train_x, train_y, holdout_x, holdout_y = split_holdout(
-        x, y, holdout_fraction=HOLDOUT_FRACTION, seed=seed
+        x, y, holdout_fraction=HOLDOUT_FRACTION, seed=seed, ordered=ordered
     )
 
     train_id = await _write_artifact(

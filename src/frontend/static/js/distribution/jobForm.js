@@ -125,6 +125,40 @@ export async function buildJobForm(container, { modelName } = {}) {
   const derivedNote = el("p", "job-derived-note");
   container.appendChild(derivedNote);
 
+  // --- about the data ------------------------------------------------------
+  //
+  // Above the training settings, because it is a question about what was
+  // uploaded rather than how to train on it -- and because the answer changes
+  // how the result is judged, which is worth deciding before choosing a step
+  // count.
+  const dataQuestions = new Map();
+  (schema.data_questions || []).forEach((spec) => {
+    const wrap = el("div", "job-check");
+
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.id = `field-${spec.name}`;
+    input.checked = Boolean(spec.default);
+
+    const label = document.createElement("label");
+    label.htmlFor = input.id;
+    label.className = "job-check-label";
+    label.textContent = spec.label || spec.name;
+
+    wrap.appendChild(input);
+    wrap.appendChild(label);
+    if (spec.hint) wrap.appendChild(el("p", "job-field-hint", spec.hint));
+    if (spec.example) {
+      const example = el("p", "job-field-example");
+      example.appendChild(el("span", "job-field-example-tag", "Example"));
+      example.appendChild(document.createTextNode(" " + spec.example));
+      wrap.appendChild(example);
+    }
+
+    dataQuestions.set(spec.name, input);
+    container.appendChild(wrap);
+  });
+
   // --- training -----------------------------------------------------------
   container.appendChild(el("h4", "job-section-title", "Training"));
 
@@ -138,6 +172,18 @@ export async function buildJobForm(container, { modelName } = {}) {
   // than a decision.
   const runShape = el("p", "job-run-shape");
   container.appendChild(runShape);
+
+  // How long this is likely to take, from what the network has actually
+  // managed on jobs like it. Fetched once; the estimate does not change while
+  // somebody is typing, only the arithmetic on top of it does.
+  const runTime = el("p", "job-run-time");
+  container.appendChild(runTime);
+
+  let throughput = null;
+  fetch("/throughput?architecture=mlp")
+    .then((res) => (res.ok ? res.json() : null))
+    .then((body) => { throughput = body; describeRun(); })
+    .catch(() => { /* an estimate is a nicety; its absence is not an error */ });
 
   // Rows as uploaded; part is held back for verification and never reaches
   // the node, so the model reads fewer than the file contains.
@@ -174,6 +220,8 @@ export async function buildJobForm(container, { modelName } = {}) {
         + `held back to check the result.`
       : "";
 
+    describeTime(samples);
+
     runShape.classList.toggle("is-thin", thin);
     runShape.textContent = (thin
       ? `Draws ${samples.toLocaleString()} samples from ${rows.toLocaleString()} `
@@ -182,6 +230,42 @@ export async function buildJobForm(container, { modelName } = {}) {
       : `Reads your ${rows.toLocaleString()} training rows about `
         + `${passes.toFixed(1)} times (${samples.toLocaleString()} samples).`)
       + heldNote;
+  }
+
+  /** Turn a sample count into minutes, or say why it cannot.
+   *
+   * There was no estimate at all, and "more steps means a longer job" does not
+   * help anybody choose between 2,000 and 20,000. This uses the median
+   * throughput of finished jobs of the same kind rather than a card's
+   * theoretical TFLOPS, which on a two-layer network at batch 32 is wrong by
+   * about a factor of ten -- the time goes on overhead, not arithmetic.
+   */
+  function describeTime(samples) {
+    if (!throughput) { runTime.textContent = ""; return; }
+
+    if (!throughput.samples_per_second) {
+      runTime.textContent =
+        "No time estimate yet — " + (throughput.why || "not enough finished jobs")
+        + ".";
+      return;
+    }
+
+    const seconds = samples / throughput.samples_per_second;
+    const spread = (throughput.slowest && throughput.fastest
+      && throughput.fastest > throughput.slowest * 2)
+      ? " Machines on this network vary a lot, so treat it loosely."
+      : "";
+
+    const shown = seconds < 90
+      ? `${Math.max(1, Math.round(seconds))} seconds`
+      : seconds < 5400
+        ? `${Math.round(seconds / 60)} minutes`
+        : `${(seconds / 3600).toFixed(1)} hours`;
+
+    runTime.textContent =
+      `Roughly ${shown} of somebody's graphics card, based on `
+      + `${throughput.based_on} finished job${throughput.based_on === 1 ? "" : "s"}.`
+      + spread;
   }
 
   function renderArchitecture() {
@@ -274,11 +358,15 @@ export async function buildJobForm(container, { modelName } = {}) {
       hyperparameters[name] = readNumber(input, definition);
     });
 
+    const answers = {};
+    dataQuestions.forEach((input, name) => { answers[name] = input.checked; });
+
     return {
       task_type: schema.default_task_type,
       model_name: nameInput.value.trim() || "model",
       model_spec: spec,
       hyperparameters,
+      ...answers,
     };
   }
 
