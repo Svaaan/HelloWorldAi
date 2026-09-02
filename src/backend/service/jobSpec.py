@@ -172,10 +172,18 @@ HYPERPARAMETERS: List[Dict[str, Any]] = [
 DATA_QUESTIONS: List[Dict[str, Any]] = [
     {
         "name": "time_ordered",
-        "label": "These rows are in time order",
+        "label": "These rows are sorted oldest first",
         "type": "bool",
         "default": False,
-        "hint": "Prices, sensor logs, sales — anything recorded one after another.",
+        # "in time order" was the first wording and it was read as "this is a
+        # time series" rather than "the rows are sorted". Somebody sent a panel
+        # of ten companies stacked one after another -- each internally in date
+        # order, the file as a whole not -- and ticking the box held back the
+        # tail of the last company instead of the most recent period. The score
+        # came back at 54.9%, indistinguishable from the random slice it was
+        # meant to replace, and nothing could have told them.
+        "hint": "Prices, logs, sales — and the file itself runs oldest to "
+                "newest, not grouped by product or symbol.",
         "example": "Checked: judged on the newest rows, not a random slice.",
     },
 ]
