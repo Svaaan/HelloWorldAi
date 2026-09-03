@@ -104,8 +104,10 @@ ARTIFACT_ENCRYPTION_KEY=$ARTIFACT_ENCRYPTION_KEY
 # is ever stored here -- an account links to the digests the coordinator
 # already keeps.
 #
-# Register an OAuth app at https://github.com/settings/developers with the
-# callback URL https://your.domain/auth/github/callback and no scopes.
+# Register an OAuth app at https://github.com/settings/developers. Its Redirect
+# URI must be exactly https://your.domain/auth/github/callback -- GitHub
+# compares it character for character. Leave wildcard matching and device flow
+# off. There is no scopes field on that form; the sign-in asks for none.
 GITHUB_CLIENT_ID=
 GITHUB_CLIENT_SECRET=
 

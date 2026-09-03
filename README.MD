@@ -382,9 +382,26 @@ Register an OAuth application at <https://github.com/settings/developers>:
 
 | Field | Value |
 | --- | --- |
+| Application name | anything people will recognise |
 | Homepage URL | `https://your-domain.com` |
-| Authorization callback URL | `https://your-domain.com/auth/github/callback` |
-| Scopes | none — only the username is read |
+| Redirect URI | `https://your-domain.com/auth/github/callback` |
+| Allow wildcard matching | off — it widens where tokens may be sent |
+| Enable Device Flow | off — nothing here uses it |
+| Expire user access tokens | either; see below |
+
+The redirect URI has to match what the service sends, character for character,
+or GitHub refuses the sign-in.
+
+There is no scopes field on that form. Scopes are asked for at sign-in, and
+`accountService.start_url()` sends an empty one deliberately: the only question
+being asked is who you are, and anything more would be requesting access to
+somebody's repositories that nothing here uses.
+
+Token expiry does not matter either way. The access token is used once, in the
+same request, to ask GitHub which account just signed in, and is then thrown
+away — nothing in this service acts on anyone's behalf on GitHub, so there is
+nothing to keep it for. With expiry on, GitHub also returns a refresh token,
+which is ignored for the same reason.
 
 Then set three values:
 
