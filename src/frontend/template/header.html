@@ -20,11 +20,26 @@
     <div class="header-details">
         <p class="info">Nodes online: <span id="connectedNodesCount">&mdash;</span></p>
 
-        <!-- There was no way out. The key in this browser is the account, so
-             without this the only way to stop being somebody was to clear site
-             data by hand -- which is also how you lose a key you never saved. -->
-        <button type="button" class="header-signout" id="signOutButton" hidden>
-            Sign out
+        <!-- Who is signed in, when anybody is. Set by account.js once
+             /auth/me answers; the name is the only thing an account holds
+             besides digests. -->
+        <span class="header-account" id="headerAccount" hidden></span>
+
+        <!-- One way out, for both kinds of identity.
+             There used to be two: this button, which forgets the key, and a
+             "Sign out of GitHub" link in the workspace, which ended the
+             session. Two controls on one page, both called sign out, doing
+             different things and neither saying which -- and only one of them
+             destructive. It is one button now, and the dialog says exactly
+             what it is about to forget. -->
+        <button type="button" class="header-signout" id="signOutButton" hidden
+                aria-label="Sign out" title="Sign out">
+            <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"
+                 focusable="false">
+              <path fill="none" stroke="currentColor" stroke-width="1.5"
+                    stroke-linecap="round" stroke-linejoin="round"
+                    d="M6 14H3.5A1.5 1.5 0 0 1 2 12.5v-9A1.5 1.5 0 0 1 3.5 2H6M10.5 11 14 8l-3.5-3M14 8H6"/>
+            </svg>
         </button>
     </div>
 </header>
@@ -38,6 +53,9 @@
             aria-label="Close">&times;</button>
     <h3 id="signOutTitle">Sign out</h3>
     <p class="modal-lede" id="signOutLede"></p>
+    <!-- Filled by header.js with what this will actually end: the GitHub
+         session, the key in this browser, or both. -->
+    <ul class="signout-list" id="signOutList"></ul>
 
     <div id="signOutUnsaved" class="signout-warning" hidden>
       <strong>You have not saved this key.</strong>
@@ -49,7 +67,7 @@
     </div>
 
     <button id="signOutConfirm" type="button" class="btn signout-danger">
-      Sign out and forget this key
+      Sign out
     </button>
     <button type="button" class="btn-ghost" data-close="signOutModal">
       Stay signed in

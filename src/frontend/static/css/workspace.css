@@ -301,20 +301,20 @@
   text-align: center;
 }
 
-.acct-who {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin: 0 0 0.6rem;
-  font-size: 0.9375rem;
-  color: var(--text);
+/* The sign-in line inside the key panel, hidden until account.js knows whether
+   this deployment offers sign-in and whether this browser has used it. Same
+   reason as #identityActions above: [hidden] loses to a display rule. */
+#identitySignIn[hidden] {
+  display: none;
 }
 
-/* Same reason as #identityActions above: [hidden] loses to a display rule, and
-   the panel would flash into view before account.js has decided whether this
-   deployment offers sign-in at all. */
-.ws-account[hidden] {
-  display: none;
+#identitySignIn {
+  margin-top: 1rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  color: var(--text-faint);
 }
 
 /* --- placing the panels ---------------------------------------------------
@@ -332,7 +332,7 @@
 
   .ws-results {
     grid-column: 1;
-    grid-row: 1 / span 3;
+    grid-row: 1 / span 2;
   }
 
   .ws-identity {
@@ -340,15 +340,8 @@
     grid-row: 1;
   }
 
-  /* Directly under the key, because it is about that key. On a deployment with
-     no OAuth application this panel is hidden and the row simply collapses. */
-  .ws-account {
-    grid-column: 2;
-    grid-row: 2;
-  }
-
   .ws-running {
     grid-column: 2;
-    grid-row: 3;
+    grid-row: 2;
   }
 }

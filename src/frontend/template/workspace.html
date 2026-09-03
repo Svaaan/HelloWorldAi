@@ -71,25 +71,25 @@
                 </div>
 
                 <div id="identityStatus" class="field-status"></div>
+
+                <!-- One line, written by account.js when this deployment
+                     offers sign-in and this browser has not used it. -->
+                <div id="identitySignIn" hidden></div>
             </section>
 
-            <!-- Under the key, because it sits on top of it rather than in
-                 place of it. Signing in does not give the coordinator your key
-                 -- it never had one and is not starting now -- it records that
-                 a digest is yours, so the same work can be reached from your
-                 other machines and so a list of GPUs you like has an owner to
-                 hang off.
+            <!-- There is no account panel here any more.
 
-                 Hidden until account.js has asked whether this deployment has
-                 an OAuth application at all. Somebody running the stack at home
-                 should not be shown a button telling them to go and register
-                 one with GitHub. -->
-            <section class="panel ws-account" id="accountPanel" hidden>
-                <div class="panel-head">
-                    <h2>Sign in</h2>
-                </div>
-                <div id="accountBody"></div>
-            </section>
+                 Signed in, it held a name and a "Sign out of GitHub" link --
+                 while the header held a second sign-out with almost the same
+                 words, doing something different and irreversible. Two
+                 controls, one page. The name and the single way out both live
+                 in the header now.
+
+                 Signed out, all it offered was a door that the front page
+                 already offers properly. What is left of it is one line inside
+                 the key panel above, which is where somebody looking at their
+                 key is standing when linking it to an account occurs to them.
+                 See account.js. -->
 
             <!-- Under the key, in the room the key panel gives back once it has
                  been dealt with. "Running" on its own said nothing: you hand

@@ -17,6 +17,7 @@
 // configured hides all of it rather than offering a button that leads to an
 // error page.
 
+import { setAccountLogin } from "../component/header.js";
 import { setSignedInBuilder } from "../component/role.js";
 import {
   getSubmitterKey, setSignedIn,
@@ -116,68 +117,34 @@ async function linkKey(login) {
 }
 
 // --- what it looks like ----------------------------------------------------
+//
+// Almost nothing, now. There was a panel here: signed in it showed a name and a
+// "Sign out of GitHub" link, while the header carried a second sign-out with
+// nearly the same words that forgot the key instead -- two controls on one page,
+// one of them irreversible, neither saying which. The name and the single way
+// out are in the header. Signed out, the panel offered a door the front page
+// already offers properly.
+//
+// What is left is one line, in the key panel, for a browser holding a key that
+// no account has been told about. That is a real thing to offer and this is
+// where it belongs: somebody looking at their key is exactly who might think
+// "and if I lose this file?"
 
-function renderSignedOut(host) {
+function renderSignInLine(host) {
   host.replaceChildren();
 
-  const line = el("p", "acct-line");
+  const line = el("p", null,
+    "This key only exists in this browser. ");
+  line.style.margin = "0";
+
+  const link = el("a", "link-button", "Sign in with GitHub");
+  link.href = "/auth/github/start";
+  line.appendChild(link);
   line.appendChild(document.createTextNode(
-    "Your key is what owns this work, and it only exists in this browser. "
-    + "Signing in adds a second way back to it, and lets the same jobs show "
-    + "up on your other machines."));
+    " to reach the same work from your other machines."));
+
   host.appendChild(line);
-
-  // An anchor, not a fetch: the sign-in is a redirect to GitHub and back.
-  const button = el("a", "btn acct-signin", "Sign in with GitHub");
-  button.href = "/auth/github/start";
-  host.appendChild(button);
-
-  host.appendChild(el("p", "acct-fineprint",
-    "Only your GitHub username is read, and no repository access is asked "
-    + "for. Your key is never sent to GitHub and never stored here."));
-}
-
-function renderSignedIn(host, data) {
-  host.replaceChildren();
-
-  // The username, and no avatar.
-  //
-  // An avatar would need `img-src` opened up to avatars.githubusercontent.com,
-  // and would fetch from GitHub on every workspace load -- telling them when
-  // somebody is using this service, from what address, for a picture that says
-  // nothing the name beside it does not. This service's whole claim is that it
-  // holds as little as it can get away with; leaking the same fact outward
-  // instead would be the same trade with extra steps.
-  const who = el("p", "acct-who");
-  who.appendChild(el("strong", null, data.login || "Signed in"));
-  host.appendChild(who);
-
-  const keys = Number(data.keys_linked || 0);
-  host.appendChild(el("p", "acct-line", keys === 1
-    ? "One key is linked to this account. Sign in on another machine and this "
-      + "work will be there."
-    : keys
-      ? `${keys} keys are linked to this account, and you can see the work `
-        + "from all of them here."
-      : "No key is linked yet. One will be, the first time you send a job."));
-
-  const out = el("button", "link-button", "Sign out of GitHub");
-  out.type = "button";
-  out.addEventListener("click", async () => {
-    out.disabled = true;
-    try {
-      await fetch("/auth/sign-out", {
-        method: "POST", credentials: "same-origin",
-      });
-    } catch (error) {
-      console.warn("Could not sign out:", error);
-    }
-    // Deliberately not touching the key. Ending a session should not destroy
-    // an identity that nobody can reissue -- that is what the header's sign
-    // out is for, and it asks first.
-    window.location.reload();
-  });
-  host.appendChild(out);
+  host.hidden = false;
 }
 
 // --- wiring ----------------------------------------------------------------
@@ -208,20 +175,18 @@ export async function initAccount({ onChange } = {}) {
     onChange?.();
   }
 
-  const panel = document.getElementById("accountPanel");
-  const host = document.getElementById("accountBody");
-  if (!panel || !host) return account;
+  // Who is signed in belongs in the header, next to the one way out of being
+  // them. Told rather than read, because /auth/me lands after the header has
+  // already been drawn.
+  setAccountLogin(data.signed_in ? (data.login || "Signed in") : null);
 
-  // No OAuth application on this deployment: there is nothing to offer, and a
-  // panel explaining an absent feature is worse than no panel.
-  if (!data.github) {
-    panel.hidden = true;
-    return account;
-  }
+  const host = document.getElementById("identitySignIn");
+  if (!host) return account;
 
-  panel.hidden = false;
-  if (data.signed_in) renderSignedIn(host, account);
-  else renderSignedOut(host);
+  // Nothing to offer if this deployment has no OAuth application, and nothing
+  // to say to somebody already signed in -- the header has their name.
+  host.hidden = true;
+  if (data.github && !data.signed_in) renderSignInLine(host);
 
   return account;
 }

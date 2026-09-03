@@ -18,6 +18,18 @@ const BUILDER_KEY = "submitterKey";
 
 let countTimer = null;
 
+// The signed-in login, or null. Told by account.js once /auth/me answers, which
+// is after this header has already been drawn -- so setting it redraws.
+let accountLogin = null;
+
+/** Told by account.js. Nothing else should call this. */
+export function setAccountLogin(login) {
+  const next = login || null;
+  if (next === accountLogin) return;
+  accountLogin = next;
+  refreshNav();
+}
+
 // Everything that makes up an identity in this browser, per side. Signing out
 // of one must leave the other alone: somebody can lend a graphics card and
 // train their own models, and those are two separate keys.
@@ -132,11 +144,36 @@ function signedInAs() {
 
 function updateSignOut() {
   const button = document.getElementById("signOutButton");
+  const chip = document.getElementById("headerAccount");
+
+  if (chip) {
+    chip.hidden = !accountLogin;
+    chip.textContent = accountLogin || "";
+  }
+
   if (!button) return;
 
+  // Either kind of identity is something to sign out of. It used to be keys
+  // only, so a browser holding no key but signed in with GitHub had no way out
+  // of the header at all -- the only sign-out was in the workspace panel.
   const role = signedInAs();
-  button.hidden = !role;
-  if (role) button.textContent = `Sign out of ${ROLE_LABEL[role]}`;
+  button.hidden = !role && !accountLogin;
+
+  // An icon, with the words in the accessible name rather than beside it. The
+  // label used to name the side -- "Sign out of training a model" -- which was
+  // precise and also the longest thing in the header, sitting next to a second
+  // control in the workspace with almost the same words.
+  const leaving = [
+    accountLogin ? "GitHub" : null,
+    role ? ROLE_LABEL[role] : null,
+  ].filter(Boolean).join(" and ");
+
+  // Guarded because the button is hidden when there is neither, and a hidden
+  // control still has an accessible name -- "Sign out of " with nothing after
+  // it is what a screen reader would have read out.
+  const label = leaving ? `Sign out of ${leaving}` : "Sign out";
+  button.setAttribute("aria-label", label);
+  button.setAttribute("title", label);
 }
 
 function wireSignOut() {
@@ -146,40 +183,84 @@ function wireSignOut() {
 
   button.addEventListener("click", () => {
     const role = signedInAs();
-    if (!role) return;
+    if (!role && !accountLogin) return;
 
+    // One button, two possible consequences, and they are not remotely alike:
+    // a session can be started again in ten seconds, a key cannot be reissued
+    // by anybody. So the dialog itemises rather than summarises.
     const lede = document.getElementById("signOutLede");
     if (lede) {
-      lede.textContent =
-        `This forgets the key for ${ROLE_LABEL[role]} in this browser. `
-        + "The key is the account -- it is not stored anywhere else, and "
-        + "nobody can issue you another one.";
+      lede.textContent = role
+        ? "One of these cannot be undone."
+        : "You can sign back in whenever you like.";
     }
 
-    // The warning that matters, and only when it matters.
+    const list = document.getElementById("signOutList");
+    if (list) {
+      list.replaceChildren();
+
+      if (accountLogin) {
+        const item = document.createElement("li");
+        item.textContent =
+          `Ends your GitHub session as ${accountLogin} on this browser. `
+          + "Signing in again brings your work back.";
+        list.appendChild(item);
+      }
+
+      if (role) {
+        const item = document.createElement("li");
+        item.className = "signout-permanent";
+        item.textContent =
+          `Forgets the key for ${ROLE_LABEL[role]} in this browser. `
+          + "It is not stored anywhere else and nobody can issue you another "
+          + "one.";
+        list.appendChild(item);
+      }
+    }
+
+    // The warning that matters, and only when it matters: a key that has never
+    // been written to a file, about to be forgotten.
     const unsaved = document.getElementById("signOutUnsaved");
-    if (unsaved) unsaved.hidden = Boolean(stored(BACKED_UP_MARKER[role]));
+    if (unsaved) {
+      unsaved.hidden = !role || Boolean(stored(BACKED_UP_MARKER[role]));
+    }
 
     const saveLink = document.getElementById("signOutSaveFirst");
-    if (saveLink) saveLink.href = SAVE_PAGE[role];
+    if (saveLink && role) saveLink.href = SAVE_PAGE[role];
 
     modal.style.display = "flex";
   });
 
   const confirm = document.getElementById("signOutConfirm");
   if (confirm) {
-    confirm.addEventListener("click", () => {
+    confirm.addEventListener("click", async () => {
       const role = signedInAs();
-      if (!role) return;
 
-      for (const key of IDENTITY_KEYS[role]) {
-        try {
-          localStorage.removeItem(key);
-        } catch {
-          /* nothing stored to remove */
+      if (role) {
+        for (const key of IDENTITY_KEYS[role]) {
+          try {
+            localStorage.removeItem(key);
+          } catch {
+            /* nothing stored to remove */
+          }
         }
       }
-      // Back to the front door, which is where somebody with no key belongs.
+
+      if (accountLogin) {
+        try {
+          await fetch("/auth/sign-out", {
+            method: "POST", credentials: "same-origin",
+          });
+        } catch (error) {
+          // The keys are already gone from this browser, which is the half
+          // that matters here. Say so and carry on rather than leaving
+          // somebody on a dialog that appears to have done nothing.
+          console.warn("Could not end the GitHub session:", error);
+        }
+      }
+
+      // Back to the front door, which is where somebody with no identity
+      // belongs.
       window.location.href = "/";
     });
   }

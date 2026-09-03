@@ -193,6 +193,17 @@ function renderBackupWarning(needed) {
  * `settled` is kept as a parameter because the caller knows the state and this
  * function does not need to; today both states render the same way.
  */
+async function showFingerprintUnder(actions) {
+  if (!hasSubmitterKey()) return;
+  if (document.getElementById("identityFingerprint")) return;
+
+  const line = el("p", "ws-identity-detail",
+    `Fingerprint ${await fingerprint(getSubmitterKey())}`);
+  line.id = "identityFingerprint";
+  line.style.marginBottom = "0.75rem";
+  actions.insertBefore(line, actions.firstChild);
+}
+
 function renderSettled(settled) {
   const actions = document.getElementById("identityActions");
   const note = document.getElementById("identityNote");
@@ -210,6 +221,7 @@ function renderSettled(settled) {
   toggle.addEventListener("click", () => {
     const hidden = actions.hidden;
     actions.hidden = !hidden;
+    if (hidden) showFingerprintUnder(actions);
     if (note) note.hidden = !hidden;
     toggle.textContent = hidden
       ? "Hide key options"
@@ -258,11 +270,19 @@ async function renderState() {
         // that never appears.
         ? "No key in this browser. Your work is reached through your account."
         : "A key is created the first time you send a job.";
+      detail.hidden = false;
+    } else if (saved) {
+      // Nothing to say. The pill above already reads "Key loaded", the key is
+      // in a file, and there is no warning outstanding -- so a standing line
+      // repeating the state plus a fingerprint nobody asked for is a row of
+      // the panel spent on a fact that changes nothing. The fingerprint is
+      // still one click away, under the manage toggle, which is where you go
+      // when you actually need to tell two keys apart.
+      detail.textContent = "";
+      detail.hidden = true;
     } else {
-      // Saying it is saved is the point of the whole panel, so it goes in the
-      // line people actually read rather than only in the absence of a warning.
-      detail.textContent = `Fingerprint ${await fingerprint(getSubmitterKey())}`
-        + (saved ? " · saved to a file" : "");
+      detail.textContent = `Fingerprint ${await fingerprint(getSubmitterKey())}`;
+      detail.hidden = false;
     }
   }
 

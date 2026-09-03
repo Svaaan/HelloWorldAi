@@ -168,21 +168,29 @@
 
 /* --- signing out ------------------------------------------------------- */
 
+/* An icon, not a sentence. It said "Sign out of training a model", which was
+   the longest thing in the header and sat beside a second control in the
+   workspace with almost the same words. The words are still there -- in the
+   accessible name and the tooltip -- and the dialog itemises what it is about
+   to forget before anything happens. */
 .header-signout {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
   background: none;
   border: 1px solid var(--border);
+  border-radius: var(--r-sm);
   color: var(--text-muted);
-  border-radius: var(--r-sm, 6px);
-  padding: 0.3rem 0.7rem;
-  font: inherit;
-  font-size: 0.8rem;
   cursor: pointer;
-  white-space: nowrap;
 }
 
 .header-signout:hover {
+  background-color: var(--surface-2);
+  border-color: var(--border-strong);
   color: var(--text);
-  border-color: var(--accent-edge, var(--border));
 }
 
 /* The attribute alone does not hide a flex child, and .header-details is
@@ -221,3 +229,43 @@
   margin-top: 0.5rem;
 }
 
+
+
+/* --- who is signed in, and the one way out -------------------------------- */
+
+.header-account {
+  padding: 0.25rem 0.6rem;
+  border-radius: var(--r-pill);
+  background-color: var(--accent-wash);
+  border: 1px solid var(--accent-edge);
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.header-account[hidden] {
+  display: none;
+}
+
+/* What signing out ends, one line each. */
+.signout-list {
+  margin: 0 0 1.25rem;
+  padding-left: 1.15rem;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
+.signout-list li + li {
+  margin-top: 0.5rem;
+}
+
+/* The one that cannot be undone. */
+.signout-list .signout-permanent {
+  color: var(--text);
+}
+
+.signout-list .signout-permanent::marker {
+  color: var(--warning);
+}

@@ -330,5 +330,65 @@ check("it warns when the key has never been saved", () => {
 });
 
 
+// --- one way out ----------------------------------------------------------
+//
+// There were two. The header had a button that forgot the key -- irreversible,
+// nobody can reissue one -- and the workspace had a "Sign out of GitHub" link
+// that ended the session, which is reversible in ten seconds. Two controls on
+// one page, almost the same words, wildly different consequences, and neither
+// saying which was which.
+
+check("there is exactly one sign-out control in the app", () => {
+  const files = [
+    "src/frontend/template/header.html",
+    "src/frontend/template/workspace.html",
+    "src/frontend/template/start.html",
+    "src/frontend/template/node.html",
+    "src/frontend/template/distribution.html",
+  ];
+
+  let controls = 0;
+  for (const rel of files) {
+    const html = fs.readFileSync(path.join(ROOT, rel), "utf8");
+    controls += (html.match(/id="signOutButton"/g) || []).length;
+  }
+
+  assert.equal(controls, 1,
+    controls + " sign-out controls across the pages; there must be one, and "
+    + "its dialog must say what it is about to forget");
+
+  const js = fs.readFileSync(
+    path.join(ROOT, "src/frontend/static/js/workspace/account.js"), "utf8");
+  const code = js.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*/g, "");
+  assert.ok(!/sign-?out/i.test(code),
+    "the workspace account module is offering a sign-out again");
+});
+
+check("the dialog names both things it ends, separately", () => {
+  const header = fs.readFileSync(
+    path.join(ROOT, "src/frontend/static/js/component/header.js"), "utf8");
+
+  assert.ok(header.includes("signOutList"),
+    "the dialog should itemise rather than summarise: one of the two is "
+    + "permanent and the other is not");
+  assert.ok(header.includes("/auth/sign-out"),
+    "confirming must end the GitHub session too, or the single control only "
+    + "does half of what it says");
+  assert.ok(header.includes("signout-permanent"),
+    "the irreversible item should be marked as such");
+});
+
+check("the key panel stops repeating itself once the key is saved", () => {
+  // "Fingerprint 420a4d98 - saved to a file" stood there permanently, under a
+  // pill already reading "Key loaded", with no warning outstanding.
+  const identity = fs.readFileSync(
+    path.join(ROOT, "src/frontend/static/js/workspace/identity.js"), "utf8");
+
+  assert.ok(!identity.includes("saved to a file"),
+    "the detail line is announcing a saved key again");
+  assert.ok(identity.includes("identityFingerprint"),
+    "the fingerprint should still be reachable, under the manage toggle");
+});
+
 console.log(failures ? `\n  ${failures} failed` : "\n  all checks passed");
 process.exit(failures ? 1 : 0);
