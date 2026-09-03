@@ -49,6 +49,29 @@
                      and the free space divided itself between the two, which
                      is what pulled the card apart. -->
                 <div class="start-choice-foot">
+                    {% if main_site %}
+                    <!-- A contributor's own dashboard. Training works from
+                         here -- every call is proxied to the same coordinator
+                         -- and that is exactly the problem: localStorage is
+                         per-origin, so a key made on this address is a
+                         different identity from one made on the main site.
+                         Same person, same browser, two workspaces, nothing
+                         saying so.
+
+                         So the card keeps its pitch, because this is where
+                         somebody who came to lend a graphics card finds out
+                         the other half exists, and hands them over to the one
+                         place their work will all be in one pile. -->
+                    <p class="start-choice-note">
+                        <strong>Not from here.</strong> Training happens on the
+                        main site, so all your work stays under one identity.
+                    </p>
+                    <div class="start-actions">
+                        <a href="{{ main_site }}" class="btn" id="builderMainSite">
+                            Open the main site →
+                        </a>
+                    </div>
+                    {% else %}
                     <p class="start-choice-note">
                         <strong>No graphics card needed.</strong> Any computer will do —
                         the training happens on somebody else's.
@@ -118,6 +141,7 @@
                         digest of it.
                     </p>
                     {% endif %}
+                    {% endif %}
                 </div>
 
                 <input type="file" id="builderKeyFile" accept=".json,application/json" hidden>
@@ -155,16 +179,29 @@
                          card can add a second and is not stranded if the
                          stored node is stale. -->
                     <div class="start-actions">
+                        <!-- Revealed by start.js once a node is registered here,
+                             and it takes the lead when it is: coming back to a
+                             machine you already set up is the common case;
+                             adding a second graphics card is not.
+
+                             It lives in the action list rather than beside the
+                             key link below, because .link-button sets
+                             `display: inline` -- which outranks the `hidden`
+                             attribute, so down there it showed itself to
+                             everybody. .start-actions has a rule for exactly
+                             that. -->
+                        <a href="/node" class="btn" id="contributorNode" hidden>
+                            Connect to node
+                        </a>
                         <button id="registerNodeButton" type="button" class="btn">
                             Create key file
                         </button>
                     </div>
-                    <p class="start-alt">
+                    <p class="start-alt" id="contributorAlt">
                         Already have one?
                         <button id="connectNodeButton" type="button" class="link-button">
                             Load your key file
                         </button>
-                        <a href="/node" class="link-button" id="contributorNode" hidden>Connect to node</a>
                     </p>
                     {% else %}
                     <!-- No agent beside this dashboard, and on the central server

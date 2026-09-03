@@ -285,8 +285,53 @@ NODE_ROUTES = [
 ]
 
 
+# Signing in belongs to one origin, and a contributor's dashboard is not it.
+#
+# These are forwarded to the central coordinator like everything else, and for
+# these six that is wrong. The OAuth application's callback URL names the public
+# deployment, so a sign-in begun on http://localhost:3000 ends with GitHub
+# sending the browser to the public domain instead of back here: somebody is
+# signed in on a site they were not reading, while the dashboard in front of
+# them still says signed out and cannot say why.
+#
+# Answered here as "there is no sign-in on this address", which every page
+# already knows how to handle -- it is what a deployment with no OAuth
+# application looks like, and the key model works exactly as it always has.
+AUTH_PATHS = {
+    "/auth/config", "/auth/github/start", "/auth/github/callback",
+    "/auth/link", "/auth/me", "/auth/sign-out",
+}
+
+# The two the pages ask before deciding what to show. Both get the honest answer
+# for this origin rather than an error, so the sign-in simply is not offered.
+NO_SIGN_IN_HERE = {
+    "/auth/config": {"github": False},
+    "/auth/me": {"signed_in": False, "github": False},
+}
+
+
+def _sign_in_is_elsewhere(path: str) -> Response:
+    body = NO_SIGN_IN_HERE.get(path)
+    if body is not None:
+        return Response(content=json.dumps(body).encode(), status_code=200,
+                        media_type="application/json")
+
+    return Response(
+        content=json.dumps({
+            "error": "Signing in happens on the main site, not on this "
+                     "dashboard. Your key works here exactly as it always has.",
+            "detail": "Signing in happens on the main site, not on this "
+                      "dashboard. Your key works here exactly as it always has.",
+        }).encode(),
+        status_code=404,
+        media_type="application/json",
+    )
+
+
 def _register(methods, path, upstream, timeout):
     async def handler(request: Request):
+        if path in AUTH_PATHS and await has_local_node():
+            return _sign_in_is_elsewhere(path)
         return await forward(request, upstream, timeout)
 
     # A readable name in tracebacks and in the OpenAPI schema.

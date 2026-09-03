@@ -69,7 +69,7 @@ function markAlreadySetUp() {
     document.getElementById("contributorChoice")?.classList.add("is-ready");
 
     const node = document.getElementById("contributorNode");
-    const connect = document.getElementById("registerNodeButton");
+    const register = document.getElementById("registerNodeButton");
 
     // Reveal the way back to an existing node without taking away the way to
     // connect another. Replacing one with the other is what left somebody
@@ -78,17 +78,20 @@ function markAlreadySetUp() {
     // Getting back in leads, on both cards: somebody returning to a machine
     // they already set up is the common case, and adding a second graphics
     // card is not.
-    if (node && connect) {
+    //
+    // No moving of nodes any more. The markup already has them in this order,
+    // so this is two class changes -- which is also what the data card does,
+    // and one less thing to get wrong when the card is next rearranged.
+    if (node && register) {
       node.hidden = false;
-      node.className = "btn";
-      connect.className = "btn-ghost";
-      connect.textContent = "Connect GPU";
-      connect.parentNode.insertBefore(node, connect);
+      register.className = "btn-ghost";
+      register.textContent = "Connect another GPU";
     }
 
-    // Already reconnected; the file is not what they need from this page.
-    const returning = document.getElementById("connectNodeButton");
-    if (returning) returning.hidden = true;
+    // Already reconnected; the key file is not what they need from this page,
+    // and neither is the sentence introducing it.
+    const alt = document.getElementById("contributorAlt");
+    if (alt) alt.hidden = true;
   }
 }
 

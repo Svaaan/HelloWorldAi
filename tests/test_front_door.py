@@ -38,14 +38,24 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 TEMPLATES = os.path.join(ROOT, "src", "frontend", "template")
 
 
+MAIN_SITE = "https://example.test"
+
+
 def render(has_local_node, github_signin=False):
-    """The front door as a browser would receive it."""
+    """The front door as a browser would receive it.
+
+    main_site is derived here the way start_page() derives it, rather than
+    passed in. Left to the caller it defaulted to undefined, which Jinja treats
+    as false -- so every "contributor's dashboard" case below was quietly
+    rendering a combination the application cannot produce.
+    """
     from jinja2 import Environment, FileSystemLoader
 
     env = Environment(loader=FileSystemLoader(TEMPLATES))
     return env.get_template("start.html").render(
         request=None, has_local_node=has_local_node,
-        github_signin=github_signin)
+        github_signin=github_signin,
+        main_site=MAIN_SITE if has_local_node else None)
 
 
 def buttons(html):
@@ -103,20 +113,74 @@ def test_exactly_one_route_to_the_guide(has_local_node):
     )
 
 
-def test_the_data_side_is_untouched_either_way():
-    """Whatever the GPU card does, somebody arriving with a dataset sees the same.
+def test_the_data_card_is_there_either_way():
+    """Whatever the GPU card does, somebody arriving with a dataset sees a door.
 
     The two sides were split precisely so that a visitor with data and an
     ordinary laptop is never told their hardware is unsuitable for something
-    they did not ask to do.
+    they did not ask to do. What that door *is* differs by deployment -- see
+    below -- but the card is never simply gone.
     """
     for has_local_node in (True, False):
         html = render(has_local_node)
-        assert 'id="builderStart"' in html, (
-            "the data card lost its button with has_local_node=%s" % has_local_node)
-        assert 'id="builderReturning"' in html, (
-            "the data card lost its key-file door with has_local_node=%s"
+        assert 'id="builderChoice"' in html
+        assert "Train a model" in html, (
+            "the data card vanished with has_local_node=%s" % has_local_node)
+        assert re.search(r'class="start-actions"', html), (
+            "the data card has nothing to press with has_local_node=%s"
             % has_local_node)
+
+
+# --- the card a contributor's own dashboard shows ---------------------------
+#
+# Training works from there -- every call is proxied to the same coordinator --
+# and that is the problem. localStorage is per-origin, so a key made on
+# http://localhost:3000 is a different identity from one made on the main site:
+# same person, same browser, two workspaces, and nothing saying so. Sign-in is
+# worse than useless there, because the OAuth callback names the public domain
+# and the browser never comes back.
+
+def test_a_contributors_dashboard_sends_training_to_the_main_site():
+    html = render(has_local_node=True)
+
+    assert 'id="builderMainSite"' in html
+    assert MAIN_SITE in html
+    assert "Train a model" in html, "the card still says the other half exists"
+
+
+def test_it_does_not_mint_a_second_identity_on_localhost():
+    """No key doors on that origin at all."""
+    html = render(has_local_node=True)
+
+    assert 'id="builderStart"' not in html, (
+        "creating a key here makes a workspace separate from the main site's, "
+        "with nothing on the page saying so")
+    assert 'id="builderReturning"' not in html
+    assert 'id="builderSignIn"' not in html
+
+
+def test_the_key_doors_are_exactly_where_they_can_work():
+    """The central deployment, which is the origin the callback URL names."""
+    html = render(has_local_node=False, github_signin=True)
+
+    assert 'id="builderStart"' in html
+    assert 'id="builderReturning"' in html
+    assert 'id="builderSignIn"' in html
+    assert 'id="builderMainSite"' not in html, (
+        "this deployment *is* the main site; pointing at itself is a loop")
+
+
+def test_the_dashboard_withholds_sign_in_from_its_own_front_door():
+    """start_page must not offer what the callback URL cannot deliver."""
+    import inspect
+    import sys
+    sys.path.insert(0, os.path.join(ROOT, "src"))
+    import app
+
+    source = inspect.getsource(app.github_signin)
+    assert "has_local_node" in source, (
+        "github_signin should refuse on a contributor's dashboard, whatever "
+        "the central coordinator reports")
 
 
 # --- the third door ---------------------------------------------------------

@@ -25,6 +25,7 @@ import json
 import os
 import re
 import sys
+import time
 from unittest.mock import patch
 
 import pytest
@@ -108,8 +109,22 @@ class Recorder:
         return self._record("DELETE", url, **kw)
 
 
-def call(method, path, params=None, body=None, headers=None, status=200):
-    """Drive one proxy route; return (what it sent upstream, its response)."""
+def call(method, path, params=None, body=None, headers=None, status=200,
+         local_node=False):
+    """Drive one proxy route; return (what it sent upstream, its response).
+
+    `local_node` says which of the two deployments is being driven, and it
+    matters for the /auth routes: a contributor's dashboard answers those
+    itself rather than forwarding them, because sign-in belongs to the origin
+    the OAuth callback names and that is not this one.
+
+    It has to be pinned rather than discovered. has_local_node() probes the
+    node agent through httpx, which is the very thing this harness replaces --
+    the Recorder answers 200 to everything, so every route would look like it
+    was running beside an agent.
+    """
+    proxypage._local_node_seen.update({"answer": local_node, "at": time.time()})
+
     sink = []
     app = FastAPI()
     app.include_router(proxypage.router)
@@ -563,3 +578,81 @@ def test_no_path_means_two_different_things():
         "only for whichever caller was not the one the table had in mind. Give "
         "them separate paths."
     )
+
+
+# --- signing in belongs to one origin ---------------------------------------
+#
+# A contributor's dashboard has no coordinator of its own; it proxies to the
+# central one over the internet. That is fine for everything except sign-in,
+# because the OAuth application's callback URL names the public deployment. A
+# sign-in begun on http://localhost:3000 ends with GitHub sending the browser to
+# the public domain: somebody is now signed in on a site they were not reading,
+# while the dashboard in front of them still says signed out and cannot explain
+# why. It shipped like that for a day.
+
+AUTH_ROUTES = [
+    ("GET", "/auth/config"),
+    ("GET", "/auth/github/start"),
+    ("GET", "/auth/github/callback"),
+    ("POST", "/auth/link"),
+    ("GET", "/auth/me"),
+    ("POST", "/auth/sign-out"),
+]
+
+
+@pytest.mark.parametrize("method,path", AUTH_ROUTES,
+                         ids=["%s %s" % (m, p) for m, p in AUTH_ROUTES])
+def test_a_contributors_dashboard_does_not_forward_a_sign_in(method, path):
+    sink, _res = call(method, path, local_node=True)
+    assert sink == [], (
+        "%s was forwarded from a dashboard that cannot receive the callback; "
+        "the sign-in would finish on a different site" % path)
+
+
+@pytest.mark.parametrize("method,path", AUTH_ROUTES,
+                         ids=["%s %s" % (m, p) for m, p in AUTH_ROUTES])
+def test_the_central_deployment_still_forwards_every_one(method, path):
+    sink, _res = call(method, path, local_node=False)
+    assert len(sink) == 1 and upstream_of(sink[0]["url"]) == COORD
+
+
+def test_the_pages_are_told_there_is_no_sign_in_rather_than_an_error():
+    """Both questions a page asks before deciding what to show.
+
+    An error here would surface as a broken panel. "No sign-in on this address"
+    is a shape every page already handles -- it is what a deployment with no
+    OAuth application looks like, and the key model works exactly as it always
+    has.
+    """
+    _sink, res = call("GET", "/auth/config", local_node=True)
+    assert res.status_code == 200 and res.json() == {"github": False}
+
+    _sink, res = call("GET", "/auth/me", local_node=True)
+    assert res.status_code == 200
+    assert res.json() == {"signed_in": False, "github": False}
+
+
+def test_the_acting_routes_say_where_sign_in_lives():
+    """Nothing should reach these, but a stale tab or a bookmark can."""
+    for method, path in [("GET", "/auth/github/start"),
+                         ("POST", "/auth/link"),
+                         ("GET", "/auth/github/callback")]:
+        _sink, res = call(method, path, local_node=True)
+        assert res.status_code == 404, path
+        assert "main site" in res.json()["error"], path
+
+
+def test_nothing_else_changes_on_a_contributors_dashboard():
+    """Only the six auth routes are answered locally. Everything else travels.
+
+    Getting this wrong in the other direction would strand a contributor's node:
+    every call it makes is proxied through this same dashboard.
+    """
+    sink, _res = call("GET", "/my-tasks", local_node=True)
+    assert len(sink) == 1 and upstream_of(sink[0]["url"]) == COORD
+
+    sink, _res = call("GET", "/next-task/node_1", local_node=True)
+    assert len(sink) == 1 and upstream_of(sink[0]["url"]) == COORD
+
+    sink, _res = call("POST", "/submit-task", local_node=True, body=b"{}")
+    assert len(sink) == 1 and upstream_of(sink[0]["url"]) == COORD

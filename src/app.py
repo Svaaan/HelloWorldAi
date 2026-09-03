@@ -147,6 +147,18 @@ GITHUB_SIGNIN_CACHE_SECONDS = 300
 
 
 async def github_signin() -> bool:
+    # Never on a contributor's own dashboard, whatever the coordinator says.
+    #
+    # Sign-in only works on the origin the OAuth application's callback URL
+    # names, and that is the central deployment. A contributor's dashboard has
+    # no coordinator of its own -- it proxies to the central one over the
+    # internet -- so pressing the button there sent the browser to GitHub, and
+    # GitHub sent it on to the *public* domain. They ended up signed in on a
+    # different site than the one they were reading, and the dashboard in front
+    # of them still showed them signed out, with nothing to explain it.
+    if await has_local_node():
+        return False
+
     now = time.time()
     if (_github_signin["answer"] is not None
             and now - _github_signin["at"] < GITHUB_SIGNIN_CACHE_SECONDS):
@@ -193,10 +205,22 @@ async def start_page(request: Request):
     if not os.path.exists(os.path.join(TEMPLATE_DIR, "start.html")):
         return HTMLResponse("<h1>404 - start.html not found</h1>", status_code=404)
 
+    local = await has_local_node()
+
     return templates.TemplateResponse("start.html", {
         "request": request,
-        "has_local_node": await has_local_node(),
+        "has_local_node": local,
         "github_signin": await github_signin(),
+        # Where training actually happens, for a contributor's dashboard to
+        # point at rather than offer itself.
+        #
+        # localStorage is per-origin, so a submitter key made on
+        # http://localhost:3000 is a different identity from one made on the
+        # public site -- same person, same browser, two workspaces, and nothing
+        # saying so. The card still earns its place here: it is where somebody
+        # who came to lend a card learns the other half exists. It just should
+        # not be the place they take it up.
+        "main_site": COORDINATOR_URL if local else None,
     })
 
 @dashboard_app.get("/connect", include_in_schema=False)
