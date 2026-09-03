@@ -20,7 +20,12 @@
   /* --- text --- */
   --text:          #e7ebf2;
   --text-muted:    #98a3b6;
-  --text-faint:    #6b7688;
+  /* Lifted from #6b7688, which measured 3.84:1 on --surface -- below AA, and
+     it is what the fine print, the footnotes and the quiet secondary lines are
+     set in. Same hue and saturation, only lighter: 4.85:1 on --surface, 5.32:1
+     on --bg, 4.50:1 on --surface-2. It still reads as the quietest text on the
+     page; it is simply legible now. */
+  --text-faint:    #7c8798;
 
   /* --- accent: the original cyan, eased off the neon --- */
   --accent:        #22d3ee;
@@ -41,20 +46,40 @@
   --border:        rgba(255, 255, 255, 0.07);
   --border-strong: rgba(255, 255, 255, 0.13);
 
-  /* --- corners: generous and consistent --- */
-  --r-xs:   6px;
-  --r-sm:   10px;
-  --r-md:   14px;
-  --r-lg:   18px;
-  --r-xl:   24px;
+  /* --- corners ---
+     Tightened by about a third. 24px on a card with 28px of padding is rounder
+     than anything inside it can be, so the corners read as a separate decision
+     from the content -- friendly, and a little consumer-app. Pulling the scale
+     in makes the cards look drawn to the same rule as the buttons in them.
+
+     Still monotonic, which the old scale stopped being the moment anything was
+     nudged: cards use --r-xl and .surface/.card use --r-lg, so those two have
+     to stay in order or two cards on one page get different corners. */
+  --r-xs:   5px;
+  --r-sm:   8px;
+  --r-md:   10px;
+  --r-lg:   14px;
+  --r-xl:   18px;
   --r-pill: 999px;
 
-  /* --- depth: soft and layered, no neon glow --- */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.30);
-  --shadow:    0 4px 16px rgba(0, 0, 0, 0.34);
-  --shadow-md: 0 10px 30px rgba(0, 0, 0, 0.40);
-  --shadow-lg: 0 20px 50px rgba(0, 0, 0, 0.48);
-  --ring:      0 0 0 3px rgba(34, 211, 238, 0.32);
+  /* --- depth ---
+     Lighter than they were. On a dark interface a shadow has almost nothing to
+     fall on, so a heavy one reads as a grey smudge rather than as height -- the
+     border and the surface step do the real work of separating a card from the
+     page. These are now a hint of depth rather than a drop shadow.
+
+     Two layers each: a tight one to seat the edge, a wide soft one for lift. */
+  --shadow-sm: 0 1px 1px rgba(0, 0, 0, 0.24);
+  --shadow:    0 1px 2px rgba(0, 0, 0, 0.24), 0 6px 16px rgba(0, 0, 0, 0.18);
+  --shadow-md: 0 1px 2px rgba(0, 0, 0, 0.26), 0 12px 28px rgba(0, 0, 0, 0.24);
+  --shadow-lg: 0 2px 4px rgba(0, 0, 0, 0.28), 0 24px 56px rgba(0, 0, 0, 0.34);
+
+  /* For the handful of controls that draw their focus ring as a box-shadow.
+     A single ring, no fake gap: an inner ring painted in --bg would be right
+     only on the page background and wrong on every card, which sits a shade
+     lighter. The base rule below uses outline-offset instead, which leaves a
+     real transparent gap and so is correct on any surface. */
+  --ring:      0 0 0 2px rgba(34, 211, 238, 0.70);
 
   /* --- motion --- */
   --ease:      cubic-bezier(0.4, 0, 0.2, 1);
@@ -63,8 +88,21 @@
   --t:         220ms;
   --t-slow:    380ms;
 
-  --font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --font-mono: "JetBrains Mono", "Consolas", "Monaco", monospace;
+  /* Inter led this stack and was never loaded -- no @font-face, no stylesheet
+     link, and font-src is 'self', so a Google Fonts link would be refused. It
+     rendered as Segoe UI everywhere while the headings carried tracking tuned
+     for Inter, which is most of why the type looked slightly off.
+
+     Naming the system faces instead: deterministic, already installed, no
+     download, and no request before the first paint. Windows 11 ships the
+     Variable Text and Display cuts, which are what Segoe UI became; the plain
+     names behind them cover Windows 10 and everything else. */
+  --font: system-ui, -apple-system, "Segoe UI Variable Text", "Segoe UI",
+          Roboto, "Helvetica Neue", Arial, sans-serif;
+  /* Display cut for large headings: drawn tighter, for sizes above ~24px. */
+  --font-display: "Segoe UI Variable Display", var(--font);
+  --font-mono: ui-monospace, "Cascadia Mono", "SF Mono", "JetBrains Mono",
+               Consolas, "Liberation Mono", monospace;
 
   /* --- compatibility aliases for existing stylesheets --- */
   --primary:        var(--accent);
@@ -111,10 +149,48 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Tracking is a function of size, not a constant.
+   One value for every heading meant the page h1 and a 15px panel title were
+   tracked the same, which reads as loose at the top and cramped at the bottom.
+   Large type wants to be pulled in; small type wants to be left alone or opened
+   very slightly. */
 h1, h2, h3, h4 {
   color: var(--text);
+  font-family: var(--font-display);
   line-height: 1.25;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.011em;
+  /* Breaks a heading into even lines instead of leaving one word stranded.
+     Ignored by browsers that do not know it, which is the right way to fail. */
+  text-wrap: balance;
+}
+
+h1 {
+  letter-spacing: -0.022em;
+  line-height: 1.15;
+}
+
+h2 {
+  letter-spacing: -0.016em;
+}
+
+h3, h4 {
+  letter-spacing: -0.008em;
+}
+
+/* Numbers that change under you must not move the things beside them.
+   The workspace counters, the usage readouts and the node table all update on a
+   poll, and proportional digits make the row twitch on every tick. */
+.stat-value,
+.ws-stat-value,
+.status-pill,
+td,
+th,
+time,
+code,
+kbd,
+samp {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
 }
 
 a {
@@ -127,11 +203,17 @@ a:hover {
   color: var(--accent-strong);
 }
 
-/* Visible focus for keyboard users, invisible for mouse users. */
+/* Visible focus for keyboard users, invisible for mouse users.
+   An outline rather than a box-shadow: outline-offset leaves a genuinely
+   transparent gap, so the ring reads correctly on the page, on a card and on a
+   pill alike, and modern browsers follow the element's own corner radius.
+
+   It used to set `border-radius: var(--r-sm)` here, which changed the shape of
+   whatever was focused -- tabbing onto a pill-shaped control squared its ends
+   off. Focus should say where you are, not redraw it. */
 :focus-visible {
-  outline: none;
-  box-shadow: var(--ring);
-  border-radius: var(--r-sm);
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 /* --- surfaces ------------------------------------------------ */
@@ -152,7 +234,12 @@ button,
 .refresh-button {
   font-family: inherit;
   font-size: 0.9375rem;
-  font-weight: 550;
+  /* 600, not 550. Only a variable font can render a weight between the named
+     cuts; everywhere else 550 is rounded, and which way it rounds is up to the
+     browser -- so the same button was semibold on one machine and regular on
+     another. */
+  font-weight: 600;
+  letter-spacing: -0.006em;
   line-height: 1;
   padding: 0.7rem 1.15rem;
   border: 1px solid transparent;
@@ -172,21 +259,24 @@ button,
     opacity var(--t-fast) var(--ease);
 }
 
+/* Hover changes the colour. It does not lift the button off the page.
+   Every button rising 1px and growing a shadow under the cursor is the single
+   most template-like thing this interface did: it draws the eye to the mouse
+   rather than to the work, and on a list of buttons the whole column jitters as
+   the pointer crosses it. Pressing still gives feedback -- the button dims,
+   which is what a real press looks like. */
 button:hover,
 .btn:hover,
 .btn-ghost:hover,
 .refresh-button:hover:hover {
   background-color: var(--accent-strong);
-  transform: translateY(-1px);
-  box-shadow: var(--shadow);
 }
 
 button:active,
 .btn:active,
 .btn-ghost:active,
 .refresh-button:active:active {
-  transform: translateY(0);
-  box-shadow: var(--shadow-sm);
+  filter: brightness(0.94);
 }
 
 button:disabled,

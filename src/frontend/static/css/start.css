@@ -81,7 +81,6 @@
 .start-choice:hover {
   border-color: var(--border-strong);
   box-shadow: var(--shadow-md);
-  transform: translateY(-2px);
 }
 
 /* Marks a side this browser is already set up for. */
@@ -351,8 +350,6 @@
 
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .start-choice:hover {
-    transform: none;
-  }
-}
+/* The card no longer moves on hover, for anybody, so there is nothing here to
+   turn off. The transition it still runs is a colour change, which is not
+   motion in the sense this query is asking about. */

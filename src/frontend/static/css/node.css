@@ -191,7 +191,6 @@
   background-color: var(--accent-wash);
   border-color: var(--accent-edge);
   color: var(--accent-strong);
-  transform: translateY(-1px);
 }
 
 /* Reserved for genuine failures, not for "nothing here yet". */
@@ -309,7 +308,6 @@
   background-color: var(--surface-3);
   border-color: var(--accent-edge);
   color: var(--accent-strong);
-  transform: translateY(-1px);
 }
 
 .action-button:hover::after { transform: translateX(2px); }

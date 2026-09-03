@@ -84,14 +84,11 @@
 }
 
 .node-item:hover {
-  transform: translateY(-3px);
+  /* No lift on hover -- see theme.css. The colour and border change
+     below already say the thing is live under the cursor. */
   background-color: var(--surface-3);
   border-color: var(--accent-edge);
   box-shadow: var(--shadow-md);
-}
-
-.node-item:active {
-  transform: translateY(-1px);
 }
 
 .node-item:focus-visible {

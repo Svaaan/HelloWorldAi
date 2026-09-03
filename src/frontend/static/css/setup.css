@@ -425,7 +425,6 @@
 
 .link-box a:hover {
   background-color: var(--surface-3);
-  transform: translateY(-1px);
   text-decoration: none;
 }
 
