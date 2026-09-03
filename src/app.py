@@ -1,6 +1,9 @@
 import os
 import sys
 import multiprocessing
+import time
+
+import httpx
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -40,7 +43,7 @@ if not USE_DOCKER:
 # functions that need them instead, and tests/test_image_requirements.py checks
 # each image's requirements file against what its entry point actually imports.
 from backend.dashboard import router as dashboard_router
-from backend.proxypage import has_local_node
+from backend.proxypage import COORDINATOR_URL, has_local_node
 from backend.proxypage import router as proxy_router
 
 # Dashboard app
@@ -129,6 +132,40 @@ async def security_headers(request, call_next):
     return response
 
 
+# Whether the coordinator has a GitHub OAuth application configured.
+#
+# Asked rather than assumed, for the same reason has_local_node is: the same
+# image serves a central deployment and a contributor's own machine, and only
+# one of them has any business offering a sign-in. Somebody running the stack
+# at home should not be shown a button that ends in "GitHub sign-in is not set
+# up on this deployment".
+#
+# Cached for a while because the answer changes when the server is restarted
+# with new settings, and not otherwise.
+_github_signin = {"answer": None, "at": 0.0}
+GITHUB_SIGNIN_CACHE_SECONDS = 300
+
+
+async def github_signin() -> bool:
+    now = time.time()
+    if (_github_signin["answer"] is not None
+            and now - _github_signin["at"] < GITHUB_SIGNIN_CACHE_SECONDS):
+        return _github_signin["answer"]
+
+    configured = False
+    try:
+        async with httpx.AsyncClient() as client:
+            res = await client.get(f"{COORDINATOR_URL}/auth/config", timeout=5)
+            configured = bool((res.json() or {}).get("github"))
+    except Exception:
+        # An older coordinator has no /auth routes. Not an error: it means this
+        # deployment has no sign-in, which is what the front door will show.
+        configured = False
+
+    _github_signin.update({"answer": configured, "at": now})
+    return configured
+
+
 # === Frontend routes ===
 @dashboard_app.get("/", response_class=HTMLResponse, include_in_schema=False)
 async def start_page(request: Request):
@@ -159,6 +196,7 @@ async def start_page(request: Request):
     return templates.TemplateResponse("start.html", {
         "request": request,
         "has_local_node": await has_local_node(),
+        "github_signin": await github_signin(),
     })
 
 @dashboard_app.get("/connect", include_in_schema=False)

@@ -38,13 +38,14 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 TEMPLATES = os.path.join(ROOT, "src", "frontend", "template")
 
 
-def render(has_local_node):
+def render(has_local_node, github_signin=False):
     """The front door as a browser would receive it."""
     from jinja2 import Environment, FileSystemLoader
 
     env = Environment(loader=FileSystemLoader(TEMPLATES))
     return env.get_template("start.html").render(
-        request=None, has_local_node=has_local_node)
+        request=None, has_local_node=has_local_node,
+        github_signin=github_signin)
 
 
 def buttons(html):
@@ -116,3 +117,90 @@ def test_the_data_side_is_untouched_either_way():
         assert 'id="builderReturning"' in html, (
             "the data card lost its key-file door with has_local_node=%s"
             % has_local_node)
+
+
+# --- the third door ---------------------------------------------------------
+#
+# Signing in belongs here rather than only in the workspace. The workspace is a
+# page you reach *after* you have a key; this is the page where the identity is
+# decided, and it used to offer only the two doors that hand somebody a file to
+# look after.
+#
+# Rendered server-side, for the same reason the GPU card is: revealed by script
+# it would move the layout a beat after the page appeared.
+
+def test_signing_in_is_offered_where_the_identity_is_decided():
+    html = render(has_local_node=False, github_signin=True)
+
+    assert 'id="builderSignIn"' in html
+    assert 'href="/auth/github/start"' in html
+    assert "Sign in with GitHub" in html
+
+
+def test_it_leads_without_taking_the_key_doors_away():
+    """The key still owns the work. Signing in is a third way in, not a swap."""
+    html = render(has_local_node=False, github_signin=True)
+
+    assert 'id="builderStart"' in html, "making a key must still be possible"
+    assert 'id="builderReturning"' in html, "so must arriving with one"
+
+    # The filled button is the one that does not hand somebody a file to keep.
+    assert re.search(r'id="builderSignIn"[^>]*class="btn"', html), (
+        "sign-in should lead: it is the only door here that does not make "
+        "somebody responsible for a file")
+    assert re.search(r'id="builderStart"[^>]*class="btn-ghost"', html)
+
+
+def test_a_deployment_without_an_oauth_app_looks_exactly_as_it_did():
+    """No button, and no sentence explaining a feature that is not there.
+
+    Somebody running the whole stack at home should not be told to go and
+    register an OAuth application with GitHub.
+    """
+    html = render(has_local_node=False, github_signin=False)
+
+    assert 'id="builderSignIn"' not in html
+    assert "Sign in with GitHub" not in html
+    assert "start-signin-note" not in html
+
+    # And the card it always had, unchanged.
+    assert re.search(r'id="builderStart"[^>]*class="btn"', html), (
+        "with no sign-in to offer, making a key is the primary door again")
+
+
+def test_what_signing_in_costs_is_said_before_it_is_clicked():
+    """Handing over a GitHub identity is a thing people are right to pause on."""
+    html = render(has_local_node=False, github_signin=True)
+    card = html[html.index('id="builderChoice"'):html.index('id="contributorChoice"')]
+
+    assert "username" in card, "say what is read"
+    assert "never sent to GitHub" in card, "say what is not"
+    assert "one-way digest" in card, "say what the coordinator keeps"
+
+
+@pytest.mark.parametrize("has_local_node", [True, False])
+def test_the_gpu_card_is_unaffected_by_sign_in(has_local_node):
+    """Two independent questions, and they must not have been wired together."""
+    without = buttons(render(has_local_node, github_signin=False))
+    with_it = buttons(render(has_local_node, github_signin=True))
+    assert without == with_it
+
+    assert (links_to_the_guide(render(has_local_node, github_signin=True))
+            == links_to_the_guide(render(has_local_node, github_signin=False)))
+
+
+def test_the_dashboard_asks_rather_than_assumes():
+    """The same image serves a public deployment and a contributor's machine.
+
+    Only one of them has an OAuth application, and the page cannot know which
+    it is without asking the coordinator.
+    """
+    import inspect
+    import sys
+    sys.path.insert(0, os.path.join(ROOT, "src"))
+    import app
+
+    source = inspect.getsource(app.start_page)
+    assert "github_signin" in source, (
+        "start_page should pass the answer to the template")
+    assert "/auth/config" in inspect.getsource(app.github_signin)

@@ -43,7 +43,21 @@ function markAlreadySetUp() {
     choice?.classList.add("is-ready");
 
     const button = document.getElementById("builderStart");
-    if (button) button.textContent = "Open your workspace";
+    if (button) {
+      button.textContent = "Open your workspace";
+
+      // Getting back in leads, the same rule the GPU card follows. Signing in
+      // is for somebody arriving without a key; this browser has one, and
+      // offering the sign-in more loudly than the way back would be answering
+      // a question they are not asking. It stays available, because linking
+      // this key to an account is exactly what a returning visitor might be
+      // here to do.
+      const signIn = document.getElementById("builderSignIn");
+      if (signIn) {
+        button.className = "btn";
+        signIn.className = "btn-ghost";
+      }
+    }
 
     // Loading a file still works -- it is how you move an identity between
     // machines -- but it is no longer the obvious thing to press.

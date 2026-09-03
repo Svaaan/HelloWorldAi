@@ -45,18 +45,44 @@
                     the training happens on somebody else's.
                 </p>
 
-                <!-- Two ways in, the same two on both cards: make the key
-                     that is your account, or load the one you already made.
-                     "Get started" beside "I have a key file" read as two doors
-                     for the same person. -->
+                <!-- Ways in. The key is still what owns the work, and both
+                     key doors are still here -- make one, or load the one you
+                     already made.
+
+                     Signing in leads, where the deployment offers it, because
+                     it is the only one of the three that does not hand
+                     somebody a file to look after. It does not replace the
+                     key: it creates one too, and remembers whose it is, so
+                     losing the file stops being the end of the workspace.
+
+                     Rendered by start_page() rather than revealed by script,
+                     so the card does not rearrange itself a beat after it
+                     appears. A deployment with no OAuth application shows
+                     exactly the two buttons it always did. -->
                 <div class="start-actions">
+                    {% if github_signin %}
+                    <a id="builderSignIn" href="/auth/github/start" class="btn">
+                        Sign in with GitHub
+                    </a>
+                    <button id="builderStart" type="button" class="btn-ghost">
+                        Create key file
+                    </button>
+                    {% else %}
                     <button id="builderStart" type="button" class="btn">
                         Create key file
                     </button>
+                    {% endif %}
                     <button id="builderReturning" type="button" class="btn-ghost">
                         I have a key file
                     </button>
                 </div>
+                {% if github_signin %}
+                <p class="start-choice-note start-signin-note">
+                    Signing in only reads your GitHub username. Your key stays
+                    in this browser — it is never sent to GitHub, and the
+                    coordinator only ever stores a one-way digest of it.
+                </p>
+                {% endif %}
                 <input type="file" id="builderKeyFile" accept=".json,application/json" hidden>
                 <div id="builderStatus" class="start-status"></div>
             </section>

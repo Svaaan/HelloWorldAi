@@ -19,7 +19,7 @@
 
 import { setSignedInBuilder } from "../component/role.js";
 import {
-  getSubmitterKey, hasSubmitterKey, setSignedIn,
+  getSubmitterKey, setSignedIn,
 } from "../distribution/submitter.js";
 
 // Which key was last linked to which account, so a page load is not another
@@ -64,18 +64,36 @@ async function fetchAccount() {
  * This is the whole of what makes signing in a wrap. The jobs already sent
  * under this key stay under it -- nothing is migrated, no task is rewritten --
  * and the account simply learns that this digest is one of yours.
+ *
+ * A browser with no key gets one here rather than being left without.
+ *
+ * That is not a detail. An account holds digests, so an account with none owns
+ * nothing, and the coordinator would resolve a signed-in submission to no
+ * submitter at all. It does not refuse that -- an anonymous API client is
+ * allowed to queue work nobody can claim -- so a person whose first act was
+ * signing in would have sent a job into a state where the model could never be
+ * collected, and nothing would have said so.
+ *
+ * Minting it here and not on the coordinator is the same rule as everywhere
+ * else: a submitter_id is the digest of a key some browser holds, and the
+ * coordinator does not get to invent identities. What the account changes is
+ * that nobody has to look after the file for this to keep working -- lose it,
+ * and signing in still reaches the work.
  */
 async function linkKey(login) {
-  if (!hasSubmitterKey()) return account;
+  // getSubmitterKey() creates one when there is none. Deliberate here, and
+  // deliberately not in submitterHeaders(), which must not mint a key while
+  // the answer to "who is this" is still in flight.
+  const key = getSubmitterKey();
 
-  const marker = `${login}:${getSubmitterKey().slice(0, 8)}`;
+  const marker = `${login}:${key.slice(0, 8)}`;
   if (stored(LINKED_MARKER) === marker) return account;
 
   try {
     const res = await fetch("/auth/link", {
       method: "POST",
       credentials: "same-origin",
-      headers: { "X-Submitter-Key": getSubmitterKey() },
+      headers: { "X-Submitter-Key": key },
     });
     if (!res.ok) throw new Error(`Server returned ${res.status}`);
 

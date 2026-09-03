@@ -159,6 +159,15 @@
   }
 }
 
+/* The sentence under the sign-in door. Smaller than the card's own note: it
+   answers "what is this going to do with my GitHub account", which is worth
+   answering before somebody clicks and not worth saying twice. */
+.start-signin-note {
+  margin-top: 0.85rem;
+  font-size: 0.75rem;
+  line-height: 1.55;
+}
+
 /* An attribute the button styles would otherwise outrank. */
 .start-actions [hidden] {
   display: none;
