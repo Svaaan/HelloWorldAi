@@ -248,15 +248,49 @@ def render_node_page():
     path = os.path.join(TEMPLATE_DIR, "node.html")
     return FileResponse(path) if os.path.exists(path) else HTMLResponse("<h1>404 - node.html not found</h1>", status_code=404)
 
+async def _training_lives_elsewhere():
+    """Send the two builder pages to the main site, from a node's dashboard.
+
+    localStorage is per-origin. A submitter key created on http://localhost:3000
+    is a different identity from one created on the main site -- same person,
+    same browser, two workspaces, and nothing on either of them saying so.
+
+    The front door stopped offering that on a contributor's dashboard, but these
+    two pages are still reachable by typing the address or following an old
+    bookmark, and /workspace's own "there is nothing here until you set that up"
+    button pointed straight at the local /distribution. Somebody following it
+    would have queued a real job under a key only that origin can see.
+
+    Nothing is lost by going: the pages are identical on the main site, and that
+    is where the work already is. Redirecting rather than explaining because
+    /connect already works this way, and because there is nothing to decide.
+
+    Returns a RedirectResponse, or None on the central deployment -- which has
+    no node agent beside it, so this never fires there.
+    """
+    if not await has_local_node():
+        return None
+
+    main_site = (COORDINATOR_URL or "").rstrip("/")
+    if not main_site:
+        return None
+    return RedirectResponse(f"{main_site}/workspace", status_code=307)
+
+
 @dashboard_app.get("/workspace", response_class=HTMLResponse)
 async def workspace_page():
+    elsewhere = await _training_lives_elsewhere()
+    if elsewhere:
+        return elsewhere
+
     path = os.path.join(TEMPLATE_DIR, "workspace.html")
     return FileResponse(path) if os.path.exists(path) else HTMLResponse("<h1>404 - workspace.html not found</h1>", status_code=404)
 
-@dashboard_app.get("/distribution", response_class=HTMLResponse)
-def render_distribution_page():
-    path = os.path.join(TEMPLATE_DIR, "distribution.html")
-    return FileResponse(path) if os.path.exists(path) else HTMLResponse("<h1>404 - distribution.html not found</h1>", status_code=404)
+# /distribution is served by proxypage.proxy_distribution_page, which is
+# registered first and therefore wins. A second handler for it lived here and
+# had been unreachable for as long as both existed -- long enough that editing
+# it to add the redirect below changed nothing at all, which is how it was
+# found.
 
 # === Run services ===
 

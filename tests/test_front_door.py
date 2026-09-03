@@ -318,3 +318,80 @@ def test_the_github_mark_is_not_fetched_from_github():
     assert "<svg" in html and "btn-mark" in html
     assert "githubusercontent" not in html
     assert "githubassets" not in html
+
+
+# --- the two builder pages, on a machine that lends a GPU -------------------
+#
+# The front door stopped offering to make a key on that origin, but /workspace
+# and /distribution were still reachable by typing the address or following an
+# old bookmark -- and /workspace's own "there is nothing here until you set that
+# up" button pointed straight at the local /distribution. Following it would
+# queue a real job under a key only that origin can see, with the model
+# collectable from nowhere else.
+
+def _routes_for(path):
+    import sys
+    sys.path.insert(0, os.path.join(ROOT, "src"))
+    import app
+    return [r for r in app.dashboard_app.routes if getattr(r, "path", None) == path]
+
+
+def test_only_one_handler_claims_each_page():
+    """A second handler for /distribution sat here unreachable.
+
+    Registered after the proxy router's, so it never once served a request.
+    Editing it to add the redirect changed nothing at all, which is how it was
+    found -- and is exactly what a shadowed route costs.
+    """
+    for path in ("/", "/workspace", "/distribution", "/node", "/setup"):
+        assert len(_routes_for(path)) == 1, (
+            f"{path} has more than one handler; only the first will ever run")
+
+
+def test_the_builder_pages_send_you_to_the_main_site_from_a_node_dashboard():
+    import inspect
+    import sys
+    sys.path.insert(0, os.path.join(ROOT, "src"))
+    import app
+    from backend import proxypage
+
+    workspace = inspect.getsource(app.workspace_page)
+    assert "_training_lives_elsewhere" in workspace
+
+    guard = inspect.getsource(app._training_lives_elsewhere)
+    assert "has_local_node" in guard
+    assert "COORDINATOR_URL" in guard
+
+    # And the one that actually serves /distribution, which is not in app.py.
+    distribution = inspect.getsource(proxypage.proxy_distribution_page)
+    assert "has_local_node" in distribution
+    assert "RedirectResponse" in distribution
+
+
+def test_the_send_work_page_stopped_fetching_what_nothing_reads():
+    """distribution.html has no template tags, so available_nodes went nowhere.
+
+    It was a coordinator round trip on every page load, building a list the page
+    then ignored while its own polling fetched the same thing a moment later.
+    """
+    import inspect
+    import sys
+    sys.path.insert(0, os.path.join(ROOT, "src"))
+    from backend import proxypage
+
+    source = inspect.getsource(proxypage.proxy_distribution_page)
+    # The docstring explains the removal and so names the thing removed.
+    # Strip the prose and look at what the function actually does.
+    code = re.sub(r'""".*?"""', "", source, flags=re.S)
+    code = re.sub(r"#.*", "", code)
+
+    assert "available_nodes" not in code
+    assert "/nodes" not in code, (
+        "the page is fetching the node list server-side again; fetchNode.js "
+        "already keeps it current, and a second copy only goes stale")
+
+    template = open(os.path.join(TEMPLATES, "distribution.html"),
+                    encoding="utf-8").read()
+    assert "{%" not in template and "{{" not in template, (
+        "distribution.html grew template tags; if the page now needs "
+        "server-rendered context, that round trip has to come back")

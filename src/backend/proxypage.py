@@ -37,7 +37,7 @@ import time
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
 from backend.utils.config import NODE_URL, COORDINATOR_URL
@@ -428,25 +428,25 @@ async def local_node():
 
 @router.get("/distribution", response_class=HTMLResponse)
 async def proxy_distribution_page(request: Request):
-    """The send-work page, rendered with the nodes that can take a job now."""
-    available_nodes = []
-    try:
-        async with httpx.AsyncClient() as client:
-            res = await client.get(f"{COORDINATOR_URL}/nodes",
-                                   timeout=DEFAULT_TIMEOUT)
-            res.raise_for_status()
-            all_nodes = safe_json(res)
+    """The send-work page.
 
-            if isinstance(all_nodes, list):
-                available_nodes = [
-                    node for node in all_nodes
-                    if node.get("isConnected") and node.get("isAvailable")
-                ]
-    except (httpx.RequestError, httpx.HTTPStatusError) as e:
-        # The page is still worth serving; it polls for nodes once it loads.
-        print(f"Failed to fetch nodes for /distribution: {e}")
+    It used to fetch the connected nodes here and pass them in as
+    `available_nodes`. distribution.html contains no template tags at all, so
+    nothing has ever read that: it was a coordinator round trip on every page
+    load, building a variable the page then ignored while its own polling
+    fetched the same list a moment later. Removed rather than wired up --
+    fetchNode.js keeps the list current, and a server-rendered copy would only
+    be a second version of it going stale.
+    """
+    # Not from a contributor's own dashboard. localStorage is per-origin, so a
+    # key made here is a different identity from the one on the main site --
+    # same person, same browser, two workspaces, nothing saying so. Sending a
+    # job from this address would file real work under a key only this origin
+    # can see. See _training_lives_elsewhere in app.py, which does the same for
+    # /workspace and explains it at length.
+    if await has_local_node():
+        main_site = (COORDINATOR_URL or "").rstrip("/")
+        if main_site:
+            return RedirectResponse(f"{main_site}/distribution", status_code=307)
 
-    return templates.TemplateResponse("distribution.html", {
-        "request": request,
-        "available_nodes": available_nodes,
-    })
+    return templates.TemplateResponse("distribution.html", {"request": request})
