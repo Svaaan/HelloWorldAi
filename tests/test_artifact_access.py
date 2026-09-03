@@ -87,7 +87,15 @@ class FakeTasks:
     async def find_one(self, query, projection=None):
         for task in self.tasks:
             if "submitter_id" in query:
-                if (task.get("submitter_id") == query["submitter_id"]
+                # A scope, because signing in can put several digests behind
+                # one person. Mongo takes either shape; so does this.
+                wanted_submitters = query["submitter_id"]
+                if isinstance(wanted_submitters, dict):
+                    wanted_submitters = wanted_submitters.get("$in", [])
+                elif isinstance(wanted_submitters, str):
+                    wanted_submitters = [wanted_submitters]
+
+                if (task.get("submitter_id") in wanted_submitters
                         and task.get("weights_id") == query.get("weights_id")):
                     return {"_id": task["_id"]}
                 continue
@@ -131,8 +139,9 @@ def download(artifact_id, caller, metadata, tasks, submitter=None):
     artifacts_routes.AsyncIOMotorGridFSBucket = FakeBucket
     artifacts_routes.ObjectId = lambda v: v     # ids here are plain strings
     try:
+        scope = [submitter] if submitter else []
         return run(coordinator.download_artifact(
-            artifact_id, FakeDb, caller, submitter)), None
+            artifact_id, FakeDb, caller, scope)), None
     except HTTPException as e:
         return None, e
     finally:
@@ -236,7 +245,7 @@ def test_download_and_legacy_result_sink_require_a_node_token():
     # The download accepts either party, so it checks for both in its body
     # rather than through a raising dependency.
     params = inspect.signature(download_artifact).parameters
-    assert "caller" in params and "submitter" in params
+    assert "caller" in params and "scope" in params
 
 
 # --- standalone runner ---------------------------------------------------

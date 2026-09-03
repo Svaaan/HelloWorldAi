@@ -277,9 +277,49 @@
   color: var(--text-faint);
 }
 
-/* --- placing the third panel ---------------------------------------------
-   Auto-placement would drop this under Results, across the wide column. It
-   belongs under the key panel, in the space that panel gives back. Scoped to
+/* --- signing in ------------------------------------------------------------
+   A quiet panel on purpose. The key above it is still the thing that owns the
+   work, and this is an addition to it, not a replacement -- so it should not
+   arrive shouting louder than the panel it sits under. */
+
+.acct-line {
+  margin: 0 0 0.85rem;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  color: var(--text-faint);
+}
+
+.acct-fineprint {
+  margin: 0.75rem 0 0;
+  font-size: 0.75rem;
+  line-height: 1.55;
+  color: var(--text-faint);
+}
+
+.acct-signin {
+  width: 100%;
+  text-align: center;
+}
+
+.acct-who {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 0.6rem;
+  font-size: 0.9375rem;
+  color: var(--text);
+}
+
+/* Same reason as #identityActions above: [hidden] loses to a display rule, and
+   the panel would flash into view before account.js has decided whether this
+   deployment offers sign-in at all. */
+.ws-account[hidden] {
+  display: none;
+}
+
+/* --- placing the panels ---------------------------------------------------
+   Auto-placement would drop these under Results, across the wide column. They
+   belong under the key panel, in the space that panel gives back. Scoped to
    the two-column layout; below that the grid is a single stack and the source
    order is already right. */
 
@@ -292,7 +332,7 @@
 
   .ws-results {
     grid-column: 1;
-    grid-row: 1 / span 2;
+    grid-row: 1 / span 3;
   }
 
   .ws-identity {
@@ -300,8 +340,15 @@
     grid-row: 1;
   }
 
-  .ws-running {
+  /* Directly under the key, because it is about that key. On a deployment with
+     no OAuth application this panel is hidden and the row simply collapses. */
+  .ws-account {
     grid-column: 2;
     grid-row: 2;
+  }
+
+  .ws-running {
+    grid-column: 2;
+    grid-row: 3;
   }
 }

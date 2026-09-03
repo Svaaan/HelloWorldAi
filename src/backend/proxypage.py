@@ -82,6 +82,15 @@ def auth_headers(request: Request, extra: dict = None) -> dict:
     if submitter:
         headers["X-Submitter-Key"] = submitter
 
+    # The session cookie, for the routes that sign somebody in. Without it the
+    # coordinator sees every request as anonymous and a signed-in browser looks
+    # signed out -- the same silent failure as dropping Set-Cookie on the way
+    # back. The upstream here is this deployment's own coordinator on a private
+    # network, not a third party.
+    cookie = request.headers.get("cookie")
+    if cookie:
+        headers["Cookie"] = cookie
+
     return headers
 
 
@@ -90,7 +99,12 @@ def auth_headers(request: Request, extra: dict = None) -> dict:
 # keeps the filename the coordinator chose. Hop-by-hop headers such as
 # Content-Length and Transfer-Encoding are deliberately not copied -- they
 # describe the upstream connection, not this one.
-PASSED_BACK = ("content-type", "content-disposition")
+#
+# Location and Set-Cookie were added for sign-in and are not optional for it.
+# A redirect whose Location is dropped is a 307 to nowhere, and a session
+# cookie the proxy swallows means the browser is never signed in -- both fail
+# silently, looking like the login itself is broken.
+PASSED_BACK = ("content-type", "content-disposition", "location")
 
 
 async def forward(request: Request, upstream: str, timeout: float):
@@ -155,11 +169,30 @@ async def forward(request: Request, upstream: str, timeout: float):
             media_type="application/json",
         )
 
-    return Response(
+    response = Response(
         content=res.content,
         status_code=res.status_code,
         headers={k: v for k, v in res.headers.items() if k.lower() in PASSED_BACK},
     )
+
+    # Separately, because a response may carry more than one and a dict keeps
+    # only the last.
+    #
+    # get_list is httpx's way of seeing them all, and is reached for through
+    # getattr because this only ever needs to read headers -- crashing on a
+    # response object that models them differently would take the whole proxy
+    # down for a header that was not there anyway.
+    get_list = getattr(res.headers, "get_list", None)
+    if get_list is not None:
+        cookies = get_list("set-cookie")
+    else:
+        single = res.headers.get("set-cookie")
+        cookies = [single] if single else []
+
+    for cookie in cookies:
+        response.raw_headers.append((b"set-cookie", cookie.encode("latin-1")))
+
+    return response
 
 
 # --- what goes where -------------------------------------------------------
@@ -179,6 +212,16 @@ COORDINATOR_ROUTES = [
     # What the network has actually managed on jobs like this one, so the form
     # can turn a step count into a number of minutes.
     (["GET"], "/throughput", 15),
+
+    # Signing in. The browser talks to the dashboard, so the whole round trip
+    # to GitHub and back has to pass through here -- including the redirect and
+    # the cookie, which is why PASSED_BACK grew above.
+    (["GET"], "/auth/config", 15),
+    (["GET"], "/auth/github/start", 30),
+    (["GET"], "/auth/github/callback", 30),
+    (["POST"], "/auth/link", 15),
+    (["GET"], "/auth/me", 15),
+    (["POST"], "/auth/sign-out", 15),
     (["PATCH"], "/toggle-availability/{node_id}", DEFAULT_TIMEOUT),
     (["DELETE"], "/node/{node_id}", DEFAULT_TIMEOUT),
 

@@ -73,6 +73,24 @@
                 <div id="identityStatus" class="field-status"></div>
             </section>
 
+            <!-- Under the key, because it sits on top of it rather than in
+                 place of it. Signing in does not give the coordinator your key
+                 -- it never had one and is not starting now -- it records that
+                 a digest is yours, so the same work can be reached from your
+                 other machines and so a list of GPUs you like has an owner to
+                 hang off.
+
+                 Hidden until account.js has asked whether this deployment has
+                 an OAuth application at all. Somebody running the stack at home
+                 should not be shown a button telling them to go and register
+                 one with GitHub. -->
+            <section class="panel ws-account" id="accountPanel" hidden>
+                <div class="panel-head">
+                    <h2>Sign in</h2>
+                </div>
+                <div id="accountBody"></div>
+            </section>
+
             <!-- Under the key, in the room the key panel gives back once it has
                  been dealt with. "Running" on its own said nothing: you hand
                  your data to a stranger's card and watch a word, with no way to

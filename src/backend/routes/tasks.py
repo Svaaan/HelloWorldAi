@@ -51,6 +51,8 @@ from backend.routes.deps import (
     DATASET_RETENTION_MINUTES, Database, HOLDOUT_FRACTION, MAX_TASK_ATTEMPTS,
     MONGODB_URL, NodeConnection, CPUCapabilities, GPUCapabilities,
     TASK_CLAIM_TIMEOUT_MINUTES, authenticated_node, connected_nodes, get_db,
+    submitter_or_session,
+    submitter_scope,
     node_challenges, optional_node, optional_submitter, require_node_token,
     require_uploader, system_usage, task_results, FINISHED_STATES,
 )
@@ -335,7 +337,7 @@ async def submit_task_anywhere(
     task_data: dict = Body(...),
     request: Request = None,
     db: Database = Depends(get_db),
-    submitter: Optional[str] = Depends(optional_submitter),
+    submitter: Optional[str] = Depends(submitter_or_session),
 ):
     """Queue work without naming a node; the coordinator picks one.
 
@@ -402,7 +404,7 @@ async def submit_task(
     task_data: dict = Body(...),
     request: Request = None,
     db: Database = Depends(get_db),
-    submitter: Optional[str] = Depends(optional_submitter),
+    submitter: Optional[str] = Depends(submitter_or_session),
 ):
     """Queue work for a node. Called by whoever needs compute (person B).
 
@@ -425,9 +427,22 @@ async def submit_task(
     )
 
 
-async def _owned_task(db, task_id: str, submitter: Optional[str]):
-    """The task, if this submitter owns it. Raises otherwise."""
-    if not submitter:
+async def _owned_task(db, task_id: str, scope):
+    """The task, if the caller owns it. Raises otherwise.
+
+    `scope` is every digest this caller may act as -- the key in their browser
+    and, when they are signed in, the ones their account is linked to. A single
+    digest is accepted too, because that is what most callers have.
+
+    One person with a desktop and a laptop has two keys and so two digests.
+    Before accounts that was two unrelated strangers as far as this function was
+    concerned, and there was no way for it to be anything else. Now there is.
+    """
+    if isinstance(scope, str):
+        scope = [scope]
+    scope = [digest for digest in (scope or []) if digest]
+
+    if not scope:
         raise HTTPException(
             status_code=401,
             detail="Send your submitter key in the X-Submitter-Key header.",
@@ -437,7 +452,7 @@ async def _owned_task(db, task_id: str, submitter: Optional[str]):
 
     # A task owned by someone else is reported as missing: whether a given id
     # exists is not something a stranger should be able to probe.
-    if not task or task.get("submitter_id") != submitter:
+    if not task or task.get("submitter_id") not in scope:
         raise HTTPException(status_code=404, detail="Task not found.")
 
     return task
@@ -446,7 +461,7 @@ async def _owned_task(db, task_id: str, submitter: Optional[str]):
 async def cancel_task(
     task_id: str,
     db: Database = Depends(get_db),
-    submitter: Optional[str] = Depends(optional_submitter),
+    scope: List[str] = Depends(submitter_scope),
 ):
     """Stop a job you submitted.
 
@@ -456,7 +471,7 @@ async def cancel_task(
     one authority over the task's state instead of the coordinator and the node
     disagreeing about whether it is still running.
     """
-    task = await _owned_task(db, task_id, submitter)
+    task = await _owned_task(db, task_id, scope)
     status = task.get("status")
 
     if status in FINISHED_STATES:
@@ -498,7 +513,7 @@ async def retry_task(
     task_id: str,
     changes: Optional[dict] = Body(None),
     db: Database = Depends(get_db),
-    submitter: Optional[str] = Depends(optional_submitter),
+    scope: List[str] = Depends(submitter_scope),
 ):
     """Queue the job again on the same data, optionally with different settings.
 
@@ -510,7 +525,7 @@ async def retry_task(
     Re-running with new settings used to mean uploading the file again, which
     both made the comparison meaningless and put the data on the wire twice.
     """
-    task = await _owned_task(db, task_id, submitter)
+    task = await _owned_task(db, task_id, scope)
 
     if task.get("status") not in FINISHED_STATES:
         raise HTTPException(
@@ -553,7 +568,7 @@ async def retry_task(
         # Everything already called this, so two adjustments of the same run
         # do not both come out as v2.
         family = await db.tasks_collection.find(
-            {"submitter_id": submitter,
+            {"submitter_id": task.get("submitter_id"),
              "task_data.model_name": {"$regex": rf"^{re.escape(base)}(-v\d+)?$"}},
             {"task_data.model_name": 1},
         ).to_list(length=200)
@@ -664,7 +679,10 @@ async def retry_task(
         "status": "pending",
         "attempts": 0,
         "submitted_at": datetime.utcnow(),
-        "submitter_id": submitter,
+        # The original's digest, not the caller's: a retry joins the run it
+        # came from. Identical today for a key holder, and right for somebody
+        # signed in who is retrying a job they sent from another machine.
+        "submitter_id": task.get("submitter_id"),
         "retry_of": task_id,
         "placement": task.get("placement", "chosen"),
         "declined_by": [],
@@ -1024,15 +1042,15 @@ async def list_tasks(
 async def list_my_tasks(
     limit: int = 25,
     db: Database = Depends(get_db),
-    submitter: Optional[str] = Depends(optional_submitter),
+    scope: List[str] = Depends(submitter_scope),
 ):
-    """The jobs submitted with this key, newest first.
+    """The jobs this person has submitted, newest first.
 
     /tasks answers "what has this node run", which is the contributor's view.
     Until now the person who supplied the data had no view at all: they sent a
     job and lost sight of it. This is the other half.
     """
-    if not submitter:
+    if not scope:
         raise HTTPException(
             status_code=401,
             detail="Send your submitter key in the X-Submitter-Key header.",
@@ -1040,7 +1058,7 @@ async def list_my_tasks(
 
     limit = max(1, min(limit, 100))
     cursor = (db.tasks_collection
-              .find({"submitter_id": submitter})
+              .find({"submitter_id": {"$in": scope}})
               .sort("submitted_at", -1)
               .limit(limit))
     tasks = await cursor.to_list(length=limit)

@@ -51,6 +51,7 @@ from backend.routes.deps import (
     MONGODB_URL, NodeConnection, CPUCapabilities, GPUCapabilities,
     TASK_CLAIM_TIMEOUT_MINUTES, authenticated_node, connected_nodes, get_db,
     node_challenges, optional_node, optional_submitter, require_node_token,
+    submitter_scope,
     require_uploader, system_usage, task_results, FINISHED_STATES,
 )
 
@@ -471,7 +472,7 @@ async def download_artifact(
     artifact_id: str,
     db: Database = Depends(get_db),
     caller: Optional[str] = Depends(optional_node),
-    submitter: Optional[str] = Depends(optional_submitter),
+    scope: List[str] = Depends(submitter_scope),
 ):
     """Return a stored blob to the node entitled to it.
 
@@ -490,7 +491,7 @@ async def download_artifact(
         that references it: the node that ran the job, or the submitter who
         asked for it and is collecting the trained model.
     """
-    if not caller and not submitter:
+    if not caller and not scope:
         raise HTTPException(
             status_code=401,
             detail="Send a node session token or a submitter key.",
@@ -526,7 +527,7 @@ async def download_artifact(
                          {"weights_id": artifact_id},
                          {"initial_weights_id": artifact_id}]}
     else:
-        claim = {"submitter_id": submitter, "weights_id": artifact_id}
+        claim = {"submitter_id": {"$in": scope}, "weights_id": artifact_id}
 
     owns = await db.tasks_collection.find_one(claim, {"_id": 1})
 

@@ -165,6 +165,14 @@ ROUTES = [
     ("POST", "/find-node-id", COORD),
     ("POST", "/register-node", COORD),
     ("GET", "/throughput", COORD),
+    # Signing in. The whole round trip passes through the dashboard, which is
+    # why the proxy had to learn to carry a redirect and a cookie.
+    ("GET", "/auth/config", COORD),
+    ("GET", "/auth/github/start", COORD),
+    ("GET", "/auth/github/callback", COORD),
+    ("POST", "/auth/link", COORD),
+    ("GET", "/auth/me", COORD),
+    ("POST", "/auth/sign-out", COORD),
     ("POST", "/verify-node/node_1/cpu", COORD),
     ("POST", "/verify-node/node_1/gpu", COORD),
     ("POST", "/connect-node", NODE),

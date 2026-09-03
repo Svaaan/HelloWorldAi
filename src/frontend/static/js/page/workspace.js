@@ -6,6 +6,7 @@
 // manages to inject as well. Nothing else about it changed.
 
 import { loadHeader } from "/static/js/component/header.js";
+import { initAccount } from "/static/js/workspace/account.js";
 import { initIdentity } from "/static/js/workspace/identity.js";
 import { renderSummary } from "/static/js/workspace/summary.js";
 import { renderRunning } from "/static/js/workspace/running.js";
@@ -25,4 +26,9 @@ setJobsListener((jobs) => {
 });
 
 initIdentity({ onChange: loadMyJobs });
-startMyJobsPolling();
+
+// Before the jobs, not beside them. Whether this browser is signed in decides
+// what "my jobs" means -- on a machine holding no key it is the only thing
+// that does -- and a request that goes out first would ask as a stranger and
+// render an empty workspace to somebody who owns plenty.
+initAccount({ onChange: loadMyJobs }).finally(startMyJobsPolling);

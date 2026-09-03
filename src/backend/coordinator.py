@@ -28,6 +28,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.routes import artifacts as artifacts_routes
+from backend.routes import auth as auth_routes
 from backend.routes import modelops as modelops_routes
 from backend.routes import nodes as nodes_routes
 from backend.routes import tasks as tasks_routes
@@ -55,6 +56,7 @@ app.include_router(nodes_routes.router)
 app.include_router(artifacts_routes.router)
 app.include_router(tasks_routes.router)
 app.include_router(modelops_routes.router)
+app.include_router(auth_routes.router)
 
 
 @app.on_event("startup")

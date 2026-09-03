@@ -5,7 +5,7 @@
 // are on, and fail visibly rather than leaving a page with no header at all.
 
 import {
-  ROLE_LABEL, hasRole, isNewHere, pageRole, showsFor,
+  ROLE_LABEL, hasRole, holdsBuilderKey, isNewHere, pageRole, showsFor,
 } from "./role.js";
 import { showRoleNotice } from "./roleNotice.js";
 
@@ -76,6 +76,12 @@ export async function loadHeader() {
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) refreshNav();
   });
+
+  // Signing in is decided by a request, so the answer lands after this header
+  // has already been drawn. Without this a signed-in browser holding no key
+  // renders as a first-time visitor -- no navigation, and a banner telling it
+  // there is nothing here.
+  document.addEventListener("hw:identity-changed", refreshNav);
 }
 
 function refreshNav() {
@@ -101,10 +107,17 @@ function stored(name) {
  * that has an answer even when both are present.
  */
 function signedInAs() {
-  const here = pageRole(window.location.pathname);
-  if (here && hasRole(here.role)) return here.role;   // the side you are on
+  // Keys only, deliberately. This button forgets a key, so a browser with no
+  // key has nothing for it to do -- offering "sign out of training a model" to
+  // somebody signed in with GitHub would promise to destroy something that is
+  // not there and leave the session they actually have running. Ending that is
+  // the account panel's job, and it says so in those words.
+  const holds = (role) => (role === "builder" ? holdsBuilderKey() : hasRole(role));
 
-  const roles = ["builder", "contributor"].filter(hasRole);
+  const here = pageRole(window.location.pathname);
+  if (here && holds(here.role)) return here.role;     // the side you are on
+
+  const roles = ["builder", "contributor"].filter(holds);
   return roles.length === 1 ? roles[0] : null;        // ambiguous: offer neither
 }
 

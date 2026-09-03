@@ -17,6 +17,21 @@ const KEY_BYTES = 32;
 
 let cached = null;
 
+// Whether this browser is signed in to an account. Set by account.js once
+// /auth/me has answered; false until then, which is the safe direction --
+// it means a key, and a key has always worked.
+let signedIn = false;
+
+/** Told by account.js. Nothing else should call this. */
+export function setSignedIn(value) {
+  signedIn = Boolean(value);
+}
+
+/** Whether an account is standing behind this browser. */
+export function isSignedIn() {
+  return signedIn;
+}
+
 function generateKey() {
   const bytes = new Uint8Array(KEY_BYTES);
   crypto.getRandomValues(bytes);
@@ -53,8 +68,20 @@ export function hasSubmitterKey() {
   }
 }
 
-/** Merge the submitter key into a headers object. */
+/** Merge the submitter key into a headers object.
+ *
+ * Signed in with no key here, the header is left off deliberately. Minting one
+ * would hand this browser a brand new identity at the exact moment somebody
+ * has told us who they are: the coordinator prefers a key over a session, so a
+ * key created here would file the work under a digest the account has never
+ * heard of, and their existing jobs would vanish from the page that just
+ * greeted them by name.
+ *
+ * With no key and no account there is nothing else to be, so one is created --
+ * which is what has always happened.
+ */
 export function submitterHeaders(extra = {}) {
+  if (signedIn && !hasSubmitterKey()) return { ...extra };
   return { ...extra, "X-Submitter-Key": getSubmitterKey() };
 }
 

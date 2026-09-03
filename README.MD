@@ -361,6 +361,49 @@ look for: an empty value is a working configuration, not a missing key.
 
 The file is gitignored. Keep it that way.
 
+#### Optional: let people sign in with GitHub
+
+Leave `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` empty and nothing changes.
+The key in somebody's browser is their identity, as it always has been, and the
+workspace hides the sign-in panel rather than offering a button that leads
+nowhere.
+
+Fill them in and people can sign in, which gets them one thing: their work has
+an owner. Jobs sent from a desktop show up on a laptop, and a lost key file
+stops being a lost workspace.
+
+It does **not** put anybody's key in your database. The coordinator stores
+`sha256(key)` and can do nothing with it, which is the property worth keeping,
+so an account links to those digests instead. You cannot recover somebody's key
+for them, signed in or not. That is deliberate, and it is the same reason the
+sign-out in the header still asks before it forgets a key.
+
+Register an OAuth application at <https://github.com/settings/developers>:
+
+| Field | Value |
+| --- | --- |
+| Homepage URL | `https://your-domain.com` |
+| Authorization callback URL | `https://your-domain.com/auth/github/callback` |
+| Scopes | none — only the username is read |
+
+Then set three values:
+
+```
+GITHUB_CLIENT_ID=Iv1.xxxxxxxxxxxx
+GITHUB_CLIENT_SECRET=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+PUBLIC_URL=https://your-domain.com
+```
+
+`PUBLIC_URL` is the one people forget, and it fails in a confusing way. The
+coordinator sits behind the dashboard proxy behind Caddy, so the address it
+sees is `http://coordinator:8100` — a name that only exists on the compose
+network. Without this it sends GitHub back to that address, and the browser
+follows a link to nowhere.
+
+If you generated the file with `make-production-env.sh` before this existed,
+add the three lines by hand; the script refuses to overwrite an existing file
+on purpose.
+
 ### Step 2 — Start it
 
 ```bash

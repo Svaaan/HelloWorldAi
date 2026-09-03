@@ -13,6 +13,7 @@
 import {
   getSubmitterKey,
   hasSubmitterKey,
+  isSignedIn,
   setSubmitterKey,
 } from "../distribution/submitter.js";
 
@@ -221,27 +222,61 @@ function renderSettled(settled) {
 
 // --- wiring ---------------------------------------------------------------
 
-export async function initIdentity({ onChange } = {}) {
+/** The pill and the line under it: what this browser is, right now.
+ *
+ * Separate from initIdentity because being signed in is decided by a request
+ * that lands after the panel has been drawn, and the answer changes what these
+ * two lines should say. Redrawing them is safe; re-running initIdentity is not,
+ * because it would bind the save button's click handler a second time.
+ */
+async function renderState() {
   const known = hasSubmitterKey();
+  const signedIn = isSignedIn();
   const state = document.getElementById("identityState");
   const detail = document.getElementById("identityDetail");
 
   if (state) {
-    state.textContent = known ? "Key loaded" : "No key yet";
-    state.className = known ? "status-pill status-online" : "status-pill";
+    // "No key yet" is literally true of a signed-in browser holding no key,
+    // and it read as a fault: the panel below it says the account has keys
+    // linked and can see the work, so the two lines appeared to contradict
+    // each other. Nothing is missing in that case -- the account is the way in.
+    state.textContent = known
+      ? "Key loaded"
+      : (signedIn ? "Using your account" : "No key yet");
+    state.className = known || signedIn
+      ? "status-pill status-online"
+      : "status-pill";
   }
 
   const saved = known && isBackedUp();
 
   if (detail) {
     if (!known) {
-      detail.textContent = "A key is created the first time you send a job.";
+      detail.textContent = signedIn
+        // And no key is created by sending one, either: signed in, work is
+        // filed under the account. Saying otherwise would promise a key file
+        // that never appears.
+        ? "No key in this browser. Your work is reached through your account."
+        : "A key is created the first time you send a job.";
     } else {
       // Saying it is saved is the point of the whole panel, so it goes in the
       // line people actually read rather than only in the absence of a warning.
       detail.textContent = `Fingerprint ${await fingerprint(getSubmitterKey())}`
         + (saved ? " · saved to a file" : "");
     }
+  }
+
+  return { known, saved };
+}
+
+let watchingIdentity = false;
+
+export async function initIdentity({ onChange } = {}) {
+  const { known, saved } = await renderState();
+
+  if (!watchingIdentity) {
+    watchingIdentity = true;
+    document.addEventListener("hw:identity-changed", () => { renderState(); });
   }
 
   const save = document.getElementById("saveKeyButton");

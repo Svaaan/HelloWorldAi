@@ -97,6 +97,25 @@ NODE_TOKEN_SECRET=$NODE_TOKEN_SECRET
 # is true. There is no recovery path if this is lost.
 ARTIFACT_ENCRYPTION_KEY=$ARTIFACT_ENCRYPTION_KEY
 
+# --- signing in with GitHub (optional) ------------------------------------
+# Blank is a working configuration: the key in the browser is the identity, and
+# the workspace hides the sign-in panel entirely. Fill these in to let people
+# sign in, so their work has an owner and follows them between machines. No key
+# is ever stored here -- an account links to the digests the coordinator
+# already keeps.
+#
+# Register an OAuth app at https://github.com/settings/developers with the
+# callback URL https://your.domain/auth/github/callback and no scopes.
+GITHUB_CLIENT_ID=
+GITHUB_CLIENT_SECRET=
+
+# The address browsers reach this on, no trailing slash. The coordinator cannot
+# work this out for itself -- from inside the compose network it only knows
+# http://coordinator:8100 -- and sign-in needs the real one to send GitHub back
+# to. Required only if the two lines above are filled in.
+#   PUBLIC_URL=https://your.domain
+PUBLIC_URL=
+
 # --- behaviour ------------------------------------------------------------
 HEARTBEAT_INTERVAL=60
 TASK_POLL_INTERVAL=10

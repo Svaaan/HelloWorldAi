@@ -6,6 +6,10 @@
 // manages to inject as well. Nothing else about it changed.
 
 import { loadHeader } from "/static/js/component/header.js";
+// No panel on this page. It is here because submitting is where it matters:
+// without it, a signed-in browser holding no key would mint one at the moment
+// of sending, and file the job under a digest the account has never heard of.
+import { initAccount } from "/static/js/workspace/account.js";
 import { fetchAvailableNodes, startNodePolling } from "/static/js/distribution/fetchNode.js";
 // showNodeModal is no longer imported here: the only caller on this page was
 // the "send to any node" button. fetchNode.js still opens it, with the machine
@@ -13,6 +17,7 @@ import { fetchAvailableNodes, startNodePolling } from "/static/js/distribution/f
 import { initModalCloseHandler } from "/static/js/distribution/modalHandler.js";
 
 loadHeader();
+initAccount();
 initModalCloseHandler();
 startNodePolling();
 

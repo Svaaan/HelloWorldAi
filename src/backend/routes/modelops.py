@@ -50,7 +50,7 @@ from backend.routes.deps import (
     MONGODB_URL, NodeConnection, CPUCapabilities, GPUCapabilities,
     TASK_CLAIM_TIMEOUT_MINUTES, authenticated_node, connected_nodes, get_db,
     node_challenges, optional_node, optional_submitter, require_node_token,
-    require_uploader, system_usage, task_results,
+    require_uploader, submitter_scope, system_usage, task_results,
 )
 from backend.routes.artifacts import _read_artifact
 from backend.routes.tasks import _owned_task
@@ -72,7 +72,7 @@ async def sample_from_model(
     task_id: str,
     body: dict = Body(None),
     db: Database = Depends(get_db),
-    submitter: Optional[str] = Depends(optional_submitter),
+    scope: List[str] = Depends(submitter_scope),
 ):
     """Ask a finished language model to continue a prompt you type.
 
@@ -82,7 +82,7 @@ async def sample_from_model(
     forward pass that takes a fraction of a second on the machine already
     holding the file.
     """
-    task = await _owned_task(db, task_id, submitter)
+    task = await _owned_task(db, task_id, scope)
 
     weights_id = task.get("weights_id")
     if not weights_id:
@@ -194,7 +194,7 @@ def _loader_source() -> Optional[str]:
 async def download_bundle(
     task_id: str,
     db: Database = Depends(get_db),
-    submitter: Optional[str] = Depends(optional_submitter),
+    scope: List[str] = Depends(submitter_scope),
 ):
     """The finished model as a folder, the way models are normally shipped.
 
@@ -203,7 +203,7 @@ async def download_bundle(
     wants the raw arrays, but it is this project's own arrangement and nothing
     else reads it.
     """
-    task = await _owned_task(db, task_id, submitter)
+    task = await _owned_task(db, task_id, scope)
 
     weights_id = task.get("weights_id")
     if not weights_id:
@@ -252,7 +252,7 @@ async def predict_from_csv(
     task_id: str,
     request: Request,
     db: Database = Depends(get_db),
-    submitter: Optional[str] = Depends(optional_submitter),
+    scope: List[str] = Depends(submitter_scope),
 ):
     """Run a finished classifier over a CSV and hand back the same rows, answered.
 
@@ -261,7 +261,7 @@ async def predict_from_csv(
     and "export it to ONNX" needs the Python and PyTorch they do not have.
     Using the model has to be possible without leaving the page.
     """
-    task = await _owned_task(db, task_id, submitter)
+    task = await _owned_task(db, task_id, scope)
 
     weights_id = task.get("weights_id")
     if not weights_id:

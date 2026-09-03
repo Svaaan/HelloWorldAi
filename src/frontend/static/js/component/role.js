@@ -11,12 +11,36 @@
 // hardware was unsuitable for something they never wanted to do.
 //
 // Each side proves itself with a key it keeps: a contributor with the node
-// keypair from registration, a builder with the submitter key. Holding one is
-// what "signed in" means here -- there are no accounts, so the presence of a
-// key is the whole of it.
+// keypair from registration, a builder with the submitter key. Holding one used
+// to be the whole of what "signed in" meant -- there were no accounts.
+//
+// There are now, on the builder side, and they are the other way of being
+// somebody. A laptop signed in with GitHub holds no submitter key and still
+// owns every job sent from the desktop, so a browser is a builder if it holds
+// the key *or* is signed in. Getting this wrong is not subtle: the first
+// version of the account shipped with this file unchanged, and a signed-in
+// person with two finished models on screen was told by the banner above them
+// that "there is nothing here until you set that up", with the navigation
+// hidden for good measure.
 
 const NODE_KEY = "currentNodeId";
 const BUILDER_KEY = "submitterKey";
+
+// Set by account.js once /auth/me has answered. False until then, which is the
+// right default: it is what this browser looks like with no account at all.
+let signedInBuilder = false;
+
+/** Told by account.js when the sign-in state is known or changes. */
+export function setSignedInBuilder(value) {
+  const next = Boolean(value);
+  if (next === signedInBuilder) return;
+  signedInBuilder = next;
+
+  // The header and the notice were both drawn before this was known. An event
+  // rather than a direct call because role.js is the bottom of this stack --
+  // header.js imports it, so it cannot import the header back.
+  document.dispatchEvent(new CustomEvent("hw:identity-changed"));
+}
 
 function stored(name) {
   try {
@@ -35,8 +59,13 @@ export function isContributor() {
 }
 
 /** This browser holds a builder key, so it can own jobs and collect models. */
-export function isBuilder() {
+export function holdsBuilderKey() {
   return Boolean(stored(BUILDER_KEY));
+}
+
+/** This browser can own jobs and collect models: by key, or by being signed in. */
+export function isBuilder() {
+  return holdsBuilderKey() || signedInBuilder;
 }
 
 /** Neither side has been set up yet: a first-time visitor. */

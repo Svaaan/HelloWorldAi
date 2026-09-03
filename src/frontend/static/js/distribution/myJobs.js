@@ -8,7 +8,7 @@
 // Built with createElement + textContent. Job fields pass through nodes and
 // back, so treating them as markup would let a node run script here.
 
-import { hasSubmitterKey, submitterHeaders } from "./submitter.js";
+import { hasSubmitterKey, isSignedIn, submitterHeaders } from "./submitter.js";
 
 const POLL_INTERVAL_MS = 10000;
 const MAX_JOBS = 25;
@@ -1085,7 +1085,11 @@ export async function loadMyJobs() {
 
   // Asking for the key here would mint one for a visitor who has never sent
   // anything, and the panel would claim they have jobs to look at.
-  if (!hasSubmitterKey()) {
+  //
+  // Signed in is the other way of being somebody. A laptop that has never sent
+  // a job holds no key and has plenty to show, and this guard used to be what
+  // stopped it: it returned "Nothing sent yet" without ever asking.
+  if (!hasSubmitterKey() && !isSignedIn()) {
     onJobs?.([]);
     container.replaceChildren(notice(
       "Nothing sent yet",
