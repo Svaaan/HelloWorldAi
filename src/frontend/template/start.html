@@ -40,49 +40,86 @@
                     You get the trained model back, checked against data the
                     machine never saw.
                 </p>
-                <p class="start-choice-note">
-                    <strong>No graphics card needed.</strong> Any computer will do —
-                    the training happens on somebody else's.
-                </p>
+                <!-- Everything from here down is the card's foot, and the
+                     foot is what sticks to the bottom. One auto margin, on one
+                     element.
 
-                <!-- Ways in. The key is still what owns the work, and both
-                     key doors are still here -- make one, or load the one you
-                     already made.
+                     It used to be on .start-choice-note itself. That works
+                     while a card has exactly one note; this card grew a second
+                     and the free space divided itself between the two, which
+                     is what pulled the card apart. -->
+                <div class="start-choice-foot">
+                    <p class="start-choice-note">
+                        <strong>No graphics card needed.</strong> Any computer will do —
+                        the training happens on somebody else's.
+                    </p>
 
-                     Signing in leads, where the deployment offers it, because
-                     it is the only one of the three that does not hand
-                     somebody a file to look after. It does not replace the
-                     key: it creates one too, and remembers whose it is, so
-                     losing the file stops being the end of the workspace.
+                    <!-- Ways in. The key is still what owns the work, and both
+                         key doors are still here -- make one, or load the one
+                         you already made.
 
-                     Rendered by start_page() rather than revealed by script,
-                     so the card does not rearrange itself a beat after it
-                     appears. A deployment with no OAuth application shows
-                     exactly the two buttons it always did. -->
-                <div class="start-actions">
+                         Stacked, not in a row. Three buttons side by side in a
+                         column this narrow could not fit on one line, so they
+                         wrapped, and the two cards stopped lining up. Stacking
+                         also lets them be ranked, which is the truer picture:
+                         these are not three equal choices.
+
+                         Signing in leads, where the deployment offers it,
+                         because it is the only one of the three that does not
+                         hand somebody a file to look after. It does not
+                         replace the key: it creates one too, and remembers
+                         whose it is, so losing the file stops being the end of
+                         the workspace.
+
+                         Rendered by start_page() rather than revealed by
+                         script, so the card does not rearrange itself a beat
+                         after it appears. A deployment with no OAuth
+                         application shows exactly the card it always did. -->
+                    <div class="start-actions">
+                        {% if github_signin %}
+                        <a id="builderSignIn" href="/auth/github/start" class="btn">
+                            <svg class="btn-mark" viewBox="0 0 16 16" width="16" height="16"
+                                 aria-hidden="true" focusable="false">
+                              <path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/>
+                            </svg>
+                            Sign in with GitHub
+                        </a>
+                        <button id="builderStart" type="button" class="btn-ghost">
+                            Create key file
+                        </button>
+                        {% else %}
+                        <button id="builderStart" type="button" class="btn">
+                            Create key file
+                        </button>
+                        {% endif %}
+                    </div>
+
+                    <!-- The quiet third option. A returning visitor knows to
+                         look for it; a first-time one should not be asked to
+                         weigh it against the two above. -->
+                    <p class="start-alt">
+                        Already have one?
+                        <button id="builderReturning" type="button" class="link-button">
+                            Load your key file
+                        </button>
+                    </p>
+
                     {% if github_signin %}
-                    <a id="builderSignIn" href="/auth/github/start" class="btn">
-                        Sign in with GitHub
-                    </a>
-                    <button id="builderStart" type="button" class="btn-ghost">
-                        Create key file
-                    </button>
-                    {% else %}
-                    <button id="builderStart" type="button" class="btn">
-                        Create key file
-                    </button>
+                    <!-- Shorter than it was, but not looser. "Your key never
+                         leaves this browser" would be false: it travels to the
+                         coordinator on every request. What is true is that the
+                         coordinator only ever stores a one-way digest of it,
+                         and that GitHub never sees it at all. On a button
+                         asking somebody to trust this, the difference is the
+                         whole point. -->
+                    <p class="start-fineprint">
+                        Reads your GitHub username, nothing else. Your key is never
+                        sent to GitHub, and the coordinator stores only a one-way
+                        digest of it.
+                    </p>
                     {% endif %}
-                    <button id="builderReturning" type="button" class="btn-ghost">
-                        I have a key file
-                    </button>
                 </div>
-                {% if github_signin %}
-                <p class="start-choice-note start-signin-note">
-                    Signing in only reads your GitHub username. Your key stays
-                    in this browser — it is never sent to GitHub, and the
-                    coordinator only ever stores a one-way digest of it.
-                </p>
-                {% endif %}
+
                 <input type="file" id="builderKeyFile" accept=".json,application/json" hidden>
                 <div id="builderStatus" class="start-status"></div>
             </section>
@@ -106,43 +143,50 @@
                     idle. It stops on its own if the card gets too hot, and you
                     approve each job unless you say otherwise.
                 </p>
-                <p class="start-choice-note">
-                    Needs an <strong>NVIDIA GPU</strong> on Windows with WSL 2, or Linux.
-                </p>
+                <div class="start-choice-foot">
+                    <p class="start-choice-note">
+                        Needs an <strong>NVIDIA GPU</strong> on Windows with WSL 2, or Linux.
+                    </p>
 
-                {% if has_local_node %}
-                <!-- The same two doors as the other card. Connecting stays
-                     reachable once a node exists, so somebody with one card can
-                     add a second and is not stranded if the stored node is
-                     stale. -->
-                <div class="start-actions">
-                    <button id="registerNodeButton" type="button" class="btn">
-                        Create key file
-                    </button>
-                    <button id="connectNodeButton" type="button" class="btn-ghost">
-                        I have a key file
-                    </button>
-                    <a href="/node" class="btn-ghost" id="contributorNode" hidden>Connect to node</a>
+                    {% if has_local_node %}
+                    <!-- The same shape as the other card: one thing to press,
+                         and the way back underneath it. Connecting stays
+                         reachable once a node exists, so somebody with one
+                         card can add a second and is not stranded if the
+                         stored node is stale. -->
+                    <div class="start-actions">
+                        <button id="registerNodeButton" type="button" class="btn">
+                            Create key file
+                        </button>
+                    </div>
+                    <p class="start-alt">
+                        Already have one?
+                        <button id="connectNodeButton" type="button" class="link-button">
+                            Load your key file
+                        </button>
+                        <a href="/node" class="link-button" id="contributorNode" hidden>Connect to node</a>
+                    </p>
+                    {% else %}
+                    <!-- No agent beside this dashboard, and on the central server
+                         there never will be one. Both buttons above end in a call to
+                         that agent, so here they could only ever produce:
+
+                           "No node agent is running on this machine, so there is
+                            nothing here to register yet."
+
+                         A button whose only outcome is an explanation of why it does
+                         not work is not a button. The card still earns its place --
+                         it is where somebody learns that lending a card is a thing
+                         they could do -- so it keeps the pitch and offers the one
+                         step that actually applies from here. -->
+                    <div class="start-actions">
+                        <a href="/setup" class="btn" id="contributorSetup">
+                            Set up your machine
+                        </a>
+                    </div>
+                    {% endif %}
                 </div>
-                {% else %}
-                <!-- No agent beside this dashboard, and on the central server
-                     there never will be one. Both buttons above end in a call to
-                     that agent, so here they could only ever produce:
-                
-                       "No node agent is running on this machine, so there is
-                        nothing here to register yet."
-                
-                     A button whose only outcome is an explanation of why it does
-                     not work is not a button. The card still earns its place --
-                     it is where somebody learns that lending a card is a thing
-                     they could do -- so it keeps the pitch and offers the one
-                     step that actually applies from here. -->
-                <div class="start-actions">
-                    <a href="/setup" class="btn" id="contributorSetup">
-                        Set up your machine
-                    </a>
-                </div>
-                {% endif %}
+
                 <!-- Whichever branch above rendered, the card offers exactly one
                      route to the guide: the corner link beside a working pair of
                      buttons, or the button where those cannot work. An earlier
@@ -161,6 +205,45 @@
                 <div id="resultMessage" role="status" aria-live="polite"></div>
             </section>
         </div>
+
+        <!-- What actually happens, in three steps.
+             The page said what this is and never how it works, which left the
+             two cards asking somebody to pick a side before they knew what
+             they were picking between. The third step is the one worth the
+             space: anybody can hand back a file and call it a trained model,
+             and the reason to trust this one is that the coordinator scores it
+             itself, on rows the machine that trained it never saw. -->
+        <section class="start-how" aria-labelledby="startHowTitle">
+            <h2 id="startHowTitle" class="start-how-title">How a job runs</h2>
+            <ol class="start-how-steps">
+                <li>
+                    <span class="start-how-n" aria-hidden="true">1</span>
+                    <h3>You send a dataset</h3>
+                    <p>
+                        A spreadsheet, and which column you want predicted. Part
+                        of it is held back before anything is sent out.
+                    </p>
+                </li>
+                <li>
+                    <span class="start-how-n" aria-hidden="true">2</span>
+                    <h3>An idle GPU trains it</h3>
+                    <p>
+                        The job goes to a machine somebody offered. Its owner can
+                        approve each one, and it stops on its own if the card
+                        gets too hot.
+                    </p>
+                </li>
+                <li>
+                    <span class="start-how-n" aria-hidden="true">3</span>
+                    <h3>The result is checked</h3>
+                    <p>
+                        The coordinator scores the returned model itself, on the
+                        rows that were held back — so the grade does not come
+                        from the machine being graded.
+                    </p>
+                </li>
+            </ol>
+        </section>
 
         <p class="start-footnote">
             Already set up? Your browser remembers — pick a door and you will be

@@ -161,7 +161,7 @@ def test_a_deployment_without_an_oauth_app_looks_exactly_as_it_did():
 
     assert 'id="builderSignIn"' not in html
     assert "Sign in with GitHub" not in html
-    assert "start-signin-note" not in html
+    assert "start-fineprint" not in html
 
     # And the card it always had, unchanged.
     assert re.search(r'id="builderStart"[^>]*class="btn"', html), (
@@ -172,10 +172,17 @@ def test_what_signing_in_costs_is_said_before_it_is_clicked():
     """Handing over a GitHub identity is a thing people are right to pause on."""
     html = render(has_local_node=False, github_signin=True)
     card = html[html.index('id="builderChoice"'):html.index('id="contributorChoice"')]
+    # Where the source happens to wrap a line is not part of the sentence.
+    card = " ".join(card.split())
 
     assert "username" in card, "say what is read"
-    assert "never sent to GitHub" in card, "say what is not"
-    assert "one-way digest" in card, "say what the coordinator keeps"
+    assert "never sent to GitHub" in card, (
+        "GitHub never sees the key, and that is the thing somebody hesitating "
+        "over this button wants to know")
+    assert "one-way digest" in card, (
+        "the key does travel to the coordinator on every request -- what is "
+        "true is that only a digest of it is stored, and saying anything "
+        "shorter here would be saying something false")
 
 
 @pytest.mark.parametrize("has_local_node", [True, False])
@@ -204,3 +211,46 @@ def test_the_dashboard_asks_rather_than_assumes():
     assert "github_signin" in source, (
         "start_page should pass the answer to the template")
     assert "/auth/config" in inspect.getsource(app.github_signin)
+
+
+def test_the_card_has_one_thing_that_moves_to_the_bottom():
+    """Two auto margins in a flex column split the space between them.
+
+    That is what came apart when sign-in was added: the note carried
+    `margin-top: auto !important`, the data card grew a second note, and the
+    card pulled open down the middle. Whatever the layout does, only one rule
+    in this file may claim the slack.
+    """
+    css = open(os.path.join(ROOT, "src", "frontend", "static", "css",
+                            "start.css"), encoding="utf-8").read()
+
+    # Comments explain the history and would otherwise be counted.
+    live = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    claimants = re.findall(r"margin-top:\s*auto", live)
+    assert len(claimants) <= 1, (
+        f"{len(claimants)} rules push themselves to the bottom of the card; "
+        "they will divide the free space between them rather than one of them "
+        "taking it")
+
+
+def test_the_doors_cannot_wrap_into_an_unreadable_row():
+    """Three buttons side by side did not fit a column this narrow.
+
+    They wrapped, which reads as three equal options badly arranged -- and they
+    are not equal. Stacking says which one to press and cannot wrap.
+    """
+    css = open(os.path.join(ROOT, "src", "frontend", "static", "css",
+                            "start.css"), encoding="utf-8").read()
+
+    actions = css[css.index(".start-actions {"):]
+    actions = actions[:actions.index("}")]
+    assert "grid" in actions, "the action list should stack, not flow in a row"
+    assert "flex-wrap" not in actions
+
+
+def test_the_github_mark_is_not_fetched_from_github():
+    """img-src is 'self', and a button asking for trust should not phone out."""
+    html = render(has_local_node=False, github_signin=True)
+    assert "<svg" in html and "btn-mark" in html
+    assert "githubusercontent" not in html
+    assert "githubassets" not in html

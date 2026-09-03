@@ -8,8 +8,28 @@
 }
 
 .start-intro {
+  position: relative;
   text-align: center;
   margin-bottom: 2.5rem;
+}
+
+/* A soft wash behind the headline. Purely decorative, so it is a pseudo
+   element and is not announced; pointer-events off so it cannot swallow a
+   click on anything beneath it. */
+.start-intro::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: -40%;
+  width: min(640px, 90vw);
+  height: 320px;
+  transform: translateX(-50%);
+  background: radial-gradient(
+    ellipse at center,
+    var(--accent-wash) 0%,
+    transparent 70%);
+  pointer-events: none;
+  z-index: -1;
 }
 
 .start-intro h1 {
@@ -34,7 +54,14 @@
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
   gap: 1.25rem;
-  align-items: stretch;
+  /* Each card is as tall as what it has to say.
+     Stretched, they were equal -- and the two sides no longer have equal
+     amounts to say, so the shorter one carried about a third of its height as
+     empty space below its only button. Nothing above the fold moves: the tags,
+     the headings, the constraint notes and the first button all still line up
+     across both cards, which is what the eye reads across. Only the bottom
+     edge is ragged, and only by the amount the content actually differs. */
+  align-items: start;
 }
 
 .start-choice {
@@ -126,8 +153,27 @@
   line-height: 1.6;
 }
 
+/* The bottom half of a card: the constraint, what to press, and the way back.
+
+   Deliberately NOT pushed to the bottom with an auto margin, which is what the
+   note used to do. Two things were wrong with that once sign-in arrived.
+
+   The note carried `margin-top: auto !important`, and the data card grew a
+   second note -- so the free space divided itself between the two and the card
+   came apart down the middle.
+
+   Moving that auto margin here fixed the split and left a worse problem: these
+   two cards no longer have the same amount to say, so bottom-aligning the foot
+   put a hole in the middle of the shorter one. Letting both feet follow their
+   text instead lines up the notes and the buttons, which is what the eye
+   actually reads across, and leaves the slack below the last button on the
+   shorter card -- where it looks like padding rather than a gap. */
+.start-choice-foot {
+  padding-top: 1.5rem;
+}
+
 .start-choice-note {
-  margin-top: auto !important;
+  margin: 0 !important;
   padding: 0.7rem 0.85rem;
   border-radius: var(--r-md);
   background-color: var(--surface-2);
@@ -139,33 +185,45 @@
   color: var(--text);
 }
 
+/* Stacked, full width, ranked.
+   Side by side, three of these could not fit a column this narrow, so they
+   wrapped -- and a wrapped row reads as three equal options that happen to be
+   badly arranged. They are not equal: one of them is what most people should
+   press. Stacking says so and cannot wrap. */
 .start-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.6rem;
-  margin-top: 1.1rem;
+  display: grid;
+  gap: 0.55rem;
+  margin-top: 1rem;
 }
 
 .start-actions .btn,
 .start-actions .btn-ghost {
-  flex: 0 1 auto;
+  width: 100%;
   justify-content: center;
 }
 
-@media (max-width: 520px) {
-  .start-actions .btn,
-  .start-actions .btn-ghost {
-    flex: 1 1 100%;
-  }
+/* The GitHub mark. Inline SVG rather than an image: the Content-Security-Policy
+   says img-src 'self', and a button people are asked to trust should not be
+   fetching its own logo from somebody else's server anyway. */
+.btn-mark {
+  flex: 0 0 auto;
 }
 
-/* The sentence under the sign-in door. Smaller than the card's own note: it
-   answers "what is this going to do with my GitHub account", which is worth
-   answering before somebody clicks and not worth saying twice. */
-.start-signin-note {
-  margin-top: 0.85rem;
-  font-size: 0.75rem;
+/* The way back, for somebody who knows they want it. A third button would have
+   made a first-time visitor weigh it against the two above. */
+.start-alt {
+  margin: 0.9rem 0 0 !important;
+  font-size: 0.8125rem !important;
+  color: var(--text-faint) !important;
+  text-align: center;
+}
+
+/* What signing in costs, answered before it is clicked and not repeated. */
+.start-fineprint {
+  margin: 1rem 0 0 !important;
+  font-size: 0.75rem !important;
   line-height: 1.55;
+  color: var(--text-faint) !important;
 }
 
 /* An attribute the button styles would otherwise outrank. */
@@ -177,6 +235,87 @@
   margin-top: 0.85rem;
   font-size: 0.8125rem;
   line-height: 1.5;
+}
+
+/* --- how a job runs ------------------------------------------------------
+   Underneath the two doors, not above them. Somebody who already knows which
+   side they are on should not have to scroll past an explanation to get in;
+   somebody who does not scrolls a little and finds one. */
+
+.start-how {
+  margin-top: 3.5rem;
+  padding-top: 2.5rem;
+  border-top: 1px solid var(--border);
+}
+
+.start-how-title {
+  margin: 0 0 1.75rem;
+  padding: 0;
+  border: none;
+  text-align: center;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+/* Three across, or three stacked. Never two and one.
+   auto-fit does the wrong thing here: at a container width of 742px -- which is
+   what an 800px window gives -- it fits exactly two columns and drops the third
+   onto a row of its own, so a sequence of three steps reads as a group of two
+   with an afterthought. These are ordered, and the ordering is the content. */
+.start-how-steps {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+@media (min-width: 700px) {
+  .start-how-steps {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1.75rem;
+  }
+}
+
+.start-how-steps li {
+  margin: 0;
+}
+
+.start-how-n {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  margin-bottom: 0.75rem;
+  border-radius: var(--r-pill);
+  background-color: var(--accent-wash);
+  border: 1px solid var(--accent-edge);
+  color: var(--accent);
+  font-size: 0.8125rem;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.start-how-steps h3 {
+  margin: 0 0 0.4rem;
+  padding: 0;
+  border: none;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+
+.start-how-steps p {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: var(--text-muted);
 }
 
 .start-footnote {
@@ -204,6 +343,12 @@
   .start-choice {
     padding: 1.35rem;
   }
+
+  .start-how {
+    margin-top: 2.5rem;
+    padding-top: 2rem;
+  }
+
 }
 
 @media (prefers-reduced-motion: reduce) {
