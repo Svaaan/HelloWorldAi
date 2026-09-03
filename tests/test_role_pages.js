@@ -27,6 +27,16 @@ function signedInAs(...roles) {
   if (roles.includes("builder")) localStorage.setItem("submitterKey", "k".repeat(64));
 }
 
+// setSignedInBuilder announces the change on `document`, so the header can
+// redraw. There is no document here; a recorder is enough, and it lets the
+// tests below check that the announcement actually happens.
+const events = [];
+globalThis.document = {
+  addEventListener: () => {},
+  dispatchEvent: (e) => { events.push(e.type); return true; },
+};
+globalThis.CustomEvent = class { constructor(type) { this.type = type; } };
+
 const role = await import("../src/frontend/static/js/component/role.js");
 
 let passed = 0;
@@ -352,6 +362,79 @@ check("registering happens on the front door, not on a page of its own", () => {
   assert.equal(role.pageRole("/connect"), null);
   assert.ok(!NAV.some(([, , label]) => label === "Connect"));
   assert.equal(role.ROLE_ENTRY.contributor, "/");
+});
+
+// --- signing in is the other way of being somebody -----------------------
+//
+// These exist because the account shipped with this file unchanged, and the
+// result was not subtle: a person signed in with GitHub, with two finished
+// models listed on the page in front of them, was told by the banner above
+// those models that "there is nothing here until you set that up" -- and the
+// navigation was hidden, because a browser with no key looked like a
+// first-time visitor. It holds no key. It is not nobody.
+
+check("signed in with no key at all is still a builder", () => {
+  signedInAs();                          // nothing in storage
+  role.setSignedInBuilder(true);
+
+  assert.equal(role.isBuilder(), true,
+    "a signed-in browser owns jobs; it just does not carry the key");
+  assert.equal(role.isNewHere(), false,
+    "isNewHere hides the whole navigation, and this person has somewhere to go");
+  assert.equal(role.currentRole(), "builder");
+  assert.equal(role.showsFor("builder"), true, "their own links must show");
+
+  role.setSignedInBuilder(false);
+});
+
+check("the workspace stops explaining itself to somebody signed in", () => {
+  // roleNotice.js returns early when hasRole(page.role) -- that early return is
+  // what removes the banner.
+  signedInAs();
+  role.setSignedInBuilder(true);
+  assert.equal(role.hasRole("builder"), true);
+  role.setSignedInBuilder(false);
+});
+
+check("signing in says nothing about the other side", () => {
+  signedInAs();
+  role.setSignedInBuilder(true);
+  assert.equal(role.isContributor(), false,
+    "a GitHub account is a builder identity; it does not lend a graphics card");
+  role.setSignedInBuilder(false);
+});
+
+check("the key is still tracked separately from the account", () => {
+  // The header's sign-out forgets a key, so it has to be able to ask whether
+  // there is one -- offering it to somebody signed in with no key would promise
+  // to destroy something that is not there.
+  signedInAs();
+  role.setSignedInBuilder(true);
+  assert.equal(role.holdsBuilderKey(), false);
+  assert.equal(role.isBuilder(), true);
+
+  signedInAs("builder");
+  assert.equal(role.holdsBuilderKey(), true);
+
+  role.setSignedInBuilder(false);
+});
+
+check("the answer arriving late is announced", () => {
+  // The header and the banner are drawn before /auth/me answers. Without this
+  // event they keep the shape they had when this browser looked like nobody.
+  events.length = 0;
+  signedInAs();
+
+  role.setSignedInBuilder(true);
+  assert.deepEqual(events, ["hw:identity-changed"]);
+
+  role.setSignedInBuilder(true);
+  assert.deepEqual(events, ["hw:identity-changed"],
+    "the same answer twice should not redraw the page again");
+
+  role.setSignedInBuilder(false);
+  assert.deepEqual(events, ["hw:identity-changed", "hw:identity-changed"],
+    "signing out has to redraw too");
 });
 
 console.log(`  ${passed} checks passed`);

@@ -26,7 +26,11 @@ let countTimer = null;
 // here would look as though it had already been saved, and the warning that
 // matters most would not appear.
 const IDENTITY_KEYS = {
-  builder: ["submitterKey", "submitterKeyBackedUp"],
+  // accountLinkedKey records that this key was linked to a GitHub account, so
+  // a page load does not re-link it every time. It is a note about the key, so
+  // it goes when the key does -- left behind, it would name a key that is gone
+  // and suppress the link the next one actually needs.
+  builder: ["submitterKey", "submitterKeyBackedUp", "accountLinkedKey"],
   contributor: [
     "currentNodeId", "nodePrivateKey", "nodePublicKeyBase64",
     "nodeSessionToken", "nodeKeyBackedUp",
@@ -106,18 +110,23 @@ function stored(name) {
  * question here is narrower -- which side am I leaving *from this page* -- and
  * that has an answer even when both are present.
  */
+/** Keys only, and not accounts.
+ *
+ * This button forgets a key. A browser signed in with GitHub and holding no
+ * key has nothing for it to do: offering "sign out of training a model" there
+ * would promise to destroy something that is not there, and leave the session
+ * they actually have running. Ending that is the account panel's job, and it
+ * says so in those words.
+ */
+function holdsKeyFor(role) {
+  return role === "builder" ? holdsBuilderKey() : hasRole(role);
+}
+
 function signedInAs() {
-  // Keys only, deliberately. This button forgets a key, so a browser with no
-  // key has nothing for it to do -- offering "sign out of training a model" to
-  // somebody signed in with GitHub would promise to destroy something that is
-  // not there and leave the session they actually have running. Ending that is
-  // the account panel's job, and it says so in those words.
-  const holds = (role) => (role === "builder" ? holdsBuilderKey() : hasRole(role));
-
   const here = pageRole(window.location.pathname);
-  if (here && holds(here.role)) return here.role;     // the side you are on
+  if (here && holdsKeyFor(here.role)) return here.role;   // the side you are on
 
-  const roles = ["builder", "contributor"].filter(holds);
+  const roles = ["builder", "contributor"].filter(holdsKeyFor);
   return roles.length === 1 ? roles[0] : null;        // ambiguous: offer neither
 }
 
