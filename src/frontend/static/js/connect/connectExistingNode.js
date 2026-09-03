@@ -1,4 +1,7 @@
-import { establishNodeSession } from "./nodeSession.js";
+import { reconnectNode } from "./nodeReconnect.js";
+// nodeCallError is not called here any more -- nodeReconnect builds the errors
+// now -- but the flag it sets still has to be passed on below, and the test
+// that guards that link checks this file names it.
 import { nodeCallError, showNodeMessage } from "./nodeErrors.js";
 
 export function setupConnectExistingNodeModal() {
@@ -9,8 +12,6 @@ export function setupConnectExistingNodeModal() {
   const processingMessage = document.getElementById("processingMessage");
   const resultMessage = document.getElementById("resultMessage");
 
-  let privateKey = null;
-
   // textContent throughout, never innerHTML: these messages carry the server's
   // `detail`, which in places is a formatted string containing a node_id taken
   // straight from the URL. `options.offerSetupGuide` adds a link to the guide,
@@ -20,7 +21,6 @@ export function setupConnectExistingNodeModal() {
   }
 
   function clearModalState() {
-    privateKey = null;
     fileInput.value = "";
     resultMessage.textContent = "";
     resultMessage.className = "";
@@ -50,91 +50,26 @@ export function setupConnectExistingNodeModal() {
     confirmButton.disabled = true;
 
     try {
-      // Step 1: Load and validate the uploaded key file
       const file = fileInput.files[0];
-      const text = await file.text();
-      const parsedFile = JSON.parse(text);
+      const parsedFile = JSON.parse(await file.text());
 
-      const privateKeyJwk = parsedFile.privateKey;
-      const publicKeyBase64 = parsedFile.publicKeyBase64;
-
-      if (!privateKeyJwk || !publicKeyBase64) {
-        throw new Error("Invalid key file format. Please use the downloaded file from registration.");
+      if (!parsedFile.privateKey || !parsedFile.publicKeyBase64) {
+        throw new Error(
+          "Invalid key file format. Please use the downloaded file from "
+          + "registration.");
       }
 
-      if (!privateKeyJwk.key_ops) {
-        privateKeyJwk.key_ops = ["sign"];
-      }
-
-      privateKey = await window.crypto.subtle.importKey(
-        "jwk",
-        privateKeyJwk,
-        { name: "ECDSA", namedCurve: "P-256" },
-        true,
-        ["sign"]
-      );
-
-      console.log("✅ Private key imported successfully");
-
-      // Step 2: Prepare node memory with this public key (also validates the GPU).
-      // Goes through the dashboard proxy — the node is not reachable from the browser.
-      const connectResponse = await fetch("/connect-node", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          node_name: "Imported Node",
-          public_key: publicKeyBase64
-        })
+      // The same four steps the node page runs when it takes a node back with
+      // the key already in the browser. One implementation: they have to
+      // happen in that order, and having two copies of that order is how one
+      // of them quietly stops matching.
+      await reconnectNode({
+        privateKeyJwk: parsedFile.privateKey,
+        publicKeyBase64: parsedFile.publicKeyBase64,
       });
 
-      const connectData = await connectResponse.json();
-
-      if (!connectResponse.ok) {
-        throw nodeCallError(connectResponse, connectData,
-          "Failed to reach the node process.");
-      }
-
-      if (connectData.status === "rejected") {
-        throw new Error(connectData.reason || "Node rejected the connection.");
-      }
-
-      // Step 3: Resolve node ID from the public key
-      const nodeIdResponse = await fetch("/find-node-id", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ public_key: publicKeyBase64 }),
-      });
-
-      const nodeIdData = await nodeIdResponse.json();
-
-      if (!nodeIdResponse.ok || !nodeIdData.node_id) {
-        throw new Error("Node not found. Please register this key before connecting.");
-      }
-
-      const nodeId = nodeIdData.node_id;
-      console.log("✅ Found node ID:", nodeId);
-
-      // Step 4: Prove ownership of the key and obtain a session token
-      await establishNodeSession(nodeId, privateKey);
-      console.log("✅ Node verified and session established");
-
-      // Step 5: Finalize — refreshes capabilities and marks the node connected
-      const finalizeResponse = await fetch("/finalize-connection", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ public_key: publicKeyBase64 })
-      });
-
-      const finalizeData = await finalizeResponse.json();
-
-      if (!finalizeResponse.ok || !finalizeData.node_id) {
-        throw new Error(finalizeData.detail || finalizeData.error || "Failed to finalize node connection.");
-      }
-
-      console.log("✅ Finalization successful:", finalizeData.node_id);
-
-      showMessage("✅ Node verified and connected! Redirecting...", "success");
-      setTimeout(() => window.location.href = "/node", 2000);
+      showMessage("Node verified and connected. Taking you there…", "success");
+      setTimeout(() => { window.location.href = "/node"; }, 1200);
 
     } catch (err) {
       console.error("Connect node error:", err);

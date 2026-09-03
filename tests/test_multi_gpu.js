@@ -390,5 +390,77 @@ check("the key panel stops repeating itself once the key is saved", () => {
     "the fingerprint should still be reachable, under the manage toggle");
 });
 
+// --- taking a node back after its agent restarted -------------------------
+//
+// An agent keeps no identity across a restart; it is handed one by the browser.
+// So stopping it -- reboot, `docker compose down`, closing the laptop -- always
+// leaves the node disconnected, and that is correct.
+//
+// What was wrong was the way back. The page said "reconnect it from the front
+// page with your key file", and the front page asked for a file. But the
+// keypair has been in this browser's localStorage since registration -- it is
+// why the page can offer to download it. Somebody who could not find that file
+// had one apparent option left: register again, stranding the node they had.
+
+check("the node page reconnects with the key it already holds", () => {
+  const info = fs.readFileSync(
+    path.join(ROOT, "src/frontend/static/js/nodejs/nodeInfo.js"), "utf8");
+
+  assert.ok(info.includes("canReconnectHere"),
+    "the disconnected state should check whether this browser can just do it");
+  assert.ok(info.includes("reconnectFromThisBrowser"),
+    "and then do it, rather than sending somebody to look for a file");
+  assert.ok(/reconnectTried/.test(info),
+    "the automatic attempt must be once per page load, not once per poll -- "
+    + "a genuinely dead agent would otherwise be handshaked every few seconds");
+});
+
+check("it still explains itself when the key is not here", () => {
+  const info = fs.readFileSync(
+    path.join(ROOT, "src/frontend/static/js/nodejs/nodeInfo.js"), "utf8");
+
+  assert.ok(/does not hold its key/.test(info),
+    "a browser without the key should be told to use the file, not left with "
+    + "a button that cannot work");
+});
+
+check("one implementation of the reconnect handshake", () => {
+  // Four calls that have to happen in that order: the agent has to know which
+  // key it answers for before the coordinator can be told it is connected, and
+  // the session token has to exist before it can heartbeat. Two copies of that
+  // order is how one of them quietly stops matching.
+  const shared = fs.readFileSync(
+    path.join(ROOT, "src/frontend/static/js/connect/nodeReconnect.js"), "utf8");
+
+  for (const call of ["/connect-node", "/find-node-id", "establishNodeSession",
+                      "/finalize-connection"]) {
+    assert.ok(shared.includes(call), `nodeReconnect.js lost ${call}`);
+  }
+
+  const dialog = fs.readFileSync(
+    path.join(ROOT, "src/frontend/static/js/connect/connectExistingNode.js"),
+    "utf8");
+  assert.ok(dialog.includes("reconnectNode"),
+    "the key-file dialog should share the handshake, not repeat it");
+  assert.ok(!dialog.includes("/find-node-id"),
+    "the key-file dialog is running its own copy of the steps again");
+});
+
+check("registering makes you prove the key file before it lets you leave", () => {
+  // It used to offer "Download key file" and "Go to your node" side by side,
+  // both optional -- so the common path was the second one, and the only proof
+  // this node is yours stayed in one browser with no copy anywhere.
+  const register = fs.readFileSync(
+    path.join(ROOT, "src/frontend/static/js/connect/registerNodeModal.js"),
+    "utf8");
+
+  assert.ok(register.includes("confirmKeyFile"),
+    "there should be a step that asks for the file back");
+  assert.ok(/onward\.disabled = true/.test(register),
+    "the way out should start closed");
+  assert.ok(register.includes("nodePublicKeyBase64"),
+    "loading back any valid key file is not proof -- it has to be this node's");
+});
+
 console.log(failures ? `\n  ${failures} failed` : "\n  all checks passed");
 process.exit(failures ? 1 : 0);

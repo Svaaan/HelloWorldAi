@@ -1,6 +1,68 @@
 import { authHeaders } from "../connect/nodeSession.js";
+import { canReconnectHere, reconnectFromThisBrowser }
+  from "../connect/nodeReconnect.js";
 import { downloadNodeKeyFile, isNodeKeyBackedUp }
     from "../connect/nodeKeyFile.js";
+
+// Taking the node back after its agent restarted.
+//
+// Once per page load, not on every poll: the status refreshes on a timer, and
+// an agent that is genuinely down would otherwise be hammered with a handshake
+// every few seconds. One attempt, and then a button, which is what somebody
+// wants after they have gone and started the agent.
+let reconnectTried = false;
+let reconnecting = false;
+
+function reconnectStatus(text, kind) {
+  const existing = document.getElementById("nodeReconnectStatus");
+  const line = existing || document.createElement("span");
+  line.id = "nodeReconnectStatus";
+  line.className = kind ? `status-hint ${kind}-message` : "status-hint";
+  line.textContent = text;
+  return line;
+}
+
+async function runReconnect(button) {
+  if (reconnecting) return;
+  reconnecting = true;
+  if (button) button.disabled = true;
+
+  const status = reconnectStatus("Handing the node back…");
+  button?.parentNode?.append(status);
+
+  try {
+    await reconnectFromThisBrowser();
+    reconnectStatus("Reconnected. Refreshing…", "success");
+    // Let the coordinator record the heartbeat before the page asks again.
+    setTimeout(() => window.location.reload(), 1200);
+  } catch (error) {
+    console.error("Could not reconnect the node:", error);
+    reconnectStatus(
+      error.offerSetupGuide
+        ? "No node agent is running on this machine. Start it, then try again."
+        : error.message || "Could not reconnect.",
+      "error");
+    if (button) button.disabled = false;
+  } finally {
+    reconnecting = false;
+  }
+}
+
+function reconnectButton() {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "btn-ghost";
+  button.id = "nodeReconnectButton";
+  button.textContent = "Reconnect this node";
+  button.addEventListener("click", () => runReconnect(button));
+  return button;
+}
+
+function tryReconnectOnce() {
+  if (reconnectTried) return;
+  reconnectTried = true;
+  runReconnect(document.getElementById("nodeReconnectButton"));
+}
 
 const USAGE_POLL_MS = 2000;
 const RETRY_POLL_MS = 5000;
@@ -193,10 +255,29 @@ export function initNodeInfoManager() {
         if (!node.isConnected) {
             const why = document.createElement("span");
             why.className = "status-hint";
-            why.textContent =
-                "The node has not reported in for over 5 minutes. If it restarted, " +
-                "reconnect it from the front page with your key file to hand it a new session.";
-            status.append(why);
+
+            // An agent keeps no identity across a restart -- it is handed one
+            // by the browser. On the machine that registered this node the
+            // browser still has the key, so there is nothing to fetch and
+            // nothing to ask for: it can simply do it. This used to send
+            // people to the front page for a key file they often could not
+            // find, and the only other button on that page registers a new
+            // node -- so a stopped agent turned into a second node record and
+            // an abandoned first one.
+            if (canReconnectHere()) {
+                why.textContent =
+                    "The agent restarted and has not reported in. Its key is "
+                    + "still in this browser, so it can be handed back.";
+                status.append(why);
+                status.append(reconnectButton());
+                tryReconnectOnce();
+            } else {
+                why.textContent =
+                    "The node has not reported in for over 5 minutes. This "
+                    + "browser does not hold its key, so take it back from the "
+                    + "front page with the key file you saved.";
+                status.append(why);
+            }
         }
         group.append(detailRow("Status", status));
 

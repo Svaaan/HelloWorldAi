@@ -65,15 +65,19 @@ function hideNodeNameInput() {
     if (modal) modal.style.display = "none";
 }
 
-// ✅ Show post-registration success actions
+// After registering: save the file, prove you have it, then go.
+//
+// It used to offer "Download key file" and "Go to your node" side by side, both
+// optional. So the common path was to press the second one -- the flow was
+// finished, the node was working, and the dialog was in the way -- and the key
+// that is the only proof this node is yours stayed in one browser's local
+// storage with no copy anywhere.
+//
+// Now the door out only opens once the file has been loaded back. Not to be
+// strict for its own sake: downloading a file proves a click happened, loading
+// it back proves the file exists, is readable, and is the right one. That is
+// the difference between believing you have a backup and having one.
 function showSuccessActions() {
-    // Finish in the dialog that started it.
-    //
-    // This used to write into a panel on the page behind, which was fine when
-    // registering had a page of its own and is not now: on the front door it
-    // landed inside one of the two cards, shoved the layout around, and left
-    // the buttons you had just pressed sitting above the result of pressing
-    // them.
     const modal = document.getElementById("nodeNameModal");
     const container = modal?.querySelector(".modal-container");
     if (!container) return;
@@ -88,28 +92,85 @@ function showSuccessActions() {
     const lede = document.createElement("p");
     lede.className = "modal-lede";
     lede.textContent =
-        "Save the key file now. It is the only proof this node is yours, and "
-        + "nobody can issue you another one.";
+        "Save the key file, then load it back. It is the only proof this node "
+        + "is yours -- nobody can issue you another one, and this is the one "
+        + "moment where checking the file costs nothing.";
     container.appendChild(lede);
 
-    const download = document.createElement("button");
-    download.type = "button";
-    download.className = "btn-primary";
-    download.textContent = "Download key file";
-    download.addEventListener("click", offerPrivateKeyDownload);
-    container.appendChild(download);
+    const step1 = document.createElement("button");
+    step1.type = "button";
+    step1.className = "btn-primary";
+    step1.textContent = "Download key file";
+    container.appendChild(step1);
+
+    // Step two appears once step one has been pressed. Shown before that, it
+    // asks for a file that does not exist yet.
+    const check = document.createElement("div");
+    check.hidden = true;
+    container.appendChild(check);
+
+    const checkLabel = document.createElement("label");
+    checkLabel.setAttribute("for", "confirmKeyFile");
+    checkLabel.textContent = "Now load it back, to be sure it saved";
+    check.appendChild(checkLabel);
+
+    const checkInput = document.createElement("input");
+    checkInput.type = "file";
+    checkInput.id = "confirmKeyFile";
+    checkInput.accept = ".json,application/json";
+    check.appendChild(checkInput);
 
     const onward = document.createElement("button");
     onward.type = "button";
     onward.className = "btn-secondary";
     onward.textContent = "Go to your node";
-    onward.addEventListener("click", () => { window.location.href = "/node"; });
+    onward.disabled = true;
     container.appendChild(onward);
 
-    // Where the download confirmation lands, now that the page behind is no
-    // longer the place for it.
     const result = document.getElementById("resultMessage");
     if (result) container.appendChild(result);
+
+    step1.addEventListener("click", () => {
+        offerPrivateKeyDownload();
+        check.hidden = false;
+        checkInput.focus();
+    });
+
+    checkInput.addEventListener("change", async () => {
+        const file = checkInput.files?.[0];
+        if (!file) return;
+
+        try {
+            const parsed = JSON.parse(await file.text());
+            const publicKeyBase64 = parsed.publicKeyBase64;
+
+            if (!parsed.privateKey || !publicKeyBase64) {
+                throw new Error("That file is not a node key file.");
+            }
+
+            // The right key, not merely a valid one. Somebody with two nodes
+            // has two of these files and they look identical.
+            if (publicKeyBase64 !== localStorage.getItem("nodePublicKeyBase64")) {
+                throw new Error(
+                    "That is a key file for a different node. Load the one you "
+                    + "just downloaded.");
+            }
+
+            showMessage("That is the right file. Your node is ready.", "success");
+            onward.disabled = false;
+            onward.focus();
+        } catch (error) {
+            console.error("Key file check failed:", error);
+            showMessage(
+                error instanceof SyntaxError
+                    ? "That file is not valid JSON."
+                    : error.message,
+                "error");
+            checkInput.value = "";
+        }
+    });
+
+    onward.addEventListener("click", () => { window.location.href = "/node"; });
 }
 
 // ✅ Register node flow
