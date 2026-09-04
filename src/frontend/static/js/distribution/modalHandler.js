@@ -6,6 +6,7 @@
 // specs come from other people's machines, so treating them as markup would let
 // a malicious node run script in everyone else's dashboard.
 
+import { dataKindsList } from "../component/dataKinds.js";
 import { submitterHeaders } from "./submitter.js";
 import { buildJobForm, jobSchema } from "./jobForm.js";
 
@@ -71,22 +72,11 @@ export function showNodeModal(node) {
   // What each kind of file gives you, rather than a paragraph describing both
   // at once. The choice of file *is* the choice of model, so the two are shown
   // together.
-  const kinds = el("ul", "data-kinds");
-  [
-    [".csv", "Rows of numbers", "Every column is a feature except the last, "
-      + "which is the label. You get a classifier."],
-    [".txt", "Any plain text", "Books, notes, transcripts, code. You get a "
-      + "model that continues text."],
-  ].forEach(([extension, title, detail]) => {
-    const item = el("li");
-    item.appendChild(el("code", "data-kind-ext", extension));
-    const body = el("div");
-    body.appendChild(el("strong", null, title));
-    body.appendChild(el("span", null, detail));
-    item.appendChild(body);
-    kinds.appendChild(item);
-  });
-  content.appendChild(kinds);
+  //
+  // From component/dataKinds.js, which the node page's self-test also uses.
+  // The rule about the last column being the label was written out in both
+  // places, in different words, and only one of them would have been updated.
+  content.appendChild(dataKindsList(["csv", "text"]));
 
   const fileInput = document.createElement("input");
   fileInput.type = "file";

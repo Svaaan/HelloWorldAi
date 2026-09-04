@@ -272,6 +272,11 @@
   margin-top: auto;               /* sits on the panel floor */
   padding-top: 1.4rem;
   display: flex;
+  /* Two of them now: one that proves the card works, one that leaves for the
+     training market. Wrapping rather than shrinking, so a narrow panel gives
+     them a line each instead of squeezing both labels. */
+  flex-wrap: wrap;
+  gap: 0.5rem;
   justify-content: flex-end;
 }
 
@@ -304,6 +309,14 @@
   transition: transform var(--t-fast) var(--ease);
 }
 
+/* This one does not leave the page, it goes down it. An arrow that points the
+   way somebody is about to travel is worth the one line it costs; the same
+   arrow on both would promise that one of them navigates away when it does
+   not. */
+#testMachineButton::after {
+  content: "↓";
+}
+
 .action-button:hover {
   background-color: var(--surface-3);
   border-color: var(--accent-edge);
@@ -311,6 +324,9 @@
 }
 
 .action-button:hover::after { transform: translateX(2px); }
+
+/* Nudge it the way it actually goes. */
+#testMachineButton:hover::after { transform: translateY(2px); }
 
 .refresh-button {
   flex-shrink: 0;
@@ -994,3 +1010,10 @@ input:disabled + .slider {
   color: var(--text);
 }
 
+
+
+/* The self-test explainer, which is the shared .data-kinds list. It sits
+   between the label and the file input, where the send-work form puts it. */
+#selfTestDataKinds:not(:empty) {
+  margin: 0.5rem 0 0.6rem;
+}

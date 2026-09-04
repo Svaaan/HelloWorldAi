@@ -10,6 +10,8 @@
 // how quickly their job finishes, the sustained figure is the honest one --
 // so both are shown, with the difference explained rather than hidden.
 
+import { dataKindsList } from "../component/dataKinds.js";
+
 const POLL_MS = 2000;
 
 function el(tag, className, text) {
@@ -187,6 +189,26 @@ export function initSelfTest() {
   const stressButton = document.getElementById("runStressTest");
   const stopButton = document.getElementById("stopSelfTest");
   const csvInput = document.getElementById("selfTestCsv");
+
+  // The same description of a CSV the send-work form gives, from the same
+  // place. Only the csv entry: this measures a graphics card, and a text file
+  // trains a different kind of model that would tell a contributor nothing
+  // about theirs.
+  const kinds = document.getElementById("selfTestDataKinds");
+  if (kinds) kinds.replaceChildren(dataKindsList(["csv"]));
+
+  // The way down from the node details panel, where somebody has just found
+  // out their card is connected and wants to know whether it works.
+  const jumpHere = document.getElementById("testMachineButton");
+  const panel = document.getElementById("selfTestPanel");
+  if (jumpHere && panel) {
+    jumpHere.addEventListener("click", () => {
+      panel.scrollIntoView({ behavior: "smooth", block: "start" });
+      // Focus lands on the first test rather than the panel, so a keyboard is
+      // one press from starting it and a screen reader is told what arrived.
+      button.focus({ preventScroll: true });
+    });
+  }
 
   loadExisting();
 

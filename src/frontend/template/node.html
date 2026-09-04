@@ -37,6 +37,15 @@
             </div>
 
             <div class="action-section">
+                <!-- Proving the card works is the thing a contributor wants
+                     first and the panel for it was at the bottom of the page,
+                     under the live usage and the job list, where somebody who
+                     had just registered had no reason to scroll. The other
+                     button here leaves for the training market; this one stays
+                     and takes you to the tests. -->
+                <button type="button" class="action-button" id="testMachineButton">
+                    Test this machine
+                </button>
                 <a href="/distribution" class="action-button">Training market</a>
             </div>
         </section>
@@ -113,7 +122,7 @@
         </section>
 
         <!-- Full width: prove the machine works before a stranger relies on it. -->
-        <section class="panel selftest-panel">
+        <section class="panel selftest-panel" id="selfTestPanel">
             <div class="panel-head">
                 <h2>Test this machine</h2>
                 <div class="selftest-actions">
@@ -135,8 +144,14 @@
                 <label class="selftest-data-label" for="selfTestCsv">
                     Your own CSV (optional)
                 </label>
+                <!-- Filled by selfTest.js from component/dataKinds.js, the same
+                     list the send-work form shows. The rule about the last
+                     column being the label used to be written out here too, in
+                     different words, so a contributor testing their card and a
+                     builder sending work were reading two descriptions of one
+                     convention. -->
+                <div id="selfTestDataKinds"></div>
                 <p class="selftest-data-hint">
-                    Every column is a feature except the last, which is the label.
                     Without a file it trains on synthetic data and measures what
                     the card sustains. The file is read on this machine and never
                     sent anywhere.

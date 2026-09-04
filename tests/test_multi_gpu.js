@@ -521,5 +521,59 @@ check("the front door greets an account instead of offering it a key", () => {
     + "has just told us who they are");
 });
 
+// --- proving the card, and one description of a data file -----------------
+
+check("the details panel offers a way to the tests", () => {
+  // The self-test panel is at the bottom of the node page, under the live
+  // usage and the job list. Somebody who has just registered wants to know
+  // whether their card works, and had no reason to scroll that far to find out.
+  const html = fs.readFileSync(
+    path.join(ROOT, "src/frontend/template/node.html"), "utf8");
+
+  assert.ok(html.includes('id="testMachineButton"'));
+  assert.ok(html.includes('id="selfTestPanel"'),
+    "the button needs something to send people to");
+
+  const js = fs.readFileSync(
+    path.join(ROOT, "src/frontend/static/js/nodejs/selfTest.js"), "utf8");
+  assert.ok(/scrollIntoView/.test(js));
+  assert.ok(/button\.focus/.test(js),
+    "focus should land on the first test, so a keyboard is one press from "
+    + "starting it");
+});
+
+check("one description of what a training file must look like", () => {
+  // The rule -- every column is a feature except the last -- was written out
+  // on the send-work form and again on the node page, in different words. Two
+  // copies of one convention, and the sort that drifts: change it and one of
+  // them goes on describing the old one.
+  const shared = fs.readFileSync(
+    path.join(ROOT, "src/frontend/static/js/component/dataKinds.js"), "utf8");
+  assert.ok(shared.includes("except the last"));
+
+  for (const rel of ["src/frontend/static/js/distribution/modalHandler.js",
+                     "src/frontend/static/js/nodejs/selfTest.js"]) {
+    const src = fs.readFileSync(path.join(ROOT, rel), "utf8");
+    assert.ok(src.includes("dataKindsList"), rel + " is not using the shared list");
+    const code = src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*/g, "");
+    assert.ok(!code.includes("except the last"),
+      rel + " has its own copy of the rule again");
+  }
+
+  const nodeHtml = fs.readFileSync(
+    path.join(ROOT, "src/frontend/template/node.html"), "utf8");
+  assert.ok(!nodeHtml.includes("except the last"),
+    "node.html is describing the CSV convention itself again");
+});
+
+check("the shared list is styled everywhere it is used", () => {
+  // It lived in modalHandler.css, which the node page does not load -- so the
+  // markup would have arrived there unstyled.
+  const theme = fs.readFileSync(
+    path.join(ROOT, "src/frontend/static/css/theme.css"), "utf8");
+  assert.ok(theme.includes(".data-kinds"),
+    "the styles for a shared component belong somewhere both pages load");
+});
+
 console.log(failures ? `\n  ${failures} failed` : "\n  all checks passed");
 process.exit(failures ? 1 : 0);
