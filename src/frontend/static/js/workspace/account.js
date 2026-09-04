@@ -20,7 +20,7 @@
 import { setAccountLogin } from "../component/header.js";
 import { setSignedInBuilder } from "../component/role.js";
 import {
-  getSubmitterKey, setSignedIn,
+  getSubmitterKey, hasSubmitterKey, setSignedIn,
 } from "../distribution/submitter.js";
 
 // Which key was last linked to which account, so a page load is not another
@@ -81,12 +81,24 @@ async function fetchAccount() {
  * that nobody has to look after the file for this to keep working -- lose it,
  * and signing in still reaches the work.
  */
-async function linkKey(login) {
-  // getSubmitterKey() creates one when there is none. Deliberate here, and
-  // deliberately not in submitterHeaders(), which must not mint a key while
-  // the answer to "who is this" is still in flight.
-  const key = getSubmitterKey();
+async function linkKey(login, keysAlreadyLinked) {
+  // Mint one only when the account has none at all.
+  //
+  // An account holds digests, so an account with none owns nothing, and a
+  // signed-in submission would resolve to no submitter -- the coordinator
+  // allows that, so the job would be queued where nobody could ever collect
+  // the model. That is the case this creates a key for.
+  //
+  // Every other case must not. Signing out clears the key; signing back in
+  // used to mint another and link it, so an account grew a fresh digest on
+  // every round trip and the work was scattered across a pile of them. Reads
+  // span them all, so nothing was lost -- but "did it use another key?" is a
+  // fair question to ask about that, and the answer was yes, needlessly.
+  // With a digest already on the account there is nothing to create: work is
+  // filed under the identity that is already there.
+  if (!hasSubmitterKey() && keysAlreadyLinked > 0) return account;
 
+  const key = getSubmitterKey();
   const marker = `${login}:${key.slice(0, 8)}`;
   if (stored(LINKED_MARKER) === marker) return account;
 
@@ -170,7 +182,7 @@ export async function initAccount({ onChange } = {}) {
   setSignedInBuilder(Boolean(data.signed_in));
 
   if (data.signed_in) {
-    await linkKey(data.login || "");
+    await linkKey(data.login || "", Number(data.keys_linked || 0));
     // Linking may have changed what this browser can see.
     onChange?.();
   }
@@ -179,6 +191,20 @@ export async function initAccount({ onChange } = {}) {
   // them. Told rather than read, because /auth/me lands after the header has
   // already been drawn.
   setAccountLogin(data.signed_in ? (data.login || "Signed in") : null);
+
+  // Signed in, the key stops being anybody's problem.
+  //
+  // It still exists and still owns the work. What changed is that it is no
+  // longer the only way back to it: the account links its digest, and reads
+  // span every digest an account owns. So there is nothing here a person has
+  // to do, remember, or be warned about -- and a panel about a key, with a
+  // fingerprint and a save reminder, is a page asking somebody to think about
+  // plumbing.
+  //
+  // Signed out it all comes back, because there it is true: the key is the
+  // only thing keeping the work reachable, and saying so is the honest thing.
+  const keyPanel = document.querySelector(".ws-identity");
+  if (keyPanel) keyPanel.hidden = Boolean(data.signed_in);
 
   const host = document.getElementById("identitySignIn");
   if (!host) return account;

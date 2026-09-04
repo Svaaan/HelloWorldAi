@@ -462,5 +462,64 @@ check("registering makes you prove the key file before it lets you leave", () =>
     "loading back any valid key file is not proof -- it has to be this node's");
 });
 
+// --- keys stop being the interface once there is an account ---------------
+//
+// The key was doing two jobs: the security model and the interface. Every
+// screen talked about it, because without an account it genuinely is the only
+// thing between somebody and losing their work. Signed in that stopped being
+// true, and the pages had not caught up -- so "am I finished signing out?" had
+// no good answer, because signing out meant destroying something
+// irreplaceable.
+
+check("signed in, the workspace says nothing about keys", () => {
+  const account = fs.readFileSync(
+    path.join(ROOT, "src/frontend/static/js/workspace/account.js"), "utf8");
+
+  assert.ok(/ws-identity/.test(account),
+    "the key panel should be hidden for somebody with an account");
+  assert.ok(/hidden = Boolean\(data\.signed_in\)/.test(account),
+    "and shown again when they are not, because there it is the only thing "
+    + "keeping the work reachable");
+});
+
+check("signing out is reversible when an account is behind it", () => {
+  const header = fs.readFileSync(
+    path.join(ROOT, "src/frontend/static/js/component/header.js"), "utf8");
+
+  assert.ok(/Sign in again and your work is here/.test(header),
+    "signed in, the dialog should say plainly that nothing is lost");
+  assert.ok(/This cannot be undone/.test(header),
+    "and without an account it still has to say the opposite");
+
+  // Red is for the version that destroys something.
+  assert.ok(/accountLogin \? "btn" : "btn signout-danger"/.test(header),
+    "a red confirm on a reversible action teaches people to ignore red");
+});
+
+check("signing in does not mint a key the account already has", () => {
+  // Signing out clears the key; signing back in used to mint another and link
+  // it, so an account grew a fresh digest on every round trip and the work
+  // scattered across a pile of them. Reads span them all so nothing was lost,
+  // but "did it use another key?" was a fair question, and the answer was yes.
+  const account = fs.readFileSync(
+    path.join(ROOT, "src/frontend/static/js/workspace/account.js"), "utf8");
+
+  assert.ok(/keysAlreadyLinked > 0/.test(account),
+    "linkKey should decline to create one when the account already has a "
+    + "digest to file work under");
+  assert.ok(/keys_linked/.test(account),
+    "and it has to be told how many there are");
+});
+
+check("the front door greets an account instead of offering it a key", () => {
+  const start = fs.readFileSync(
+    path.join(ROOT, "src/frontend/static/js/page/start.js"), "utf8");
+
+  assert.ok(/Signed in as/.test(start));
+  assert.ok(/start-alt/.test(start) && /start-fineprint/.test(start),
+    "the key doors and their fine print should be put away for somebody who "
+    + "has just told us who they are");
+});
+
 console.log(failures ? `\n  ${failures} failed` : "\n  all checks passed");
 process.exit(failures ? 1 : 0);

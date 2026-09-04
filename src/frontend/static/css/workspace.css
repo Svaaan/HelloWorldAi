@@ -308,6 +308,13 @@
   display: none;
 }
 
+/* Signed in, the key panel is not shown at all -- see account.js. Same trap as
+   everything else here: the attribute alone loses to a display rule, and
+   .panel is a grid item with one. */
+.ws-identity[hidden] {
+  display: none;
+}
+
 #identitySignIn {
   margin-top: 1rem;
   padding-top: 0.9rem;

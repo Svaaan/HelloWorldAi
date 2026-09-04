@@ -179,35 +179,38 @@ function updateSignOut() {
 function wireSignOut() {
   const button = document.getElementById("signOutButton");
   const modal = document.getElementById("signOutModal");
+  const confirmButton = document.getElementById("signOutConfirm");
   if (!button || !modal) return;
 
   button.addEventListener("click", () => {
     const role = signedInAs();
     if (!role && !accountLogin) return;
 
-    // One button, two possible consequences, and they are not remotely alike:
-    // a session can be started again in ten seconds, a key cannot be reissued
-    // by anybody. So the dialog itemises rather than summarises.
+    // Signed in, this is simply reversible, and it should say so in one line.
+    //
+    // It clears the key as well -- which used to be the frightening half, and
+    // is not any more. The account links that key's digest and reads span every
+    // digest an account owns, so signing back in reaches the same work. Leaving
+    // the key behind would be the wrong trade anyway: on a shared machine the
+    // next person would still hold the thing that owns your jobs.
+    //
+    // "Am I finished signing out?" now has an answer. Yes, and nothing is lost.
     const lede = document.getElementById("signOutLede");
-    if (lede) {
-      lede.textContent = role
-        ? "One of these cannot be undone."
-        : "You can sign back in whenever you like.";
-    }
-
     const list = document.getElementById("signOutList");
-    if (list) {
-      list.replaceChildren();
+    if (list) list.replaceChildren();
 
-      if (accountLogin) {
-        const item = document.createElement("li");
-        item.textContent =
-          `Ends your GitHub session as ${accountLogin} on this browser. `
-          + "Signing in again brings your work back.";
-        list.appendChild(item);
+    if (accountLogin) {
+      if (lede) {
+        lede.textContent =
+          `Signs you out of ${accountLogin} on this browser and clears what it `
+          + "holds. Sign in again and your work is here.";
       }
+    } else if (role) {
+      // No account, so the key really is the only thing, and the dialog has to
+      // be honest about that rather than reassuring.
+      if (lede) lede.textContent = "This cannot be undone.";
 
-      if (role) {
+      if (list) {
         const item = document.createElement("li");
         item.className = "signout-permanent";
         item.textContent =
@@ -219,22 +222,31 @@ function wireSignOut() {
     }
 
     // The warning that matters, and only when it matters: a key that has never
-    // been written to a file, about to be forgotten.
+    // been written to a file, about to be forgotten, with no account to reach
+    // the work afterwards.
     const unsaved = document.getElementById("signOutUnsaved");
     if (unsaved) {
-      unsaved.hidden = !role || Boolean(stored(BACKED_UP_MARKER[role]));
+      unsaved.hidden = Boolean(accountLogin) || !role
+                       || Boolean(stored(BACKED_UP_MARKER[role]));
     }
 
     const saveLink = document.getElementById("signOutSaveFirst");
     if (saveLink && role) saveLink.href = SAVE_PAGE[role];
 
+    // Red is for the version that destroys something. Signed in it does not,
+    // and a red button asking you to confirm a reversible thing teaches people
+    // to ignore red buttons.
+    if (confirmButton) {
+      confirmButton.className = accountLogin ? "btn" : "btn signout-danger";
+    }
+
     modal.style.display = "flex";
   });
 
-  const confirm = document.getElementById("signOutConfirm");
-  if (confirm) {
-    confirm.addEventListener("click", async () => {
+  if (confirmButton) {
+    confirmButton.addEventListener("click", async () => {
       const role = signedInAs();
+      confirmButton.disabled = true;
 
       if (role) {
         for (const key of IDENTITY_KEYS[role]) {

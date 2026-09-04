@@ -18,16 +18,46 @@ initStart();
 initAccount().then((account) => {
     if (!account?.signed_in) return;
 
+    // Signed in, this card has one thing to say and it is not about keys.
+    //
+    // markAlreadySetUp ran before /auth/me answered, so on a browser holding no
+    // key it left "Create key file" and "I have a key file" standing there --
+    // offering to make an identity to somebody who has just told us who they
+    // are, in the vocabulary the account exists to get rid of.
     const signIn = document.getElementById("builderSignIn");
     if (signIn) signIn.hidden = true;
 
-    // Signing in creates a key, so this reads "Open your workspace" already --
-    // but markAlreadySetUp ran before the answer arrived, and on a browser
-    // that had nothing it left the card offering to make a key that now
-    // exists.
+    const alt = document.querySelector("#builderChoice .start-alt");
+    if (alt) alt.hidden = true;
+
+    const fine = document.querySelector("#builderChoice .start-fineprint");
+    if (fine) fine.hidden = true;
+
     const button = document.getElementById("builderStart");
     if (button) {
         button.textContent = "Open your workspace";
         button.className = "btn";
+        // It opens the save-your-key dialog otherwise, which is the one thing
+        // this card should no longer be doing to somebody with an account.
+        button.replaceWith(asLink(button, "/workspace"));
+    }
+
+    const note = document.querySelector("#builderChoice .start-choice-note");
+    if (note) {
+        note.replaceChildren();
+        const who = document.createElement("strong");
+        who.textContent = `Signed in as ${account.login || "you"}.`;
+        note.append(who, document.createTextNode(
+            " Your work follows this account, on any machine."));
     }
 });
+
+/** Same button, as a link that just goes somewhere. */
+function asLink(button, href) {
+    const link = document.createElement("a");
+    link.id = button.id;
+    link.className = button.className;
+    link.href = href;
+    link.textContent = button.textContent;
+    return link;
+}
