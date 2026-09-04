@@ -218,6 +218,23 @@ async def get(db, github_id: int) -> Optional[dict]:
     return await db.accounts_collection.find_one({"_id": int(github_id)})
 
 
+async def owns(db, submitter_id: Optional[str]) -> bool:
+    """Whether any account has linked this digest.
+
+    Asked by the retention sweep, which keeps a signed-in person's data long
+    enough to come back to and an anonymous submitter's only as long as the
+    immediate work needs it. Answered by lookup rather than carried on the task,
+    because somebody can sign in and link a key *after* the job was sent -- and
+    the point of doing that is precisely to keep what they already have.
+    """
+    if not submitter_id:
+        return False
+
+    account = await db.accounts_collection.find_one(
+        {"submitter_ids": submitter_id}, {"_id": 1})
+    return account is not None
+
+
 async def submitter_ids(db, github_id: int) -> list:
     account = await get(db, github_id)
     return list((account or {}).get("submitter_ids") or [])

@@ -29,7 +29,7 @@ from pydantic import BaseModel
 from pymongo import ReturnDocument
 
 from backend.database.nodedb import db
-from backend.service import artifactCrypto
+from backend.service import accountService, artifactCrypto, retention
 from backend.service import quota
 from backend.service.artifacts import MAX_ARTIFACT_BYTES
 from backend.service.authNodeService import verify_signature
@@ -134,17 +134,47 @@ async def _forget_orphaned_datasets(db, older_than: datetime) -> int:
 
     return removed
 
+async def _still_held(db, submitter_id):
+    """An owner's finished jobs that still have data, newest first.
+
+    Their position in this list is what decides whether an older one is let go
+    early -- see retention.should_forget.
+    """
+    if not submitter_id:
+        return []
+
+    return await db.tasks_collection.find(
+        {"submitter_id": submitter_id,
+         "status": {"$in": list(FINISHED_STATES)},
+         "dataset_forgotten_at": {"$exists": False},
+         "$or": [{"dataset_id": {"$ne": None}},
+                 {"holdout_artifact_id": {"$ne": None}}]},
+        {"_id": 1, "finished_at": 1},
+    ).sort("finished_at", -1).to_list(length=200)
+
+
 async def forget_finished_datasets():
     """Drop the data behind jobs that have finished and been verified.
 
     Runs on a delay rather than the instant a job completes: verification reads
     the holdout after the result lands, and a retry reuses the same split.
+
+    How long that delay is depends on who owns the job -- see
+    service/retention.py. It used to be a flat hour for everybody, which is the
+    right number for verification and the wrong one for "adjust and run", the
+    feature that exists so a dataset can be trained again without being sent
+    again. People were re-uploading the same file because a timer had thrown it
+    away overnight.
     """
-    grace = timedelta(minutes=DATASET_RETENTION_MINUTES)
+    # The shortest any job is kept. Anything younger than this cannot be due,
+    # whoever owns it, so it is a cheap first filter rather than a policy.
+    soonest = timedelta(minutes=retention.SHORT_MINUTES)
 
     while True:
         try:
-            cutoff = datetime.utcnow() - grace
+            now = datetime.utcnow()
+            cutoff = now - soonest
+
             finished = await Database.tasks_collection.find({
                 "status": {"$in": list(FINISHED_STATES)},
                 "finished_at": {"$lt": cutoff},
@@ -153,11 +183,34 @@ async def forget_finished_datasets():
                         {"holdout_artifact_id": {"$ne": None}}],
             }).to_list(length=100)
 
+            # One ownership lookup per owner, not per job: a batch is usually
+            # somebody iterating, so the same digest repeats.
+            owned = {}
+            ranks = {}
+
             for task in finished:
+                submitter = task.get("submitter_id")
+
+                if submitter not in owned:
+                    owned[submitter] = await accountService.owns(
+                        Database, submitter)
+                    held = await _still_held(Database, submitter)
+                    ranks[submitter] = {
+                        row["_id"]: position
+                        for position, row in enumerate(held)
+                    }
+
+                if not retention.should_forget(
+                        task.get("finished_at"), now,
+                        has_account=owned[submitter],
+                        rank=ranks[submitter].get(task["_id"], 0)):
+                    continue
+
                 await _forget_dataset(Database, task)
 
             # Uploads that never became a job, and the pre-split originals the
-            # split replaced, are nobody's data to keep.
+            # split replaced, are nobody's data to keep. Still the short window:
+            # nothing owns them, so there is nobody to keep them for.
             await _forget_orphaned_datasets(Database, cutoff)
 
         except Exception as e:

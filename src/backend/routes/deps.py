@@ -123,6 +123,12 @@ class Database:
                 await cls.nodes_collection.create_index("public_key", unique=True)  # <-- ✅ Enforce uniqueness
                 await cls.tasks_collection.create_index("node_id")
                 await cls.tasks_collection.create_index("received_at")
+                # The retention sweep asks "does any account own this digest"
+                # for every finished job it looks at, on a timer, forever.
+                await cls.accounts_collection.create_index("submitter_ids")
+                # And it groups an owner's finished jobs by age.
+                await cls.tasks_collection.create_index(
+                    [("submitter_id", 1), ("finished_at", -1)])
                 logger.info("✅ Database indices created")
             except Exception as e:
                 logger.error(f"❌ Failed to create indexes: {e}")

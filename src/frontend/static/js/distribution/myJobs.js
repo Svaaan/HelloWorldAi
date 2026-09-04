@@ -733,6 +733,39 @@ function buildPrompt(job) {
 
 // Same data, different settings. Only the numbers worth changing between two
 // runs -- the dataset is fixed here, and its shape already decided the rest.
+/** "Data kept for another 3 days", or null when there is nothing to say. */
+function dataCountdown(job) {
+  if (!job.data_expires_at) return null;
+
+  const expires = new Date(job.data_expires_at);
+  if (Number.isNaN(expires.getTime())) return null;
+
+  const left = expires.getTime() - Date.now();
+  if (left <= 0) return null;              // the sweep has not caught up yet
+
+  const line = el("p", "job-data-life");
+
+  const minutes = Math.round(left / 60000);
+  const when = minutes < 90
+    ? `${minutes} min`
+    : (minutes < 60 * 36
+        ? `${Math.round(minutes / 60)} hours`
+        : `${Math.round(minutes / (60 * 24))} days`);
+
+  line.textContent = `Data kept for another ${when}.`;
+
+  // The reason it is a week rather than an hour, offered where somebody is
+  // looking at the clock running down and can still do something about it.
+  if (job.data_kept_for === "60 minutes") {
+    line.appendChild(document.createTextNode(" "));
+    const why = el("span", "job-data-hint",
+      "Signing in keeps it for days instead, so you can come back to this.");
+    line.appendChild(why);
+  }
+
+  return line;
+}
+
 function buildTuner(job, onClose) {
   const spec = job.task_data?.model_spec || {};
   const hyper = job.task_data?.hyperparameters || {};
@@ -1028,6 +1061,16 @@ function buildJobRow(job, byId) {
                         actions.nextSibling);
     });
     actions.appendChild(tune);
+
+    // How long the file behind these buttons is still there.
+    //
+    // Without it the deletion is discovered by pressing "Adjust and run" and
+    // being told the data went an hour after the job finished -- at which
+    // point the only way forward is to upload the same file again. Saying it
+    // beforehand turns a dead end into a deadline, and a deadline is
+    // actionable.
+    const until = dataCountdown(job);
+    if (until) actions.appendChild(until);
   } else if (job.status === "completed") {
     // Its data has been deleted, so there is nothing to run it against.
     actions.appendChild(el("p", "job-note",

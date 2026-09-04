@@ -635,3 +635,19 @@
   font-size: 0.6875rem;
   color: var(--text-faint);
 }
+
+
+/* How long the data behind a finished job is still there.
+   Sits with the buttons it governs -- it is the answer to "can I still press
+   these", so it belongs beside them rather than in the job's detail list. */
+.job-data-life {
+  flex-basis: 100%;
+  margin: 0.5rem 0 0;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--text-faint);
+}
+
+.job-data-hint {
+  color: var(--text-muted);
+}

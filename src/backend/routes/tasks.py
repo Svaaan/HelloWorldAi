@@ -37,6 +37,7 @@ from backend.service.jobSpec import (
     ARCHITECTURES, JobSpecError, advise, job_schema, next_run_name, validate_job,
 )
 from backend.service import nodeLimits
+from backend.service import accountService, retention
 from backend.service.nodePicker import (
     BUSY_STATUSES, NoNodeAvailable, pick_node, summarise_choice,
 )
@@ -969,7 +970,11 @@ async def _verify_quietly(task_id: str):
 # was how that became possible in the first place.
 # A submitter id is a digest, not a credential, but a node has no business
 # learning which submitters exist or correlating jobs across them.
-INTERNAL_TASK_FIELDS = ("holdout_artifact_id", "submitter_id")
+# owner_has_account is stamped on the row by list_my_tasks so public_task can
+# work out the retention window without a database. It is a fact about the
+# person, not about the job, and nothing outside this file should see it.
+INTERNAL_TASK_FIELDS = ("holdout_artifact_id", "submitter_id",
+                        "owner_has_account")
 
 def public_task(task: dict, owner: bool = False) -> dict:
     """A task document safe to hand to a caller.
@@ -987,6 +992,18 @@ def public_task(task: dict, owner: bool = False) -> dict:
     # after the job finishes, and once it is gone the job cannot be run again
     # -- the page needs to know that before offering the button.
     clean["can_rerun"] = bool(task.get("dataset_id"))
+
+    # And when it goes, so the page can count down rather than let somebody
+    # find out by pressing the button. Only for the owner: it is a fact about
+    # their data, and a stranger reading /tasks has no business with it.
+    #
+    # Sent as the raw pieces rather than a rendered sentence, because the page
+    # renders one every few seconds as the number changes.
+    if owner and task.get("dataset_id") and task.get("finished_at"):
+        clean["data_expires_at"] = retention.expires_at(
+            task["finished_at"], bool(task.get("owner_has_account")))
+        clean["data_kept_for"] = retention.describe(
+            bool(task.get("owner_has_account")))
 
     # dataset_info describes what the submitter's numbers meant -- the class
     # names from their label column, above all. /tasks needs no key, so
@@ -1062,6 +1079,19 @@ async def list_my_tasks(
               .sort("submitted_at", -1)
               .limit(limit))
     tasks = await cursor.to_list(length=limit)
+
+    # Whether an account is behind these digests, which is what decides how
+    # long their data is kept. Asked once per distinct owner rather than per
+    # job: a listing is one person's work, so this is almost always one lookup.
+    #
+    # public_task cannot ask -- it is synchronous, and it is called from places
+    # with no database to hand -- so the answer is stamped on the rows here.
+    has_account = {}
+    for task in tasks:
+        submitter = task.get("submitter_id")
+        if submitter not in has_account:
+            has_account[submitter] = await accountService.owns(db, submitter)
+        task["owner_has_account"] = has_account[submitter]
 
     for task in tasks:
         task["task_id"] = task.pop("_id")
