@@ -52,6 +52,39 @@ def _number(name, value, *, minimum, maximum, integer=True, default=None):
     return parsed
 
 
+TRUE = ("true", "yes", "on", "1")
+FALSE = ("false", "no", "off", "0", "")
+
+
+def _boolean(name, value, *, default=False):
+    """Parse one yes/no field, or say precisely what is wrong with it.
+
+    Strings are accepted because not every caller sends JSON booleans -- a form
+    post and a hand-written client both tend to send "true". A value that means
+    nothing is an error rather than a quiet False: these answers change how the
+    result is judged, and guessing wrong is exactly the failure the field
+    exists to prevent.
+    """
+    if value is None:
+        return default
+
+    if isinstance(value, bool):
+        return value
+
+    if isinstance(value, (int, float)) and value in (0, 1):
+        return bool(value)
+
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in TRUE:
+            return True
+        if lowered in FALSE:
+            return False
+
+    raise JobSpecError(
+        f"{name} must be true or false; got {value!r}.")
+
+
 # Every field the form offers and the validator accepts. `hint` is shown under
 # the input; `derived` fields are filled in from the dataset on the node, so the
 # form does not ask for them.
@@ -414,6 +447,25 @@ def validate_job(task_data: Any) -> Tuple[Dict[str, Any], List[str]]:
         "model_spec": clean_spec,
         "hyperparameters": clean_hyper,
     }
+
+    # The questions about the data rather than the model. They live at the top
+    # level because that is where they are read from -- prepare_dataset_split
+    # takes task_data["time_ordered"] straight off the job.
+    #
+    # They were declared, published in /job-schema, drawn in the form and acted
+    # on by the coordinator, and never validated here. So every job that
+    # answered one came back with
+    #
+    #     time_ordered is not a field this coordinator knows; passing it through
+    #
+    # which is the note for a field from a newer client -- alarming, wrong, and
+    # sitting under a job that had in fact been understood perfectly.
+    for question in DATA_QUESTIONS:
+        cleaned[question["name"]] = _boolean(
+            f"data.{question['name']}",
+            task_data.get(question["name"]),
+            default=question.get("default", False),
+        )
 
     # Anything we do not recognise is passed through rather than dropped, so a
     # newer field does not silently disappear on an older coordinator.

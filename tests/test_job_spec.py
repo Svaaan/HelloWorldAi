@@ -214,3 +214,83 @@ def _main():
 
 if __name__ == '__main__':
     sys.exit(_main())
+
+
+# --- questions about the data, not the model -------------------------------
+#
+# time_ordered was declared in DATA_QUESTIONS, published in /job-schema, drawn
+# in the send-work form, and acted on by the coordinator -- prepare_dataset_split
+# reads it straight off the job to decide whether the holdout is the end of the
+# data or a random slice. It was never validated here, so every job that
+# answered it came back with
+#
+#     time_ordered is not a field this coordinator knows; passing it through.
+#
+# That note is for a field from a newer client. Under a job the coordinator had
+# in fact understood perfectly, it reads as "your setting was ignored" -- and
+# for this setting in particular, being ignored means the model is graded on a
+# random slice of a time series, which is the easier question and the wrong one.
+
+def _notes_for(job):
+    _clean, notes = validate_job(job)
+    return notes
+
+
+def unknown_field_notes(job):
+    return [n for n in _notes_for(job) if "not a field" in n]
+
+
+def test_answering_the_time_order_question_is_not_called_unknown():
+    assert unknown_field_notes(good_job(time_ordered=True)) == []
+    assert unknown_field_notes(good_job(time_ordered=False)) == []
+
+
+def test_the_answer_survives_validation():
+    """It has to reach the top level, which is where the split reads it."""
+    clean, _notes = validate_job(good_job(time_ordered=True))
+    assert clean["time_ordered"] is True
+
+    clean, _notes = validate_job(good_job(time_ordered=False))
+    assert clean["time_ordered"] is False
+
+
+def test_it_defaults_to_the_documented_answer_when_not_asked():
+    clean, _notes = validate_job(good_job())
+    assert clean["time_ordered"] is False, (
+        "a random holdout is the safe default: claiming rows are in time order "
+        "when they are not grades the model on the wrong question")
+
+
+def test_strings_are_accepted_because_not_every_client_sends_json_booleans():
+    for supplied, expected in (("true", True), ("false", False),
+                               ("yes", True), ("no", False),
+                               (1, True), (0, False)):
+        clean, _notes = validate_job(good_job(time_ordered=supplied))
+        assert clean["time_ordered"] is expected, supplied
+
+
+def test_a_value_that_means_nothing_is_refused_rather_than_assumed():
+    """Quietly reading "maybe" as False is the failure this field exists to
+    prevent: the model would be graded on a random slice and nothing would say
+    so."""
+    message = refused(good_job(time_ordered="maybe"))
+    assert message is not None
+    assert "true or false" in message
+    assert "time_ordered" in message
+
+
+def test_a_field_from_a_newer_client_still_says_so():
+    """The passthrough note is right when the field really is unknown."""
+    assert unknown_field_notes(good_job(some_future_setting=1))
+
+
+def test_every_declared_question_is_validated():
+    """DATA_QUESTIONS can grow, and the next one must not repeat this."""
+    from backend.service.jobSpec import DATA_QUESTIONS
+
+    clean, notes = validate_job(good_job())
+    for question in DATA_QUESTIONS:
+        assert question["name"] in clean, (
+            f"{question['name']} is declared but never validated, so answering "
+            f"it will be reported as an unknown field")
+    assert [n for n in notes if "not a field" in n] == []
