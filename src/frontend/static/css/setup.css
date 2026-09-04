@@ -488,3 +488,94 @@ li > code {
     transform: none;
   }
 }
+
+
+/* --- what you are actually running ----------------------------------------
+   Sits between the pitch and the first instruction, because that is where the
+   question occurs to somebody: after they know what this is for and before
+   they are asked to type anything.
+
+   Deliberately not a warning colour. It is not a warning -- it is the answer
+   to a reasonable question, and dressing it in amber would make a careful
+   reader more nervous rather than less. */
+
+.trust {
+  margin: 1.5rem 0 0;
+  padding: 1.35rem 1.5rem;
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+}
+
+.trust-heading {
+  margin: 0 0 0.5rem;
+  padding: 0;
+  border: none;
+  font-size: 1.0625rem;
+  font-weight: 650;
+  letter-spacing: -0.014em;
+}
+
+.trust-lede {
+  margin: 0 0 1.1rem;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
+.trust-list {
+  margin: 0;
+  padding-left: 1.15rem;
+  font-size: 0.875rem;
+  line-height: 1.65;
+  color: var(--text-muted);
+}
+
+.trust-list li + li {
+  margin-top: 0.7rem;
+}
+
+.trust-list strong {
+  color: var(--text);
+}
+
+/* The file each claim rests on. Quiet, but present on every line -- an
+   assurance nobody can check is just a nicer-sounding assertion. */
+.trust-list a {
+  margin-left: 0.35rem;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text-faint);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.trust-list a:hover {
+  color: var(--accent);
+}
+
+.trust-limits {
+  margin: 1.2rem 0 0;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  color: var(--text-faint);
+}
+
+.trust-limits strong {
+  color: var(--text-muted);
+}
+
+@media (max-width: 600px) {
+  .trust {
+    padding: 1.15rem 1.1rem;
+  }
+
+  /* The filename would otherwise drag the last line of every bullet wide. */
+  .trust-list a {
+    display: block;
+    margin-left: 0;
+    margin-top: 0.25rem;
+  }
+}

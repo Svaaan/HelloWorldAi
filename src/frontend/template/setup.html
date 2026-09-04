@@ -38,15 +38,10 @@
                             training capacity.
                         </li>
                         <li>
-                            <strong>Nothing reaches into your machine.</strong> Jobs run
-                            locally, inside a container, on open-source code you can read.
-                            The network hands your node a job; it never gets a shell.
-                        </li>
-                        <li>
                             <strong>You set the terms.</strong> The node only takes work
-                            while you have it switched on, and it stops on its own if the
-                            card gets too hot.
+                            while you have it switched on.
                         </li>
+
                     </ul>
                     <p>
                         The point is to make serious compute reachable for independent
@@ -55,6 +50,81 @@
                     </p>
                 </div>
             </details>
+
+            <!-- What somebody cautious is actually asking, answered before they
+                 are asked to run anything.
+
+                 This existed as one bullet -- "nothing reaches into your
+                 machine" -- inside a collapsed block headed "Why contribute a
+                 GPU?". That is a marketing heading, and a person worried about
+                 what this does to their computer does not open it. It was also
+                 vaguer than the truth: "it never gets a shell" is a weaker
+                 claim than "a job contains no code", and the second one is the
+                 one that happens to be true.
+
+                 Open by default, and every claim points at the file that makes
+                 it so. An assurance nobody can check is just a nicer-sounding
+                 assertion. -->
+            <section class="trust">
+                <h2 class="trust-heading">What you are actually running</h2>
+                <p class="trust-lede">
+                    You are about to install software from strangers on the
+                    internet, so here is exactly what it can and cannot do. Every
+                    line below points at the code that makes it true.
+                </p>
+
+                <ul class="trust-list">
+                    <li>
+                        <strong>A job contains no code.</strong> Somebody sending
+                        work picks from a fixed list &mdash; a network shape and
+                        some numbers, like width and depth. There is no field
+                        anywhere in a job that can carry a program, so there is
+                        nothing for your machine to be talked into running.
+                        <a href="https://github.com/Svaaan/HelloWorldAi/blob/main/src/backend/service/jobSpec.py"
+                           target="_blank" rel="noopener">jobSpec.py</a>
+                    </li>
+                    <li>
+                        <strong>Their data cannot execute either.</strong> Datasets
+                        are read with pickle switched off. That matters because the
+                        normal way to load Python data <em>does</em> run whatever is
+                        inside it &mdash; which is exactly why it is not used here.
+                        <a href="https://github.com/Svaaan/HelloWorldAi/blob/main/src/backend/service/artifacts.py"
+                           target="_blank" rel="noopener">artifacts.py</a>
+                    </li>
+                    <li>
+                        <strong>Nothing connects in.</strong> Your node reaches out
+                        to ask for work; nothing on the internet can reach it. That
+                        is not a firewall setting you have to get right &mdash; the
+                        node's port is never published outside your own machine.
+                        <a href="https://github.com/Svaaan/HelloWorldAi/blob/main/docker/docker-compose.node.yml"
+                           target="_blank" rel="noopener">docker-compose.node.yml</a>
+                    </li>
+                    <li>
+                        <strong>It stops before your card cooks.</strong> The
+                        temperature is checked every few steps while training, and
+                        the job is abandoned rather than throttled through &mdash;
+                        the comment in that file reads "this is somebody else's
+                        hardware".
+                        <a href="https://github.com/Svaaan/HelloWorldAi/blob/main/src/backend/service/trainer.py"
+                           target="_blank" rel="noopener">trainer.py</a>
+                    </li>
+                    <li>
+                        <strong>You can approve each job by hand.</strong> Off by
+                        default so the node keeps working while you are away; turn
+                        it on from your node page and nothing starts without you.
+                    </li>
+                </ul>
+
+                <p class="trust-limits">
+                    <strong>And what it does not promise.</strong> Training runs on
+                    your GPU, so it uses your electricity and your card's lifespan.
+                    The whole project is one person's work, not an audited product.
+                    The strongest thing that can honestly be said is that the code
+                    is short enough to read and it is all
+                    <a href="https://github.com/Svaaan/HelloWorldAi"
+                       target="_blank" rel="noopener">right here</a>.
+                </p>
+            </section>
         </div>
 
         <!-- ---------- prerequisites ---------- -->
