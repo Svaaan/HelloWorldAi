@@ -48,6 +48,30 @@ LONG_MINUTES = int(os.getenv("DATASET_RETENTION_ACCOUNT_MINUTES", 7 * 24 * 60))
 # this the oldest are forgotten early, whatever the clock says.
 KEEP_PER_OWNER = int(os.getenv("DATASET_KEEP_PER_OWNER", 10))
 
+# The most retained dataset and holdout bytes this deployment will hold, across
+# everybody.
+#
+# The per-owner cap bounds one person and bounds nothing in total: five hundred
+# people each keeping ten datasets is five thousand datasets, and the machine
+# this runs on has a 38 GB disk. Before retention followed the account, an hour
+# made that impossible to reach; a week makes it a matter of how many people
+# turn up.
+#
+# So there is a ceiling, and reaching it shortens everyone's window rather than
+# filling the disk. A service that keeps data for a week and then falls over is
+# worse than one that says a day and means it.
+#
+# Weights are not counted. The sweep never deletes them -- they are the thing
+# somebody came for -- so counting them here would let models crowd out the
+# datasets and then find nothing it was willing to drop.
+STORAGE_CEILING_BYTES = int(
+    os.getenv("DATASET_STORAGE_CEILING_BYTES", 8 * 1024 ** 3))
+
+# Clear down to this fraction of the ceiling rather than just under it, so the
+# next upload does not immediately trip it again and start deleting on every
+# pass.
+RECLAIM_TO = float(os.getenv("DATASET_RECLAIM_TO", 0.9))
+
 
 def window(has_account: bool) -> timedelta:
     """How long this owner's data is kept after a job finishes."""
@@ -103,3 +127,24 @@ def describe(has_account: bool) -> str:
     if minutes >= 120:
         return f"{minutes // 60} hours"
     return f"{minutes} minutes"
+
+
+# --- the global ceiling -----------------------------------------------------
+
+def over_ceiling(total_bytes: int) -> bool:
+    """Whether retained data has grown past what this deployment will hold."""
+    return STORAGE_CEILING_BYTES > 0 and total_bytes > STORAGE_CEILING_BYTES
+
+
+def bytes_to_reclaim(total_bytes: int) -> int:
+    """How much to free, or zero when there is room.
+
+    Down to RECLAIM_TO of the ceiling rather than to the ceiling itself: coming
+    to rest exactly on the line means the next upload crosses it again and
+    every pass from then on deletes something.
+    """
+    if not over_ceiling(total_bytes):
+        return 0
+
+    target = int(STORAGE_CEILING_BYTES * RECLAIM_TO)
+    return max(0, total_bytes - target)

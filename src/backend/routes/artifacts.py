@@ -153,6 +153,105 @@ async def _still_held(db, submitter_id):
     ).sort("finished_at", -1).to_list(length=200)
 
 
+async def _retained_dataset_bytes(db) -> int:
+    """How much retained dataset and holdout data is stored, in bytes.
+
+    Weights are excluded deliberately -- see retention.STORAGE_CEILING_BYTES.
+    The sweep will not delete them, so counting them would let models crowd out
+    the datasets and leave it over the line with nothing it is willing to drop.
+    """
+    cursor = db.db["artifacts.files"].aggregate([
+        {"$match": {"metadata.kind": {"$in": ["dataset", "holdout"]}}},
+        {"$group": {"_id": None, "bytes": {"$sum": "$length"}}},
+    ])
+
+    async for row in cursor:
+        return int(row.get("bytes") or 0)
+    return 0
+
+
+async def _sizes_of(db, artifact_ids) -> int:
+    """Stored size of these artifacts, so freeing can be counted as it goes."""
+    wanted = []
+    for artifact_id in artifact_ids:
+        if not artifact_id:
+            continue
+        try:
+            wanted.append(ObjectId(artifact_id))
+        except Exception:
+            continue
+
+    if not wanted:
+        return 0
+
+    total = 0
+    async for row in db.db["artifacts.files"].find(
+            {"_id": {"$in": wanted}}, {"length": 1}):
+        total += int(row.get("length") or 0)
+    return total
+
+
+def _size(num_bytes: float) -> str:
+    """Bytes in a unit that shows the number, whatever the scale.
+
+    Hardcoded GB read "0.0 GB, over the 0.0 GB ceiling. Freeing 0.0 GB" on any
+    deployment configured smaller than the default -- three zeroes where the
+    only useful thing in the line was the number.
+    """
+    for unit, step in (("GB", 1024 ** 3), ("MB", 1024 ** 2), ("kB", 1024)):
+        if num_bytes >= step:
+            return f"{num_bytes / step:.1f} {unit}"
+    return f"{int(num_bytes)} B"
+
+
+async def _enforce_storage_ceiling(db) -> None:
+    """Shorten everybody's window rather than fill the disk.
+
+    The per-owner cap bounds one person and bounds nothing in total. Five
+    hundred people keeping ten datasets each is five thousand datasets on a
+    38 GB disk, and while retention was one flat hour that was unreachable --
+    a week makes it a question of how many people turn up.
+
+    Oldest first, which is both the least valuable and what somebody would pick
+    themselves. Logged at warning: this is data being deleted earlier than
+    promised, and whoever runs this should find that in the log rather than in
+    a support message.
+    """
+    stored = await _retained_dataset_bytes(db)
+    to_free = retention.bytes_to_reclaim(stored)
+    if not to_free:
+        return
+
+    logger.warning(
+        "Retained data is %s, over the %s ceiling. Freeing %s, oldest first.",
+        _size(stored), _size(retention.STORAGE_CEILING_BYTES), _size(to_free))
+
+    freed = 0
+    dropped = 0
+
+    cursor = db.tasks_collection.find(
+        {"status": {"$in": list(FINISHED_STATES)},
+         "dataset_forgotten_at": {"$exists": False},
+         "$or": [{"dataset_id": {"$ne": None}},
+                 {"holdout_artifact_id": {"$ne": None}}]},
+    ).sort("finished_at", 1)
+
+    async for task in cursor:
+        if freed >= to_free:
+            break
+
+        size = await _sizes_of(db, [task.get("dataset_id"),
+                                    task.get("holdout_artifact_id")])
+        if await _forget_dataset(db, task):
+            freed += size
+            dropped += 1
+
+    logger.warning(
+        "Freed %s from %d job(s) to stay under the ceiling. Their owners will "
+        "be told the data is gone if they try to run them again.",
+        _size(freed), dropped)
+
+
 async def forget_finished_datasets():
     """Drop the data behind jobs that have finished and been verified.
 
@@ -212,6 +311,10 @@ async def forget_finished_datasets():
             # split replaced, are nobody's data to keep. Still the short window:
             # nothing owns them, so there is nobody to keep them for.
             await _forget_orphaned_datasets(Database, cutoff)
+
+            # And last, the backstop. Everything above is a promise about time;
+            # this one is about the disk, and the disk wins.
+            await _enforce_storage_ceiling(Database)
 
         except Exception as e:
             logger.error(f"Error clearing finished datasets: {e}")

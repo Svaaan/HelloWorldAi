@@ -189,3 +189,69 @@ def test_it_asks_by_digest_and_takes_only_the_id():
     db = FakeDb([{"_id": 4242, "submitter_ids": ["digest_a"]}])
     run(accountService.owns(db, "digest_a"))
     assert db.accounts_collection.queries == [{"submitter_ids": "digest_a"}]
+
+
+# --- the global ceiling -----------------------------------------------------
+#
+# The per-owner cap bounds one person and bounds nothing in total. Five hundred
+# people keeping ten datasets each is five thousand datasets, and the machine
+# this runs on has a 38 GB disk. While retention was one flat hour that was
+# unreachable; a week makes it a question of how many people turn up.
+
+GB = 1024 ** 3
+
+
+def test_under_the_ceiling_nothing_is_reclaimed():
+    assert retention.over_ceiling(retention.STORAGE_CEILING_BYTES - 1) is False
+    assert retention.bytes_to_reclaim(retention.STORAGE_CEILING_BYTES - 1) == 0
+
+
+def test_over_the_ceiling_it_frees_down_below_the_line():
+    """Not to the line -- to a fraction under it.
+
+    Coming to rest exactly on the ceiling means the next upload crosses it and
+    every pass from then on deletes something.
+    """
+    over = retention.STORAGE_CEILING_BYTES + GB
+    freed = retention.bytes_to_reclaim(over)
+
+    assert freed > GB, "it should free more than the overshoot"
+    remaining = over - freed
+    assert remaining < retention.STORAGE_CEILING_BYTES
+    assert remaining == int(retention.STORAGE_CEILING_BYTES * retention.RECLAIM_TO)
+
+
+def test_the_ceiling_can_be_turned_off():
+    """A deployment with real storage behind it should not have to care."""
+    original = retention.STORAGE_CEILING_BYTES
+    try:
+        retention.STORAGE_CEILING_BYTES = 0
+        assert retention.over_ceiling(999 * GB) is False
+        assert retention.bytes_to_reclaim(999 * GB) == 0
+    finally:
+        retention.STORAGE_CEILING_BYTES = original
+
+
+def test_the_ceiling_is_smaller_than_the_disk_it_runs_on():
+    """38 GB, with MongoDB, four containers and the OS on it too.
+
+    A default that fills the machine it ships for is not a default.
+    """
+    assert retention.STORAGE_CEILING_BYTES < 20 * GB
+
+
+def test_weights_are_not_what_the_ceiling_counts():
+    """The sweep will not delete them -- they are the thing somebody came for.
+
+    Counting them would let models crowd out the datasets and leave the sweep
+    over the line with nothing it was willing to drop.
+    """
+    import inspect
+    import sys
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+    from backend.routes import artifacts
+
+    source = inspect.getsource(artifacts._retained_dataset_bytes)
+    assert "dataset" in source and "holdout" in source
+    assert "weights" not in source.split('"""')[2], (
+        "the aggregate should match datasets and holdouts only")
